@@ -4,9 +4,7 @@
 
 module Main where
 
-import Codec.Archive.Zip qualified as Zip
 import Codec.Compression.GZip qualified as GZip
-import Codec.Picture qualified as Picture
 import Control.Monad (forM_)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (runReaderT)
@@ -118,6 +116,7 @@ import JitML.SL.Dataset qualified as Dataset
 import JitML.SL.Regression qualified as Regression
 import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.SL.TinyImageNet qualified as TinyImageNet
+
 import JitML.SL.TrainingExecution qualified as TrainingExecution
 import JitML.Service.Capabilities (HasMinIO (..))
 import JitML.Service.Command qualified as ServiceCommand
@@ -136,6 +135,7 @@ import JitML.Test.Report
   )
 import JitML.Test.RowAssertions qualified as RowAssertions
 import JitML.Training.Budget qualified as TrainingBudget
+import TinyArchiveControls qualified
 
 completedTrainingFixture
   :: TrainingBudget.BudgetKind
@@ -599,63 +599,11 @@ main =
             (tarArchive [("CaliforniaHousing/cal_housing.data", payload)]) of
             Left err -> assertFailure ("California Housing archive decode failed: " <> err)
             Right examples -> length examples @?= 1
-      , testCase "Tiny ImageNet archive pin and metadata parsers use real file formats (Sprint 8.12)" $ do
-          Dataset.canonicalArtifactSha256For "Tiny ImageNet" Dataset.TrainSplit Dataset.ArchiveArtifact
-            @?= Just "6198c8ae015e2b3e007c7841da39ec069199b9aa3bfa943a462022fe5e43c821"
-          let wnids =
-                Text.Encoding.encodeUtf8 $
-                  Text.unlines
-                    [ "n01443537"
-                    , "n01629819"
-                    ]
-              wordsFile =
-                Text.Encoding.encodeUtf8 $
-                  Text.unlines
-                    [ "n01443537\tgoldfish, Carassius auratus"
-                    , "n01629819\tEuropean fire salamander, Salamandra salamandra"
-                    ]
-              valAnnotations =
-                Text.Encoding.encodeUtf8 $
-                  Text.unlines
-                    [ "val_0.JPEG\tn01443537\t0\t0\t63\t63"
-                    , "val_1.JPEG\tn01629819\t3\t4\t60\t61"
-                    ]
-          TinyImageNet.parseTinyImageNetWnids wnids @?= Right ["n01443537", "n01629819"]
-          case TinyImageNet.parseTinyImageNetWords wordsFile of
-            Left err -> assertFailure ("Tiny ImageNet words parse failed: " <> err)
-            Right classes -> do
-              fmap TinyImageNet.tinyClassId classes @?= ["n01443537", "n01629819"]
-              case classes of
-                first : _ ->
-                  TinyImageNet.tinyClassNames first @?= ["goldfish", "Carassius auratus"]
-                [] -> assertFailure "expected Tiny ImageNet classes"
-          case TinyImageNet.parseTinyImageNetValAnnotations valAnnotations of
-            Left err -> assertFailure ("Tiny ImageNet val_annotations parse failed: " <> err)
-            Right annotations -> do
-              fmap TinyImageNet.tinyValImage annotations @?= ["val_0.JPEG", "val_1.JPEG"]
-              fmap TinyImageNet.tinyValClassId annotations @?= ["n01443537", "n01629819"]
-              fmap TinyImageNet.tinyValBoxX1 annotations @?= [63, 60]
-          let trainJpeg = tinyJpeg 10 20 30
-              valJpeg = tinyJpeg 40 50 60
-              archiveBytes =
-                zipArchive
-                  [ ("tiny-imagenet-200/wnids.txt", wnids)
-                  , ("tiny-imagenet-200/train/n01443537/images/n01443537_0.JPEG", trainJpeg)
-                  , ("tiny-imagenet-200/val/val_annotations.txt", valAnnotations)
-                  , ("tiny-imagenet-200/val/images/val_0.JPEG", valJpeg)
-                  , ("tiny-imagenet-200/val/images/val_1.JPEG", valJpeg)
-                  ]
-          case TinyImageNet.decodeTinyImageNetArchiveBoundedDataset Dataset.TrainSplit (Just 1) archiveBytes of
-            Left err -> assertFailure ("Tiny ImageNet train archive decode failed: " <> err)
-            Right examples -> do
-              fmap exampleLabel examples @?= [0]
-              case examples of
-                first : _ -> VU.length (exampleFeatures first) @?= 3
-                [] -> assertFailure "expected Tiny ImageNet train example"
-          case TinyImageNet.decodeTinyImageNetArchiveBoundedDataset Dataset.TestSplit (Just 1) archiveBytes of
-            Left err -> assertFailure ("Tiny ImageNet validation archive decode failed: " <> err)
-            Right examples ->
-              fmap exampleLabel examples @?= [0]
+      , TinyArchiveControls.tinyArchiveFormatTest
+      , TinyArchiveControls.tinyInterleavingTest
+      , TinyArchiveControls.tinyCoverageTest
+      , TinyArchiveControls.tinyMetadataTest
+      , TinyArchiveControls.tinyHeldOutOrderTest
       , testCase "dataset refs fetch and SHA-verify through HasMinIO" $
           withSystemTempDirectory "jitml-sl-dataset" $ \dir ->
             -- Sprint 13.4 — the round-trip test runs against a problem
@@ -2564,23 +2512,6 @@ tarHeader name payload =
     | i >= 124 && i < 124 + ByteString.length sizeBytes =
         ByteString.index sizeBytes (i - 124)
     | otherwise = 0
-
-tinyJpeg :: Word8 -> Word8 -> Word8 -> ByteString.ByteString
-tinyJpeg r g b =
-  LazyByteString.toStrict $
-    Picture.encodeJpeg $
-      Picture.generateImage
-        (\_ _ -> Picture.PixelYCbCr8 r g b)
-        1
-        1
-
-zipArchive :: [(FilePath, ByteString.ByteString)] -> ByteString.ByteString
-zipArchive entries =
-  LazyByteString.toStrict (Zip.fromArchive (foldr addEntry Zip.emptyArchive entries))
- where
-  addEntry (path, payload) =
-    Zip.addEntryToArchive
-      (Zip.toEntry path 0 (LazyByteString.fromStrict payload))
 
 isBatchNorm :: LayerGraph.LayerKind -> Bool
 isBatchNorm (LayerGraph.NormLayer LayerGraph.BatchNorm) = True

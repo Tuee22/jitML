@@ -1,0 +1,83 @@
+#!/usr/bin/env python3
+"""Independent exact arithmetic examples; no model execution or gate claim."""
+import hashlib
+import json
+import math
+from fractions import Fraction
+from pathlib import Path
+
+
+def tail(n, classes, correct):
+    return Fraction(
+        sum(math.comb(n, k) * (classes - 1) ** (n - k) for k in range(correct, n + 1)),
+        classes**n,
+    )
+
+
+tiny_previous = tail(1000, 200, 14)
+tiny_critical = tail(1000, 200, 15)
+assert tiny_previous > Fraction(1, 3000) >= tiny_critical
+skewed_tail = tail(1000, 2, 601)
+assert skewed_tail < Fraction(1, 3000)
+# A 600/400-label example, always-majority except one uniformly chosen index:
+# if that one index has minority label (probability .4), 601 are correct.
+assert Fraction(400, 1000) == Fraction(2, 5)
+assert 601 > 600
+
+target = [Fraction(-1), Fraction(1)]
+mean = sum(target) / len(target)
+sst = sum((y - mean) ** 2 for y in target)
+constant_sse = sum((y - 0) ** 2 for y in target)
+tiny_predictions = [Fraction.from_float(-1e-16), Fraction.from_float(1e-16)]
+tiny_sse = sum((y - p) ** 2 for y, p in zip(target, tiny_predictions))
+assert constant_sse == sst and tiny_sse < sst
+
+inputs = [
+    "README.md",
+    "DEVELOPMENT_PLAN/README.md",
+    "DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md",
+    "src/JitML/Product/LearningSignal.hs",
+    "src/JitML/SL/ConvergenceThresholds.hs",
+    "src/JitML/Product/Convergence.hs",
+    "src/JitML/Product/Publisher/Runtime.hs",
+    "src/JitML/Product/Publisher/Supervised.hs",
+    "src/JitML/SL/TrainingExecution.hs",
+    "src/JitML/SL/RuntimeArtifact.hs",
+    "src/JitML/SL/Architecture.hs",
+    "src/JitML/Numerics/LayerGraph.hs",
+    "src/JitML/Numerics/LayerGraphMetadata.hs",
+    "src/JitML/Checkpoint/WeightCodec.hs",
+]
+result = {
+    "scope": "Exact arithmetic illustrations and read-only input hashes; no training or product validation",
+    "tiny_n1000_classes200": {
+        "minimum_uniform_binomial_correct": 15,
+        "tail_at_14": float(tiny_previous),
+        "tail_at_15": float(tiny_critical),
+        "exact_boundary_comparison_passed": True,
+        "majority_still_computed_from_actual_labels": True,
+    },
+    "feature_independent_nonuniform_counterexample": {
+        "labels": [600, 400],
+        "prediction_rule": "class0 except at one uniformly chosen index",
+        "probability_of_601_correct": "2/5",
+        "uniform_null_tail_at_601": float(skewed_tail),
+        "meaning": "Passing uniform-null and majority controls is not significance against every feature-independent predictor",
+    },
+    "strict_r2_example": {
+        "targets": [-1, 1],
+        "mean_predictor_sse_equals_sst": constant_sse == sst,
+        "binary64_predictions_plus_minus_1e_minus16_strictly_pass": tiny_sse < sst,
+        "meaning": "The strict zero boundary gives no minimum practical effect size or population confidence",
+    },
+    "uniform_null_union_bounds": {
+        "single_run_10rows_3lanes": str(Fraction(30, 3000)),
+        "five_runs_10rows_3lanes": str(Fraction(150, 3000)),
+        "scope": "Fixed planned family; no independence between comparisons needed; each individual uniform-guessing null retains its assumptions",
+    },
+    "read_inputs": [
+        {"path": p, "sha256": hashlib.sha256(Path(p).read_bytes()).hexdigest()}
+        for p in inputs
+    ],
+}
+print(json.dumps(result, indent=2, sort_keys=True))

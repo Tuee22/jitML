@@ -1,0 +1,92 @@
+{
+  "feature_independent_nonuniform_counterexample": {
+    "labels": [
+      600,
+      400
+    ],
+    "meaning": "Passing uniform-null and majority controls is not significance against every feature-independent predictor",
+    "prediction_rule": "class0 except at one uniformly chosen index",
+    "probability_of_601_correct": "2/5",
+    "uniform_null_tail_at_601": 9.008412706280358e-11
+  },
+  "read_inputs": [
+    {
+      "path": "README.md",
+      "sha256": "6a69f46751fce6b3c055ef43439e5f49525bc7063620cd208cfb4ae85174e9d8"
+    },
+    {
+      "path": "DEVELOPMENT_PLAN/README.md",
+      "sha256": "f314ce7a0c8a020f0f6142a6e4accb0ad6e95d264c9086dec39b8630fce84087"
+    },
+    {
+      "path": "DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md",
+      "sha256": "394f519d03cb6d9cc3a241954885f2f4a27d9bd0c0ac5ceab2fc6cbb1c5a57ad"
+    },
+    {
+      "path": "src/JitML/Product/LearningSignal.hs",
+      "sha256": "fd3db4337869df679488adf1980460ad08e3b1ada0d9c68e278121e0ddf0bcb7"
+    },
+    {
+      "path": "src/JitML/SL/ConvergenceThresholds.hs",
+      "sha256": "f0c61dccac013c190cee680d04f575cb3a6819a9a22954893902f640bba81cb8"
+    },
+    {
+      "path": "src/JitML/Product/Convergence.hs",
+      "sha256": "d8b581628ffaf04693d2afa1d8b109b0c9685f114ff797740fa8a1627737786e"
+    },
+    {
+      "path": "src/JitML/Product/Publisher/Runtime.hs",
+      "sha256": "100c93ded8d9e16dec98826828c37de28c94075e083198ec7cd1b02dc826627d"
+    },
+    {
+      "path": "src/JitML/Product/Publisher/Supervised.hs",
+      "sha256": "896552f8991efcb1db78fbc6ee4639fc57b839d06c013b2470224f9ff3cd59fa"
+    },
+    {
+      "path": "src/JitML/SL/TrainingExecution.hs",
+      "sha256": "5d184f8b97b1d4948018374f16d0f9cb7f3384587548194cebf3d6cae2014e85"
+    },
+    {
+      "path": "src/JitML/SL/RuntimeArtifact.hs",
+      "sha256": "4d2f32cdfe53f48e91d8ce01139d757e8b0773f08ea8427b8cd591f339937931"
+    },
+    {
+      "path": "src/JitML/SL/Architecture.hs",
+      "sha256": "1ebbba64dbc5c56a408f08450c3209924b6865c1fb9b826180ab92e0aad2d3d1"
+    },
+    {
+      "path": "src/JitML/Numerics/LayerGraph.hs",
+      "sha256": "e1e02b32526733f40447245133296b29b0a1527d20b18c3afc367d25f38a0910"
+    },
+    {
+      "path": "src/JitML/Numerics/LayerGraphMetadata.hs",
+      "sha256": "8ebe844f4992f30109fb5940ef0e9ad768feb8d6bc174cd3b88631f40c3c58b2"
+    },
+    {
+      "path": "src/JitML/Checkpoint/WeightCodec.hs",
+      "sha256": "55c4e4be9588fd5e546b986261ccc590814dc178e8a685378cfd0c97d2e9c9de"
+    }
+  ],
+  "scope": "Exact arithmetic illustrations and read-only input hashes; no training or product validation",
+  "strict_r2_example": {
+    "binary64_predictions_plus_minus_1e_minus16_strictly_pass": true,
+    "mean_predictor_sse_equals_sst": true,
+    "meaning": "The strict zero boundary gives no minimum practical effect size or population confidence",
+    "targets": [
+      -1,
+      1
+    ]
+  },
+  "tiny_n1000_classes200": {
+    "exact_boundary_comparison_passed": true,
+    "majority_still_computed_from_actual_labels": true,
+    "minimum_uniform_binomial_correct": 15,
+    "tail_at_14": 0.0006718712299623575,
+    "tail_at_15": 0.00021580336348481794
+  },
+  "uniform_null_union_bounds": {
+    "five_runs_10rows_3lanes": "1/20",
+    "scope": "Fixed planned family; no independence between comparisons needed; each individual uniform-guessing null retains its assumptions",
+    "single_run_10rows_3lanes": "1/100"
+  }
+}

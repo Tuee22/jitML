@@ -6,6 +6,19 @@ module JitML.Checkpoint.Store
   ( AdmittedCheckpoint
   , canonicalProductCompanionObjectKey
   , AdmittedCompletedCheckpoint
+  , AdmittedExecutionCheckpoint
+  , AdmittedArsHostTrace
+  , admitExecutionCheckpointAt
+  , admitLocalExecutionCheckpointAt
+  , admittedExecutionCheckpoint
+  , admittedExecutionCompletedTraining
+  , admittedExecutionProvenance
+  , admittedExecutionFromNeural
+  , admittedExecutionNeuralCompletion
+  , admitLocalLatestExecutionCheckpoint
+  , admittedArsHostReference
+  , admittedArsHostTrace
+  , admittedArsHostObjectKey
   , CheckpointAdmissionError (..)
   , CheckpointWriteError (..)
   , GcEvent (..)
@@ -50,6 +63,7 @@ module JitML.Checkpoint.Store
   , admittedCompletedTraining
   , applyRetentionPolicy
   , buildGcPlan
+  , protectGcPlanObjectKeys
   , gcCompletedExecutions
   , gcEventId
   , gcExecutionFailures
@@ -66,6 +80,10 @@ module JitML.Checkpoint.Store
   , candidateStoredCheckpoint
   , completedStoredCheckpoint
   , decodeWriterCommit
+  , checkNativeRecordedSnapshotCommitData
+  , checkNativeRecordedCheckpointPayloadData
+  , NativeRecordedCheckpointLimits (..)
+  , nativeRecordedCheckpointLimits
   , decodeWriterReservation
   , decodeExperimentGcFence
   , encodeWriterCommit
@@ -132,16 +150,18 @@ where
 
 import Codec.Serialise (Serialise, deserialiseOrFail, serialise)
 import Control.Concurrent.MVar (MVar, newMVar, withMVar)
-import Control.Exception (IOException, bracket, bracket_, try)
+import Control.Exception (IOException, bracket, bracket_, evaluate, try)
+import Control.Exception.Safe qualified as Safe
+import Control.Monad (unless, void)
 import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Char (digitToInt, isAscii, isControl, isDigit)
-import Data.Either (lefts, rights)
+import Data.Either (fromRight, lefts, rights)
 import Data.Either.Combinators (mapLeft)
 import Data.Foldable (traverse_)
 import Data.List (group, sort, sortOn)
 import Data.Map.Strict qualified as Map
-import Data.Maybe (catMaybes, fromMaybe, isJust)
+import Data.Maybe (catMaybes, fromMaybe, isJust, isNothing)
 import Data.Ord (Down (..))
 import Data.Set qualified as Set
 import Data.Text (Text)
@@ -176,6 +196,7 @@ import System.Posix.IO
   , waitToSetLock
   )
 
+import JitML.Checkpoint.ArsHostPhysical qualified as ArsPhysical
 import JitML.Checkpoint.Format
   ( AddressedCheckpointManifest
   , ArchitectureMetadata (..)
@@ -210,8 +231,11 @@ import JitML.Checkpoint.Format
 import JitML.Checkpoint.WeightCodec (encodeJmw1, jmw1ContentSha)
 import JitML.Inference.Decode (DecodedInference, decodeManifestOutput)
 import JitML.Numerics.LayerGraph qualified as LayerGraph
+import JitML.Product.ArsHostReference qualified as ArsReference
 import JitML.Product.DeviceWitness (DeviceExecutionWitness)
+import JitML.Product.ExecutionProvenance (ExecutionProvenance (..))
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.RL.ArsHostTrace qualified as ArsTrace
 import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.Service.Capabilities
   ( BucketName (..)
@@ -226,6 +250,7 @@ import JitML.Training.Budget
   , completedTrainingDeviceWitness
   , completedTrainingFinalWeightHash
   )
+import JitML.Training.Budget qualified as TrainingBudget
 
 -- | Exact persisted checkpoint graph admitted by Store.  The constructor is
 -- intentionally private: a decoded or caller-built manifest is not evidence
@@ -248,6 +273,41 @@ data AdmittedCompletedCheckpoint = AdmittedCompletedCheckpoint
   -- than carrying a no-evidence branch.
   }
   deriving stock (Eq, Show)
+
+-- | Additive closed physical completion admission. The original neural-only
+-- type/accessor remains total and unchanged. These constructors stay private;
+-- recorded/decoded host DATA cannot be supplied as an admission capability.
+data AdmittedExecutionCheckpoint
+  = AdmittedNeuralExecution !AdmittedCompletedCheckpoint
+  | AdmittedArsHostExecution !AdmittedCheckpoint !ValidatedCheckpointCompletion !AdmittedArsHostTrace
+  deriving stock (Eq, Show)
+
+data AdmittedArsHostTrace
+  = AdmittedArsHostTrace
+      !ArsReference.ArsHostReference
+      !ArsTrace.ArsHostTrace
+      !Text
+  deriving stock (Eq, Show)
+
+admittedExecutionCheckpoint :: AdmittedExecutionCheckpoint -> AdmittedCheckpoint
+admittedExecutionCheckpoint (AdmittedNeuralExecution value) = admittedCompletedCheckpoint value
+admittedExecutionCheckpoint (AdmittedArsHostExecution value _ _) = value
+
+admittedExecutionCompletedTraining :: AdmittedExecutionCheckpoint -> CompletedTraining
+admittedExecutionCompletedTraining (AdmittedNeuralExecution value) = admittedCompletedTraining value
+admittedExecutionCompletedTraining (AdmittedArsHostExecution _ validation _) = validatedCheckpointCompletedTraining validation
+
+admittedExecutionProvenance
+  :: AdmittedExecutionCheckpoint -> ExecutionProvenance AdmittedArsHostTrace
+admittedExecutionProvenance (AdmittedNeuralExecution value) = NeuralDeviceExecution (admittedCompletedDeviceWitness value)
+admittedExecutionProvenance (AdmittedArsHostExecution _ _ value) = ArsHostLinearExecution value
+
+admittedArsHostReference :: AdmittedArsHostTrace -> ArsReference.ArsHostReference
+admittedArsHostReference (AdmittedArsHostTrace value _ _) = value
+admittedArsHostTrace :: AdmittedArsHostTrace -> ArsTrace.ArsHostTrace
+admittedArsHostTrace (AdmittedArsHostTrace _ value _) = value
+admittedArsHostObjectKey :: AdmittedArsHostTrace -> Text
+admittedArsHostObjectKey (AdmittedArsHostTrace _ _ value) = value
 
 -- | Typed failures for exact persisted-checkpoint admission.  In particular,
 -- 'AdmissionPointerChanged' is retryable snapshot contention rather than a
@@ -1033,7 +1093,8 @@ prepareCheckpointSnapshot kind pointerIntent logicalManifest logicalPayloads = d
       (Just preparedHashes)
       rebasedManifest
       rebasedPayloads
-  (manifestBytes, manifestSha, manifestBodySha) <- encodeAddressedManifest rebasedManifest
+  (canonicalManifest, manifestBytes, manifestSha, manifestBodySha) <-
+    encodeAddressedManifest rebasedManifest
   let physicalObjects =
         sortOn
           writerPhysicalObjectKey
@@ -1070,7 +1131,7 @@ prepareCheckpointSnapshot kind pointerIntent logicalManifest logicalPayloads = d
   Right
     PreparedCheckpointSnapshot
       { preparedSnapshotId = snapshotId
-      , preparedSnapshotManifest = rebasedManifest
+      , preparedSnapshotManifest = canonicalManifest
       , preparedSnapshotPayloads = rebasedPayloads
       , preparedSnapshotManifestBytes = manifestBytes
       , preparedSnapshotManifestSha = manifestSha
@@ -2404,12 +2465,13 @@ writePointerCasMinIOIdempotent pointerKey expectedPointer proposedManifestSha = 
 
 encodeAddressedManifest
   :: CheckpointManifest
-  -> Either Text (LazyByteString.ByteString, Text, Maybe Text)
+  -> Either Text (CheckpointManifest, LazyByteString.ByteString, Text, Maybe Text)
 encodeAddressedManifest manifest = do
   let manifestBytes = encodeManifestCbor manifest
   addressed <- decodeAddressedManifestCbor manifestBytes
   Right
-    ( manifestBytes
+    ( addressedManifest addressed
+    , manifestBytes
     , addressedManifestSha addressed
     , addressedManifestBodySha addressed
     )
@@ -3241,6 +3303,219 @@ mapAdmissionBlobError :: Either Text a -> Either CheckpointAdmissionError a
 mapAdmissionBlobError =
   mapLeft AdmissionBlobInvalid
 
+-- | Concrete exact-address admission only. No caller-provided trace bytes,
+-- fetch action, device or completion callback can mint this closed capability.
+admitExecutionCheckpointAt
+  :: (HasMinIO m) => Text -> Text -> m (Either CheckpointAdmissionError AdmittedExecutionCheckpoint)
+admitExecutionCheckpointAt experimentHash manifestSha = do
+  admitted <- admitCheckpointAt experimentHash manifestSha
+  case admitted of
+    Left failure -> pure (Left failure)
+    Right actual -> admitExecutionWith fetch actual
+ where
+  fetch objectKey = do
+    bytes <- minioReadBytes (checkpointObjectRef objectKey)
+    pure (mapLeft (AdmissionBlobReadFailed objectKey) bytes)
+
+admitLocalExecutionCheckpointAt
+  :: FilePath -> Text -> Text -> IO (Either CheckpointAdmissionError AdmittedExecutionCheckpoint)
+admitLocalExecutionCheckpointAt root experimentHash manifestSha = do
+  admitted <- admitLocalExecutionBaseAt root experimentHash manifestSha
+  case admitted of
+    Left failure -> pure (Left failure)
+    Right actual -> admitExecutionWith fetch actual
+ where
+  fetch = readBoundedArsTrace root ArsTrace.arsHostTraceMaxBytes
+
+-- The first ordinary physical bind also fetches replay pointers. Select the
+-- exact recorded host pointer before that bind so corrupt host data is never
+-- materialized through the original unbounded raw-blob reader. All other
+-- address/commit/tensor/raw-binding checks use their original implementations.
+admitLocalExecutionBaseAt
+  :: FilePath -> Text -> Text -> IO (Either CheckpointAdmissionError AdmittedCheckpoint)
+admitLocalExecutionBaseAt root experimentHash manifestSha =
+  case validateCanonicalManifestAddress manifestSha of
+    Left failure -> pure (Left failure)
+    Right canonicalManifestSha -> do
+      let objectKey = manifestKey experimentHash canonicalManifestSha
+      payload <- readObject root objectKey
+      case payload of
+        Left reason -> pure (Left (AdmissionManifestReadFailed objectKey (SETransient reason)))
+        Right bytes -> case decodeAddressedForAdmission experimentHash canonicalManifestSha bytes of
+          Left failure -> pure (Left failure)
+          Right addressed -> case boundedHost (addressedManifest addressed) of
+            Left failure -> pure (Left failure)
+            Right host -> do
+              committed <- validateSnapshotCommitForAdmissionLocal root addressed
+              case committed of
+                Left failure -> pure (Left failure)
+                Right commit -> bindAddressedCheckpointWith commit (fetch host) addressed
+ where
+  boundedHost manifest = case manifestCompletedTraining manifest
+    >>= fromRight Nothing . TrainingBudget.completedTrainingExecutionProvenance of
+    Just (ArsHostLinearExecution reference) -> do
+      pointer <- arsHostReplayPointer manifest reference
+      pure
+        ( Just
+            (artifactPointerObjectKey pointer, toInteger (ArsReference.arsHostReferenceByteLength reference))
+        )
+    _ -> Right Nothing
+  fetch host objectKey = case host of
+    Just (hostKey, cap) | objectKey == hostKey -> readBoundedArsTrace root cap objectKey
+    _ -> do
+      result <- readObjectStrict root objectKey
+      pure (mapLeft (AdmissionBlobReadFailed objectKey . SETransient) result)
+
+-- Cap before strict materialization for BOTH local reads of the trace. The
+-- abstract HasMinIO API returns strict bytes already and makes no such claim.
+readBoundedArsTrace
+  :: FilePath
+  -> Integer
+  -> Text
+  -> IO (Either CheckpointAdmissionError StrictByteString.ByteString)
+readBoundedArsTrace root suppliedCap objectKey = do
+  let cap = min ArsTrace.arsHostTraceMaxBytes suppliedCap
+  attempted <- Safe.tryAny $ do
+    payload <- readObject root objectKey
+    case payload of
+      Left reason -> pure (Left (AdmissionBlobReadFailed objectKey (SETransient reason)))
+      Right bytes -> do
+        bounded <- evaluate (LazyByteString.toStrict (LazyByteString.take (fromInteger cap + 1) bytes))
+        pure $
+          if toInteger (StrictByteString.length bounded) > cap
+            then
+              Left
+                (AdmissionBlobInvalid "ARS physical trace exceeds its recorded byte limit before materialization")
+            else Right bounded
+  pure $ case attempted of
+    Left _ -> Left (AdmissionBlobInvalid "ARS physical trace read materialization failed synchronously")
+    Right result -> result
+
+-- Private implementation sharing; only concrete Store fetchers call it.
+admitExecutionWith
+  :: (Monad m)
+  => (Text -> m (Either CheckpointAdmissionError StrictByteString.ByteString))
+  -> AdmittedCheckpoint
+  -> m (Either CheckpointAdmissionError AdmittedExecutionCheckpoint)
+admitExecutionWith fetch admitted =
+  case prepare of
+    Left failure -> pure (Left failure)
+    Right (Left neural) -> pure (Right (AdmittedNeuralExecution neural))
+    Right (Right (validation, reference, pointer)) -> do
+      payload <- fetch (artifactPointerObjectKey pointer)
+      pure $ do
+        bytes <- payload
+        if toInteger (StrictByteString.length bytes)
+          == toInteger (ArsReference.arsHostReferenceByteLength reference)
+          then Right ()
+          else
+            Left (AdmissionBlobInvalid "ARS physical trace byte length differs from its completed reference")
+        if exactBytesSha bytes == ArsReference.arsHostReferenceContentSha256 reference
+          then Right ()
+          else
+            Left (AdmissionBlobInvalid "ARS physical trace content SHA differs from its completed reference")
+        trace <- mapLeft AdmissionBlobInvalid (ArsTrace.decodeArsHostTrace bytes)
+        finalBytes <- case admittedCheckpointWeights admitted of
+          [loaded] -> Right (loadedWeightJmw1Bytes loaded)
+          _ ->
+            Left (AdmissionBlobInvalid "ARS physical completion requires one exact loaded final-weight tensor")
+        let completed = validatedCheckpointCompletedTraining validation
+        mapLeft
+          AdmissionCompletionInvalid
+          ( ArsPhysical.validateArsHostCheckpointData
+              (manifestExperiment manifest)
+              completed
+              finalBytes
+              reference
+              trace
+          )
+        let bound = AdmittedArsHostTrace reference trace (artifactPointerObjectKey pointer)
+        pure (AdmittedArsHostExecution admitted validation bound)
+ where
+  manifest = admittedCheckpointManifest admitted
+  prepare = do
+    validateCompletedAdmissionScope admitted
+    validation <-
+      mapLeft
+        (AdmissionCompletionInvalid . renderCheckpointCompletionValidationError)
+        (validateCheckpointCompletion manifest)
+    let completed = validatedCheckpointCompletedTraining validation
+    recorded <-
+      mapLeft AdmissionCompletionInvalid (TrainingBudget.completedTrainingExecutionProvenance completed)
+    case recorded of
+      Just (ArsHostLinearExecution reference) -> do
+        pointer <- arsHostReplayPointer manifest reference
+        pure (Right (validation, reference, pointer))
+      _
+        | canonicalArsManifest manifest ->
+            Left
+              ( AdmissionCompletionInvalid
+                  "native canonical ARS execution admission requires host linear provenance"
+              )
+        | otherwise -> Left <$> requireAdmittedCompletedCheckpoint admitted
+
+canonicalArsManifest :: CheckpointManifest -> Bool
+canonicalArsManifest manifest =
+  case ProductMatrix.productRowForExperimentHash (manifestExperiment manifest) of
+    Just row ->
+      ProductMatrix.family row == ProductMatrix.ReinforcementLearning
+        && "ARS/" `Text.isPrefixOf` ProductMatrix.rowId row
+    Nothing -> False
+
+-- The trace is a separate replay pointer in the same immutable snapshot graph.
+-- Neural snapshots retain their original zero-replay-pointer requirement.
+arsHostReplayPointer
+  :: CheckpointManifest
+  -> ArsReference.ArsHostReference
+  -> Either CheckpointAdmissionError ArtifactPointer
+arsHostReplayPointer manifest reference = do
+  if canonicalArsManifest manifest
+    then Right ()
+    else do
+      completed <-
+        maybe
+          ( Left
+              (AdmissionCompletedV1CompanionInvalid "host replay pointer has no completed generic ARS identity")
+          )
+          Right
+          (manifestCompletedTraining manifest)
+      _ <-
+        mapLeft
+          AdmissionCompletionInvalid
+          (ArsPhysical.validateGenericArsHostCompletionData (manifestExperiment manifest) completed)
+      Right ()
+  logical <-
+    mapLeft
+      AdmissionCompletedV1CompanionInvalid
+      ( ArsReference.arsHostObjectKey
+          (manifestExperiment manifest)
+          (ArsReference.arsHostReferenceContentSha256 reference)
+      )
+  if logical == ArsReference.arsHostReferenceObjectKey reference
+    then Right ()
+    else
+      Left
+        ( AdmissionCompletedV1CompanionInvalid
+            "ARS host reference belongs to another experiment/content address"
+        )
+  snapshot <- mapLeft AdmissionCompletedV1CompanionInvalid (checkpointStorageSnapshotId manifest)
+  let physical =
+        maybe
+          logical
+          (\identity -> snapshotPhysicalObjectKey (manifestExperiment manifest) identity logical)
+          snapshot
+  case manifestReplayPointers manifest of
+    [pointer]
+      | artifactPointerKind pointer == "ars-host-execution"
+          && artifactPointerObjectKey pointer == physical
+          && artifactPointerSha pointer == Just (ArsReference.arsHostReferenceContentSha256 reference) ->
+          Right pointer
+    _ ->
+      Left
+        ( AdmissionCompletedV1CompanionInvalid
+            "ARS host completion requires one exact snapshot-bound ars-host-execution replay pointer"
+        )
+
 requireAdmittedCompletedCheckpoint
   :: AdmittedCheckpoint
   -> Either CheckpointAdmissionError AdmittedCompletedCheckpoint
@@ -3327,7 +3602,10 @@ validateCompletedAdmissionScope admitted
         Just row
           | ProductMatrix.family row == ProductMatrix.Supervised -> Right ()
           | otherwise -> validateCompletedV1ProductCompanion row manifest
-        Nothing -> Left (AdmissionCompletedV1ProductRowRequired experimentHash)
+        Nothing -> case manifestCompletedTraining manifest
+          >>= fromRight Nothing . TrainingBudget.completedTrainingExecutionProvenance of
+          Just (ArsHostLinearExecution _) -> validateCompletedV1GenericArsScope manifest
+          _ -> Left (AdmissionCompletedV1ProductRowRequired experimentHash)
  where
   manifest = admittedCheckpointManifest admitted
   experimentHash = manifestExperiment manifest
@@ -3382,17 +3660,21 @@ validateCompletedV1ProductCompanion row manifest = do
                   (show (architectureModelFamily (manifestArchitecture manifest)))
             )
         )
-  case manifestReplayPointers manifest of
-    [] -> Right ()
-    pointers ->
-      Left
-        ( AdmissionCompletedV1CompanionInvalid
-            ( "expected no replay pointers for "
-                <> ProductMatrix.rowId row
-                <> ", got "
-                <> Text.pack (show (length pointers))
+  case manifestCompletedTraining manifest
+    >>= fromRight Nothing . TrainingBudget.completedTrainingExecutionProvenance of
+    Just (ArsHostLinearExecution reference) -> void (arsHostReplayPointer manifest reference)
+    _ ->
+      case manifestReplayPointers manifest of
+        [] -> Right ()
+        pointers ->
+          Left
+            ( AdmissionCompletedV1CompanionInvalid
+                ( "expected no replay pointers for "
+                    <> ProductMatrix.rowId row
+                    <> ", got "
+                    <> Text.pack (show (length pointers))
+                )
             )
-        )
   pointer <-
     case manifestTranscriptPointers manifest of
       [value] -> Right value
@@ -6482,3 +6764,324 @@ splitOnSlash path =
    in case rest of
         [] -> [segment]
         _slash : remainder -> segment : splitOnSlash remainder
+
+-- | Add ordinary transitive retention keys to an already computed plan. This
+-- does not mint deletion authorization, root freshness or qualification. The
+-- old buildGcPlan and the exact empty-protection path remain unchanged.
+protectGcPlanObjectKeys :: [Text] -> GcPlan -> Either Text GcPlan
+protectGcPlanObjectKeys [] plan = Right plan
+protectGcPlanObjectKeys keys plan = do
+  canonical <- traverse fullKey keys
+  let protected = Set.fromList canonical
+  Right
+    plan
+      { gcReapEvents =
+          [ event {gcReapedObjectKeys = filter (`Set.notMember` protected) (gcReapedObjectKeys event)}
+          | event <- gcReapEvents plan
+          ]
+      }
+ where
+  fullKey key = do
+    relative <-
+      maybe
+        (Left "GC protected object is not a full checkpoint bucket key")
+        Right
+        (Text.stripPrefix "jitml-checkpoints/" key)
+    experiment <- case Text.splitOn "/" relative of
+      name : _ -> Right name
+      [] -> Left "GC protected object key is empty"
+    canonical <- canonicalGcPhysicalObjectKey experiment key
+    if canonical == key then Right key else Left "GC protected object key is not canonical"
+
+-- | Embed an ACTUAL existing neural admission in the closed total execution
+-- alternative. No raw manifest/reference can enter through this adapter.
+admittedExecutionFromNeural :: AdmittedCompletedCheckpoint -> AdmittedExecutionCheckpoint
+admittedExecutionFromNeural = AdmittedNeuralExecution
+
+-- | Total inspection: a host ARS admission has no neural witness/capability.
+admittedExecutionNeuralCompletion
+  :: AdmittedExecutionCheckpoint -> Maybe AdmittedCompletedCheckpoint
+admittedExecutionNeuralCompletion actual = case actual of
+  AdmittedNeuralExecution neural -> Just neural
+  AdmittedArsHostExecution {} -> Nothing
+
+-- | Actual native inference precondition/read with the host trace bound from
+-- its FIRST physical snapshot bind. The original neural latest reader stays
+-- literal. P1/parse/admit/P2 failures are real typed Store observations.
+admitLocalLatestExecutionCheckpoint
+  :: FilePath -> Text -> IO (Either CheckpointAdmissionError AdmittedExecutionCheckpoint)
+admitLocalLatestExecutionCheckpoint root experimentHash = do
+  let pointerKey = latestPointerKey experimentHash
+  p1Result <- readObjectStrict root pointerKey
+  case p1Result of
+    Left err -> pure (Left (AdmissionPointerReadFailed "P1" (SETransient err)))
+    Right p1Bytes -> case parseCanonicalPointerBody p1Bytes of
+      Left err -> pure (Left err)
+      Right manifestSha -> do
+        admitted <- admitLocalExecutionCheckpointAt root experimentHash manifestSha
+        case admitted of
+          Left err -> pure (Left err)
+          Right actual -> do
+            p2Result <- readObjectStrict root pointerKey
+            pure $ case p2Result of
+              Left err -> Left (AdmissionPointerReadFailed "P2" (SETransient err))
+              Right p2Bytes
+                | p1Bytes /= p2Bytes ->
+                    Left (AdmissionPointerChanged (exactBytesSha p1Bytes) (exactBytesSha p2Bytes))
+                | otherwise -> Right actual
+
+-- | Ordinary recorded snapshot consistency only. The caller supplies already
+-- retained buffers; this function performs no IO and observes no object at an
+-- address. A matching commit is DATA, not a durable writer/Store/parent cap.
+-- Legacy manifest/commit decoders and their exact existing validation are
+-- reused; an IO caller must independently enforce its buffer/read bounds.
+checkNativeRecordedSnapshotCommitData
+  :: Text
+  -> Text
+  -> LazyByteString.ByteString
+  -> StrictByteString.ByteString
+  -> Either Text (CheckpointManifest, WriterCommit)
+checkNativeRecordedSnapshotCommitData experiment manifestSha manifestBytes commitBytes = do
+  addressed <-
+    mapLeft
+      renderCheckpointAdmissionError
+      (decodeAddressedForAdmission experiment manifestSha manifestBytes)
+  commit <- decodeWriterCommit commitBytes
+  checkedCommit <-
+    mapLeft
+      renderCheckpointAdmissionError
+      (validateSnapshotCommitForAdmissionWithCommits addressed [commit])
+  pure (addressedManifest addressed, checkedCommit)
+
+-- | Explicit portable recorded-DATA acceptance limits. The caller already
+-- owns strict payload buffers; these are not pre-network, streaming, heap or
+-- inherited generic Store codec guarantees. The trace cap is inherited from
+-- the actual trace codec; other byte caps are operational portable limits.
+data NativeRecordedCheckpointLimits = NativeRecordedCheckpointLimits
+  { recordedManifestByteLimit :: !Integer
+  , recordedCommitByteLimit :: !Integer
+  , recordedPayloadObjectLimit :: !Int
+  , recordedObjectKeyByteLimit :: !Integer
+  , recordedTensorByteLimit :: !Integer
+  , recordedCompanionByteLimit :: !Integer
+  , recordedArsTraceByteLimit :: !Integer
+  }
+  deriving stock (Eq, Show)
+
+nativeRecordedCheckpointLimits :: NativeRecordedCheckpointLimits
+nativeRecordedCheckpointLimits =
+  NativeRecordedCheckpointLimits
+    { recordedManifestByteLimit = 4 * 1024 * 1024
+    , recordedCommitByteLimit = 64 * 1024
+    , recordedPayloadObjectLimit = 3
+    , recordedObjectKeyByteLimit = 4096
+    , recordedTensorByteLimit = 256 * 1024 * 1024 + 4096
+    , recordedCompanionByteLimit = 256 * 1024 * 1024 + 4096
+    , recordedArsTraceByteLimit = ArsTrace.arsHostTraceMaxBytes
+    }
+
+-- | Complete current native V1 snapshot consistency, recorded DATA only.
+-- No Admitted constructor, concrete fetch, current numerical runtime/local
+-- Gaussian regeneration, selected device or IO callback is used here.
+checkNativeRecordedCheckpointPayloadData
+  :: Text
+  -> Text
+  -> LazyByteString.ByteString
+  -> StrictByteString.ByteString
+  -> [(Text, StrictByteString.ByteString)]
+  -> Either
+       Text
+       ( CheckpointManifest
+       , WriterCommit
+       , [LoadedWeightTensor]
+       , CompletedTraining
+       , Maybe ArsTrace.ArsHostTrace
+       )
+checkNativeRecordedCheckpointPayloadData experiment manifestSha manifestBytes commitBytes payloads = do
+  let limits = nativeRecordedCheckpointLimits
+      largestPayload = max (recordedTensorByteLimit limits) (recordedCompanionByteLimit limits)
+  -- Bound every supplied buffer/spine before decoding manifest/commit, then
+  -- apply the stricter per-role limits before tensor/trace payload decoding.
+  nativeRecordedRequire
+    ( toInteger
+        ( LazyByteString.length
+            (LazyByteString.take (fromInteger (recordedManifestByteLimit limits) + 1) manifestBytes)
+        )
+        <= recordedManifestByteLimit limits
+    )
+    "recorded native manifest exceeds its operational byte cap"
+  nativeRecordedRequire
+    (toInteger (StrictByteString.length commitBytes) <= recordedCommitByteLimit limits)
+    "recorded native commit exceeds its operational byte cap"
+  nativeRecordedRequire
+    (length (take (recordedPayloadObjectLimit limits + 1) payloads) <= recordedPayloadObjectLimit limits)
+    "recorded native payload map exceeds its object-count cap"
+  traverse_ (nativeRecordedPayloadPreflight limits largestPayload) payloads
+  let suppliedKeys = fmap fst payloads
+  nativeRecordedRequire
+    (null (duplicateValues suppliedKeys))
+    "recorded native payload map has duplicate keys"
+  (manifest, commit) <-
+    checkNativeRecordedSnapshotCommitData experiment manifestSha manifestBytes commitBytes
+  row <-
+    maybe
+      (Left "recorded checkpoint experiment is not a current canonical ProductRow")
+      Right
+      (ProductMatrix.productRowForExperimentHash experiment)
+  nativeRecordedRequire
+    (ProductMatrix.family row `elem` [ProductMatrix.ReinforcementLearning, ProductMatrix.AlphaZero])
+    "recorded checkpoint payload checker supports current native RL HER or AlphaZero only"
+  nativeRecordedRequire
+    (writerCommitKind commit == WriterCompletedSnapshot)
+    "recorded native payload checker requires completed snapshot DATA"
+  nativeRecordedRequire
+    ( null (manifestOptimizer manifest)
+        && null (manifestRng manifest)
+        && null (manifestSubstrateArtifacts manifest)
+        && isNothing (manifestSupervisedRuntime manifest)
+    )
+    "recorded native snapshot has an unsupported optimizer RNG substrate or supervised runtime layout"
+  tensor <- case manifestTensors manifest of
+    [actual] -> Right actual
+    _ -> Left "recorded native snapshot requires exactly one final-weight tensor"
+  companion <- case manifestTranscriptPointers manifest of
+    [actual] -> Right actual
+    _ -> Left "recorded native snapshot requires exactly one family companion"
+  mapLeft renderCheckpointAdmissionError (validateCompletedV1ProductCompanion row manifest)
+  validation <-
+    mapLeft renderCheckpointCompletionValidationError (validateCheckpointCompletion manifest)
+  let completed = validatedCheckpointCompletedTraining validation
+  provenance <- TrainingBudget.completedTrainingExecutionProvenance completed
+  host <- case provenance of
+    Just (ArsHostLinearExecution reference) -> do
+      pointer <- mapLeft renderCheckpointAdmissionError (arsHostReplayPointer manifest reference)
+      nativeRecordedRequire
+        (toInteger (ArsReference.arsHostReferenceByteLength reference) <= recordedArsTraceByteLimit limits)
+        "recorded ARS trace reference exceeds its inherited codec byte cap"
+      pure (Just (reference, pointer))
+    _ -> do
+      nativeRecordedRequire
+        (not (canonicalArsManifest manifest))
+        "recorded canonical ARS snapshot lacks its host execution provenance"
+      _ <- mapLeft renderCheckpointAdmissionError (requireCompletedDeviceExecutionWitness completed)
+      pure Nothing
+  let roles =
+        [ (tensorBlobKey tensor, recordedTensorByteLimit limits)
+        , (artifactPointerObjectKey companion, recordedCompanionByteLimit limits)
+        ]
+          <> case host of
+            Nothing -> []
+            Just (_, pointer) -> [(artifactPointerObjectKey pointer, recordedArsTraceByteLimit limits)]
+      committedKeys = fmap writerPhysicalObjectKey (writerCommitPhysicalObjects commit)
+  nativeRecordedRequire
+    (sort suppliedKeys == sort (fmap fst roles) && sort suppliedKeys == committedKeys)
+    "recorded native payload keys differ from the complete exact commit and role table"
+  traverse_
+    ( \(key, cap) -> do
+        bytes <- nativeRecordedLookupPayload key payloads
+        nativeRecordedRequire
+          (toInteger (StrictByteString.length bytes) <= cap)
+          "recorded native payload exceeds its exact role byte cap"
+    )
+    roles
+  let snapshotHashes =
+        Just
+          ( Map.fromList
+              [ (writerPhysicalObjectKey item, writerPhysicalObjectSha item)
+              | item <- writerCommitPhysicalObjects commit
+              ]
+          )
+  weights <-
+    validateSnapshotPayloadsWithSnapshotHashes
+      snapshotHashes
+      manifest
+      [(key, LazyByteString.fromStrict bytes) | (key, bytes) <- payloads]
+  mapLeft renderCheckpointAdmissionError (validateBoundRuntimeAndCompletion manifest weights)
+  trace <- case host of
+    Nothing -> pure Nothing
+    Just (reference, pointer) -> do
+      bytes <- nativeRecordedLookupPayload (artifactPointerObjectKey pointer) payloads
+      nativeRecordedRequire
+        ( toInteger (StrictByteString.length bytes)
+            == toInteger (ArsReference.arsHostReferenceByteLength reference)
+            && exactBytesSha bytes == ArsReference.arsHostReferenceContentSha256 reference
+        )
+        "recorded ARS trace bytes differ from exact completed reference length or SHA"
+      actual <- ArsTrace.decodeArsHostTrace bytes
+      finalBytes <- case weights of
+        [loaded] -> Right (loadedWeightJmw1Bytes loaded)
+        _ -> Left "recorded native completion requires one exact decoded final-weight tensor"
+      ArsPhysical.validateArsHostCheckpointRecordedData experiment completed finalBytes reference actual
+      pure (Just actual)
+  pure (manifest, commit, weights, completed, trace)
+
+nativeRecordedPayloadPreflight
+  :: NativeRecordedCheckpointLimits -> Integer -> (Text, StrictByteString.ByteString) -> Either Text ()
+nativeRecordedPayloadPreflight limits largestPayload (key, bytes) = do
+  nativeRecordedRequire
+    ( not (Text.null key)
+        && toInteger (Text.length key) <= recordedObjectKeyByteLimit limits
+        && toInteger (StrictByteString.length (Text.Encoding.encodeUtf8 key))
+          <= recordedObjectKeyByteLimit limits
+    )
+    "recorded native payload key is empty or exceeds its operational byte cap"
+  nativeRecordedRequire
+    (toInteger (StrictByteString.length bytes) <= largestPayload)
+    "recorded native payload exceeds its general operational byte cap"
+
+nativeRecordedLookupPayload
+  :: Text -> [(Text, StrictByteString.ByteString)] -> Either Text StrictByteString.ByteString
+nativeRecordedLookupPayload key payloads =
+  maybe
+    (Left ("recorded native snapshot is missing payload " <> key))
+    Right
+    (lookup key payloads)
+
+nativeRecordedRequire :: Bool -> Text -> Either Text ()
+nativeRecordedRequire predicate reason = if predicate then Right () else Left reason
+
+-- Generic ARS is a separate closed host branch. No other unknown V1 namespace
+-- becomes completion-admissible, and the neural-only refiner still rejects it.
+validateCompletedV1GenericArsScope
+  :: CheckpointManifest -> Either CheckpointAdmissionError ()
+validateCompletedV1GenericArsScope manifest = do
+  completed <-
+    maybe
+      (Left (AdmissionCompletedV1ProductRowRequired (manifestExperiment manifest)))
+      Right
+      (manifestCompletedTraining manifest)
+  _ <-
+    mapLeft
+      AdmissionCompletionInvalid
+      (ArsPhysical.validateGenericArsHostCompletionData (manifestExperiment manifest) completed)
+  let invalid = Left . AdmissionCompletedV1CompanionInvalid
+  unless
+    ( manifestModelFamily manifest == ReinforcementLearningPolicyFamily
+        && architectureModelFamily (manifestArchitecture manifest) == ReinforcementLearningPolicyFamily
+    )
+    (invalid "generic ARS completion requires the actual RL policy model/architecture family")
+  case manifestTensors manifest of
+    [tensor] | tensorName tensor == "rl-ars-weights" -> Right ()
+    _ -> invalid "generic ARS completion requires one exact rl-ars-weights tensor"
+  reference <- case TrainingBudget.completedTrainingExecutionProvenance completed of
+    Right (Just (ArsHostLinearExecution actual)) -> Right actual
+    _ -> invalid "generic ARS completion requires host linear provenance"
+  void (arsHostReplayPointer manifest reference)
+  pointer <- case manifestTranscriptPointers manifest of
+    [actual] -> Right actual
+    _ -> invalid "generic ARS completion requires one exact actual rl-trajectory transcript"
+  unless
+    (artifactPointerKind pointer == "rl-trajectory")
+    (invalid "generic ARS completion transcript kind differs from rl-trajectory")
+  sha <-
+    maybe (invalid "generic ARS trajectory has no exact SHA-256") Right (artifactPointerSha pointer)
+  snapshot <- mapLeft AdmissionCompletedV1CompanionInvalid (checkpointStorageSnapshotId manifest)
+  let logical = canonicalProductCompanionObjectKey (manifestExperiment manifest) "rl-trajectory" sha
+      physical =
+        maybe
+          logical
+          (\identity -> snapshotPhysicalObjectKey (manifestExperiment manifest) identity logical)
+          snapshot
+  unless
+    (artifactPointerObjectKey pointer == physical)
+    (invalid "generic ARS trajectory is not its exact snapshot-scoped content address")

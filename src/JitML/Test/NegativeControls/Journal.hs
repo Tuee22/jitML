@@ -108,7 +108,8 @@ journalBaselineFailures =
         <> [ "the unmodified portable lane journal was rejected: " <> Text.pack (show errors)
            | Left errors <-
                [ void
-                   ( ProductLaneJournal.admitProductLaneJournal
+                   ( ProductLaneJournal.admitProductLaneJournalWithQualifications
+                       (laneJournalQualificationObjects s)
                        (sha256Hex (laneJournalBytes s))
                        (jsBatch s)
                        (laneJournalBytes s)
@@ -723,11 +724,11 @@ readerControls =
       (setRowField "invocation_digest" (Aeson.String zeroDigest))
       ( \_ ->
           singleJournalError
-            "an evidence rejection saying the invocation digest differs from the exact Store-admitted completion"
+            "a detached qualification rejection naming the exact parent invocation mismatch"
             ( \case
-                ProductScenarioJournal.ProductScenarioJournalEvidenceRejected _ err ->
-                  "invocation digest differs from exact Store-admitted completion"
-                    `Text.isInfixOf` Text.pack (show err)
+                ProductScenarioJournal.ProductScenarioJournalMalformed path detail ->
+                  path == "<detached-supervised-qualification>"
+                    && detail == "qualification parent invocation identity differs"
                 _ -> False
             )
       )
@@ -861,7 +862,11 @@ admitLane
        (NonEmpty ProductLaneJournal.ProductLaneJournalError)
        ProductLaneJournal.AdmittedProductLaneJournal
 admitLane s bytes =
-  ProductLaneJournal.admitProductLaneJournal (sha256Hex bytes) (jsBatch s) bytes
+  ProductLaneJournal.admitProductLaneJournalWithQualifications
+    (laneJournalQualificationObjects s)
+    (sha256Hex bytes)
+    (jsBatch s)
+    bytes
 
 -- | Rewrite the lane journal's JSON, keep it canonical-looking, and pin the
 -- rewritten bytes to their own digest, so only the content drift is under test.
@@ -886,7 +891,8 @@ laneControls =
           pure $
             rejectedWith
               (ProductLaneJournal.ProductLaneJournalDigestMismatch (sha256Hex bytes) (sha256Hex drifted) :| [])
-              ( ProductLaneJournal.admitProductLaneJournal
+              ( ProductLaneJournal.admitProductLaneJournalWithQualifications
+                  (laneJournalQualificationObjects s)
                   (sha256Hex bytes)
                   (jsBatch s)
                   drifted
@@ -902,7 +908,12 @@ laneControls =
                   "expected lane-journal digest is not canonical SHA-256"
                   :| []
               )
-              (ProductLaneJournal.admitProductLaneJournal "not-a-digest" (jsBatch s) (laneJournalBytes s))
+              ( ProductLaneJournal.admitProductLaneJournalWithQualifications
+                  (laneJournalQualificationObjects s)
+                  "not-a-digest"
+                  (jsBatch s)
+                  (laneJournalBytes s)
+              )
       )
   , laneRewrite
       "journal-lane-drift-source-rejected-plan-id"
@@ -968,7 +979,8 @@ laneControls =
                         "lane-journal substrate differs from the projection batch"
                         `elem` NonEmpty.toList errors
                   )
-                  ( ProductLaneJournal.admitProductLaneJournal
+                  ( ProductLaneJournal.admitProductLaneJournalWithQualifications
+                      (laneJournalQualificationObjects s)
                       (sha256Hex (laneJournalBytes s))
                       cudaBatch
                       (laneJournalBytes s)

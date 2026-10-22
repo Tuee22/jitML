@@ -12,10 +12,10 @@
 --
 -- The lane journal is the committed, authenticated, versioned completed-run
 -- evidence: its pinned SHA-256, canonical JSON, and validation against the
--- current projection are enforced by
--- 'JitML.Test.ProductLaneJournal.admitProductLaneJournal', the same reader the
--- aggregation phase uses. This module only consumes admitted rows. It adds no
--- journal wire and no new live measurement.
+-- current projection are enforced by the Lane readers. Native rows additionally
+-- require 'JitML.Test.ProductLaneJournal.admitProductLaneJournalWithNativeBundles'
+-- to audit their complete portable FILE bundle before admission. This module
+-- only consumes admitted rows and adds no new live measurement.
 --
 -- The forgeable raw view of a journal row and the refinement that mints
 -- evidence from it live in "JitML.Test.ModelEvidence.Raw", which exists so that
@@ -50,14 +50,13 @@
 --   performance receipt with the admitted journal row it came from, one
 --   identity at a time.
 --
--- What a lane journal cannot carry: it retains no per-iteration learning curve
--- and no per-episode evaluation set (only the refined
--- 'JitML.Training.Budget.CompletedTraining' with its observed units, update
--- count, weight hashes and passed cohort measurements), no checkpoint bytes, and
--- no served-artifact inference measurement. The types keep the two RL channels
--- apart so that a later journal version can retain the curve and the keyed
--- evaluation set without changing any assertion; today only their scalar
--- summaries exist.
+-- These model-evidence channels consume serving-completion scalar summaries.
+-- Native Lane admission separately audits its detached complete five-child
+-- acquisition, reference and replay graphs, final checkpoint and original
+-- authenticated parent execution records. Those historical FILE/DATA checks
+-- never rerun a device or current-runtime ARS arithmetic during aggregation.
+-- They do not replace this module's distinct convergence, learning and
+-- performance predicates or add a new live measurement to them.
 module JitML.Test.ModelEvidence
   ( -- * Opaque evidence
     ModelRowEvidence

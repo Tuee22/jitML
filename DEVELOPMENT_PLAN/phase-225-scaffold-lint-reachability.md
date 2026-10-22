@@ -89,6 +89,12 @@ docker compose run --rm jitml jitml check-code                  # passed
   ignores the checkpoint):
   `docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu`.
 
+The transfer remains in force. The historical statement that its stronger
+behavioral half is closed is superseded by the
+[Phase 279 reopening](phase-279-measured-declared-type-split-behavioral-scaffold-lint.md#phase-state):
+that detector remains unmet and Blocked behind Phase `278`. Phase `225` retains
+its completed source/reachability surface and does not reacquire that obligation.
+
 ## Documentation Requirements
 
 **Engineering docs to create/update:**

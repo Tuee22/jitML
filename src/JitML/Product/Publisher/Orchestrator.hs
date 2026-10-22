@@ -5,6 +5,7 @@
 module JitML.Product.Publisher.Orchestrator
   ( runTrainAndPublishProductRows
   , runTrainAndPublishProductRowsForInvocation
+  , runTrainAndPublishProductRowsForInvocationWithSource
   , selectInternalProductRows
   )
 where
@@ -26,7 +27,6 @@ import JitML.Plan.Plan
   )
 import JitML.Plan.Workload qualified as WorkloadPlan
 import JitML.Product.Matrix qualified as ProductMatrix
-import JitML.Product.Publisher.AlphaZero (trainAndPublishAlphaZeroProductRow)
 import JitML.Product.Publisher.Audit
   ( ProductArtifactReceipt (..)
   , ProductPublishResult (..)
@@ -40,15 +40,16 @@ import JitML.Product.Publisher.Common
   ( reuseProductPublishResult
   , validateProductScenarioInvocation
   )
+import JitML.Product.Publisher.Native (trainAndPublishNativeProductRow)
 import JitML.Product.Publisher.Projection
   ( projectedRunSeed
   , validateProjectionRowAssociation
   , validateTuningProductExperiment
   )
-import JitML.Product.Publisher.RL (trainAndPublishRlProductRow)
 import JitML.Product.Publisher.Runtime (ProductPublisherRuntime (..))
 import JitML.Product.Publisher.Supervised (trainAndPublishSupervisedProductRow)
 import JitML.Product.Publisher.Tuning (trainAndPublishTuningProductRow)
+import JitML.Product.SourceDigest qualified as Source
 import JitML.Substrate (Substrate, renderSubstrate)
 import JitML.Training.Budget qualified as TrainingBudget
 
@@ -66,7 +67,7 @@ runTrainAndPublishProductRows
   -> [ProductMatrix.ProductRow 'ProductMatrix.Declared]
   -> App ()
 runTrainAndPublishProductRows runtime substrate selectedRows = do
-  runTrainAndPublishProductRowsWithInvocation Nothing runtime substrate selectedRows
+  runTrainAndPublishProductRowsWithInvocation Nothing Nothing runtime substrate selectedRows
 {-# NOINLINE runTrainAndPublishProductRows #-}
 
 -- | ProductScenario-only entry point.  The opaque invocation is checked
@@ -80,16 +81,31 @@ runTrainAndPublishProductRowsForInvocation
   -> [ProductMatrix.ProductRow 'ProductMatrix.Declared]
   -> App ()
 runTrainAndPublishProductRowsForInvocation invocation =
-  runTrainAndPublishProductRowsWithInvocation (Just invocation)
+  runTrainAndPublishProductRowsWithInvocation (Just invocation) Nothing
 {-# NOINLINE runTrainAndPublishProductRowsForInvocation #-}
 
-runTrainAndPublishProductRowsWithInvocation
-  :: Maybe TrainingBudget.ProductScenarioInvocation
+-- Preserve the exact App-read source DATA after one-shot environment removal.
+-- The producer observes FILE/process independently; a supplied scenario stamp
+-- does not claim observation of a source tree in the child's work directory.
+runTrainAndPublishProductRowsForInvocationWithSource
+  :: TrainingBudget.ProductScenarioInvocation
+  -> Maybe Source.SourceStamp
   -> ProductPublisherRuntime
   -> Substrate
   -> [ProductMatrix.ProductRow 'ProductMatrix.Declared]
   -> App ()
-runTrainAndPublishProductRowsWithInvocation invocation runtime substrate selectedRows = do
+runTrainAndPublishProductRowsForInvocationWithSource invocation =
+  runTrainAndPublishProductRowsWithInvocation (Just invocation)
+{-# NOINLINE runTrainAndPublishProductRowsForInvocationWithSource #-}
+
+runTrainAndPublishProductRowsWithInvocation
+  :: Maybe TrainingBudget.ProductScenarioInvocation
+  -> Maybe Source.SourceStamp
+  -> ProductPublisherRuntime
+  -> Substrate
+  -> [ProductMatrix.ProductRow 'ProductMatrix.Declared]
+  -> App ()
+runTrainAndPublishProductRowsWithInvocation invocation source runtime substrate selectedRows = do
   projectedBatch <-
     case validationToEither (ProductMatrix.projectProductRows substrate selectedRows) of
       Left errors ->
@@ -135,7 +151,7 @@ runTrainAndPublishProductRowsWithInvocation invocation runtime substrate selecte
       (\(row, projection) -> liftIO (prepareProductProjection row projection))
       ( \prepared@(PreparedProductProjection row _ _ _) -> do
           writeLine ("train-and-publish-product-rows: row=" <> ProductMatrix.rowId row)
-          trainAndPublishProductProjection invocation runtime prepared
+          trainAndPublishProductProjection invocation source runtime prepared
       )
       (zip selectedRows projectedRows)
   results <-
@@ -256,16 +272,21 @@ selectInternalProductRows commandRow environmentFilter =
 
 trainAndPublishProductProjection
   :: Maybe TrainingBudget.ProductScenarioInvocation
+  -> Maybe Source.SourceStamp
   -> ProductPublisherRuntime
   -> PreparedProductProjection
   -> App ProductPublishResult
-trainAndPublishProductProjection invocation runtime prepared@(PreparedProductProjection _ _ projection _) = do
+trainAndPublishProductProjection invocation source runtime prepared@(PreparedProductProjection _ _ projection _) = do
   reuse <- case invocation of
     -- A ProductScenario invocation proves work from this command execution;
     -- an otherwise valid deterministic checkpoint from an earlier run cannot
     -- satisfy it.
     Just _ -> pure Nothing
     Nothing
+      | ProductMatrix.productProjectionFamily projection
+          `elem` [ProductMatrix.ReinforcementLearning, ProductMatrix.AlphaZero] ->
+          -- Native rows require fresh actual five-child production and receipt.
+          pure Nothing
       | ProductMatrix.productProjectionFamily projection == ProductMatrix.Supervised ->
           -- A prior checkpoint has no held-out example set in its manifest.
           -- Fresh supervised training carries the verified evaluation inputs
@@ -279,7 +300,7 @@ trainAndPublishProductProjection invocation runtime prepared@(PreparedProductPro
     Just admitted
       | Right () <- validateAdmittedProjectionIdentity projection admitted ->
           pure (reuseProductPublishResult projection admitted)
-    _ -> trainAndPublishProductProjectionFresh invocation runtime prepared
+    _ -> trainAndPublishProductProjectionFresh invocation source runtime prepared
 
 -- | Reconstruct the eligible publish result from a re-admitted checkpoint
 -- without re-training.  The companion receipts are read back from the admitted
@@ -287,16 +308,17 @@ trainAndPublishProductProjection invocation runtime prepared@(PreparedProductPro
 -- have bound and the batch audit's pointer/kind equalities still hold.
 trainAndPublishProductProjectionFresh
   :: Maybe TrainingBudget.ProductScenarioInvocation
+  -> Maybe Source.SourceStamp
   -> ProductPublisherRuntime
   -> PreparedProductProjection
   -> App ProductPublishResult
-trainAndPublishProductProjectionFresh invocation runtime (PreparedProductProjection row witness projection prepared) =
+trainAndPublishProductProjectionFresh invocation source runtime (PreparedProductProjection row witness projection prepared) =
   case witness of
     SupervisedTrainingWitness ->
       let (experiment, problem) = ProductExperiment.preparedSupervisedProductExperiment prepared
        in trainAndPublishSupervisedProductRow invocation runtime row projection experiment problem
     ReinforcementLearningWitness ->
-      trainAndPublishRlProductRow invocation runtime row projection
+      trainAndPublishNativeProductRow invocation source row projection
     HyperparameterTuningWitness ->
       trainAndPublishTuningProductRow
         invocation
@@ -305,7 +327,7 @@ trainAndPublishProductProjectionFresh invocation runtime (PreparedProductProject
         projection
         (ProductExperiment.preparedTuningProductExperiment prepared)
     AlphaZeroSelfPlayWitness ->
-      trainAndPublishAlphaZeroProductRow invocation runtime row projection
+      trainAndPublishNativeProductRow invocation source row projection
 
 {-# NOINLINE trainAndPublishProductProjection #-}
 {-# NOINLINE trainAndPublishProductProjectionFresh #-}

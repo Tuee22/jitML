@@ -17,9 +17,14 @@ module JitML.Test.ProductLaneJournal
   , ProductLaneJournalRow
   , IssuedProductLaneJournal
   , admitProductLaneJournal
+  , admitProductLaneJournalWithQualifications
+  , admitProductLaneJournalWithNativeBundles
+  , productLaneJournalQualificationObjectKeys
+  , issuedProductLaneJournalQualificationObjects
   , admittedProductLaneJournalRows
   , admittedProductLaneJournalRunId
   , admittedProductLaneJournalSourceDigest
+  , admittedProductLaneJournalReviewBindings
   , admittedProductLaneJournalSubstrate
   , buildProductLaneJournal
   , issuedProductLaneJournalBytes
@@ -27,6 +32,8 @@ module JitML.Test.ProductLaneJournal
   , productLaneJournalRowCompletedTraining
   , productLaneJournalRowContractDigest
   , productLaneJournalRowDeviceWitness
+  , productLaneJournalRowExecutionProvenance
+  , renderProductLaneJournalRowExecutionProvenance
   , productLaneJournalRowExperimentHash
   , productLaneJournalRowJournalDigest
   , productLaneJournalRowManifestSha
@@ -34,6 +41,7 @@ module JitML.Test.ProductLaneJournal
   , productLaneJournalRowPlanId
   , productLaneJournalRowRowId
   , productLaneJournalRowSubstrate
+  , validateProductLaneContract
   , productLaneJournalWireVersion
   , writeProductLaneJournalAtomic
   )
@@ -45,6 +53,7 @@ import Crypto.Hash.SHA256 qualified as SHA256
 import Data.Aeson
   ( FromJSON (..)
   , ToJSON (..)
+  , Value (..)
   , eitherDecodeStrict'
   , encode
   , object
@@ -54,11 +63,12 @@ import Data.Aeson
   )
 import Data.Aeson.Key qualified as AesonKey
 import Data.Aeson.KeyMap qualified as AesonKeyMap
-import Data.Aeson.Types (Object, Parser)
+import Data.Aeson.Types (Object, Parser, parseEither)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Char (intToDigit, isControl)
+import Data.Either.Combinators (mapLeft)
 import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
@@ -66,13 +76,26 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word (Word64, Word8)
 import System.Directory (createDirectoryIfMissing, removeFile, renameFile)
-import System.FilePath (takeDirectory, takeFileName)
+import System.FilePath (takeDirectory, takeFileName, (</>))
 import System.IO (hClose, hFlush, openBinaryTempFile)
 
+import JitML.Checkpoint.Store qualified as Store
 import JitML.Plan.Plan (PlanId, planIdText)
+import JitML.Plan.Plan qualified as Plan
+import JitML.Product.ArsHostReference qualified as ArsReference
+import JitML.Product.CriterionReviewData qualified as Review
 import JitML.Product.DeviceWitness qualified as DeviceWitness
+import JitML.Product.ExecutionProvenance (ExecutionProvenance (..))
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.Product.NativeParentExecution qualified as Parent
+import JitML.Product.SourceDigest qualified as Source
+import JitML.Product.SupervisedCohortPlan qualified as Cohort
+import JitML.Product.SupervisedQualification qualified as Qualification
+import JitML.Product.SupervisedQualificationReceipt qualified as Receipt
 import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
+import JitML.Test.NativeLaneBundle qualified as Native
+import JitML.Test.NativeScenarioJournalBindingData qualified as NativeBinding
+import JitML.Test.NativeScenarioReceiptData qualified as NativeReceipt
 import JitML.Test.ProductScenarioJournal qualified as ProductScenarioJournal
 import JitML.Test.Report qualified as Report
 import JitML.Training.Budget (CompletedTraining)
@@ -82,7 +105,7 @@ productLaneJournalFormat :: Text
 productLaneJournalFormat = "jitml-product-lane-journal"
 
 productLaneJournalWireVersion :: Word64
-productLaneJournalWireVersion = 1
+productLaneJournalWireVersion = 3
 
 data ProductLaneJournalWire = ProductLaneJournalWire
   { wireFormat :: !Text
@@ -110,12 +133,17 @@ data ProductLaneJournalRowWire = ProductLaneJournalRowWire
   , wireRowMeasuredSha :: !Text
   , wireRowDeviceWitness :: !Text
   , wireRowCompletedTraining :: !Text
+  , wireRowQualificationReceipt :: !Text
+  , wireRowNativeBundle :: !Text
   , wireRowStatus :: !Text
   }
   deriving stock (Eq, Show)
 
-newtype IssuedProductLaneJournal = IssuedProductLaneJournal
+data IssuedProductLaneJournal = IssuedProductLaneJournal
   { issuedWire :: ProductLaneJournalWire
+  , issuedQualifications :: [(Text, ByteString)]
+  , issuedNativeQualifications :: [(Text, ByteString)]
+  , issuedNativePlans :: [Native.NativeBundleWritePlan]
   }
   deriving stock (Eq, Show)
 
@@ -131,7 +159,9 @@ data ProductLaneJournalRow = ProductLaneJournalRow
   , admittedRowPlan :: !PlanId
   , admittedRowLane :: !Substrate
   , admittedRowCheckpoint :: !RetainedCheckpointIdentity
-  , admittedRowDevice :: !DeviceWitness.DeviceExecutionWitness
+  , admittedRowExecution :: !(ExecutionProvenance ArsReference.ArsHostReference)
+  , admittedRowQualification :: !(Maybe Receipt.RetainedSupervisedQualification)
+  , admittedRowNativeAudit :: !(Maybe Native.NativeBundleAudit)
   , admittedRowCompleted :: !CompletedTraining
   }
   deriving stock (Eq, Show)
@@ -153,6 +183,7 @@ data ProductLaneJournalError
     -- corrupt. Read-side classification only: it rejects exactly what the
     -- untyped rejection it replaces rejected.
     ProductLaneJournalContractStale !Text !Text !Text
+  | ProductLaneJournalWireStale !Word64 !Word64
   | ProductLaneJournalMalformed !Text
   | ProductLaneJournalNonCanonical
   | ProductLaneJournalDigestMismatch !Text !Text
@@ -209,6 +240,8 @@ instance ToJSON ProductLaneJournalRowWire where
       , "measured_sha256" .= wireRowMeasuredSha row
       , "device_witness" .= wireRowDeviceWitness row
       , "completed_training" .= wireRowCompletedTraining row
+      , "supervised_qualification_receipt" .= wireRowQualificationReceipt row
+      , "native_qualification_bundle" .= wireRowNativeBundle row
       , "status" .= wireRowStatus row
       ]
 
@@ -232,6 +265,8 @@ instance FromJSON ProductLaneJournalRowWire where
         , "measured_sha256"
         , "device_witness"
         , "completed_training"
+        , "supervised_qualification_receipt"
+        , "native_qualification_bundle"
         , "status"
         ]
         record
@@ -251,6 +286,8 @@ instance FromJSON ProductLaneJournalRowWire where
         <*> record .: "measured_sha256"
         <*> record .: "device_witness"
         <*> record .: "completed_training"
+        <*> record .: "supervised_qualification_receipt"
+        <*> record .: "native_qualification_bundle"
         <*> record .: "status"
 
 requireExactFields :: String -> [Text] -> Object -> Parser ()
@@ -282,8 +319,19 @@ buildProductLaneJournal batch authenticated = do
   case NonEmpty.nonEmpty sourceErrors of
     Just errors -> Left errors
     Nothing -> do
+      nativePlans <-
+        mapLeft
+          (:| [])
+          ( traverse
+              nativePlan
+              [ actual
+              | entry <- evidence
+              , Just actual <- [Report.completedProductScenarioRetainedNativeQualification entry]
+              ]
+          )
+      nativeObjects <- mapLeft (:| []) (traverse nativeObject nativePlans)
       rows <-
-        case traverse buildRow (zip3 [0 ..] projections evidence) of
+        case traverse (buildRow nativePlans) (zip3 [0 ..] projections evidence) of
           Left err -> Left (err :| [])
           Right value -> Right value
       let journal =
@@ -301,11 +349,46 @@ buildProductLaneJournal batch authenticated = do
                     authenticated
               , wireRows = rows
               }
+      let objects =
+            [ ( Receipt.qualificationReferenceObjectKey
+                  (Receipt.supervisedQualificationPublicationReference publication)
+              , Qualification.encodeSupervisedQualification
+                  ( Qualification.qualifiedSupervisedCohortData
+                      (Receipt.supervisedQualificationPublicationData publication)
+                  )
+              )
+            | completed <- evidence
+            , Just publication <- [Report.completedProductScenarioQualification completed]
+            ]
       case validateWire batch journal of
-        [] -> Right (IssuedProductLaneJournal journal)
+        [] -> Right (IssuedProductLaneJournal journal objects nativeObjects (fmap snd nativePlans))
         failure : failures -> Left (failure :| failures)
  where
-  buildRow (ordinal, someProjection, evidence) =
+  nativePlan actual = do
+    plan <-
+      mapLeft (ProductLaneJournalMalformed . Text.pack . show) (Native.makeNativeBundleWritePlan actual)
+    pure
+      ( NativeBinding.nativeScenarioBindingRowId
+          (Native.nativeBundleBinding (Native.nativeBundleWritePlanRoot plan))
+      , plan
+      )
+  nativeObject (_, plan) = do
+    key <-
+      mapLeft
+        (ProductLaneJournalMalformed . Text.pack . show)
+        (Native.nativeBundleReferenceObjectKey (Native.nativeBundleWritePlanReference plan))
+    bytes <-
+      mapLeft
+        (ProductLaneJournalMalformed . Text.pack . show)
+        (Native.encodeNativeBundleRootData (Native.nativeBundleWritePlanRoot plan))
+    pure (key, bytes)
+  nativeLine plans row = case lookup row plans of
+    Nothing -> Right ""
+    Just plan ->
+      mapLeft
+        (ProductLaneJournalMalformed . Text.pack . show)
+        (Native.renderNativeBundleReferenceData (Native.nativeBundleWritePlanReference plan))
+  buildRow nativePlans (ordinal, someProjection, evidence) =
     case someProjection of
       ProductMatrix.SomeProductProjection _ projection ->
         let rowId = ProductMatrix.productProjectionRowId projection
@@ -316,40 +399,47 @@ buildProductLaneJournal batch authenticated = do
                       (rowId <> ": authenticated report order differs from projection")
                   )
               else
-                Right
-                  ProductLaneJournalRowWire
-                    { wireRowOrdinal = ordinal
-                    , wireRowId = rowId
-                    , wireRowPlanId =
-                        planIdText (Report.completedProductScenarioPlanId evidence)
-                    , wireRowSubstrate =
-                        renderSubstrate (Report.completedProductScenarioLane evidence)
-                    , wireRowExperimentHash =
-                        Report.completedProductScenarioExperimentHash evidence
-                    , wireRowManifestSha =
-                        Report.completedProductScenarioManifestSha evidence
-                    , wireRowInferenceManifestSha =
-                        Report.completedProductScenarioInferenceManifestSha evidence
-                    , wireRowCheckpointScopeSha =
-                        Report.completedProductScenarioCheckpointScopeDigest evidence
-                    , wireRowExecutableSha =
-                        Report.completedProductScenarioExecutableSha256 evidence
-                    , wireRowInvocationSha =
-                        Report.completedProductScenarioInvocationDigest evidence
-                    , wireRowContractSha =
-                        Report.completedProductScenarioContractDigest evidence
-                    , wireRowJournalSha =
-                        Report.completedProductScenarioJournalDigest evidence
-                    , wireRowMeasuredSha =
-                        Report.completedProductScenarioMeasuredDigest evidence
-                    , wireRowDeviceWitness =
-                        DeviceWitness.renderDeviceExecutionWitness
-                          (Report.completedProductScenarioDeviceWitness evidence)
-                    , wireRowCompletedTraining =
-                        Budget.renderCompletedTraining
-                          (Report.completedProductScenarioCompletedTraining evidence)
-                    , wireRowStatus = "Passed"
-                    }
+                ( \nativeBundle ->
+                    ProductLaneJournalRowWire
+                      { wireRowOrdinal = ordinal
+                      , wireRowId = rowId
+                      , wireRowPlanId =
+                          planIdText (Report.completedProductScenarioPlanId evidence)
+                      , wireRowSubstrate =
+                          renderSubstrate (Report.completedProductScenarioLane evidence)
+                      , wireRowExperimentHash =
+                          Report.completedProductScenarioExperimentHash evidence
+                      , wireRowManifestSha =
+                          Report.completedProductScenarioManifestSha evidence
+                      , wireRowInferenceManifestSha =
+                          Report.completedProductScenarioInferenceManifestSha evidence
+                      , wireRowCheckpointScopeSha =
+                          Report.completedProductScenarioCheckpointScopeDigest evidence
+                      , wireRowExecutableSha =
+                          Report.completedProductScenarioExecutableSha256 evidence
+                      , wireRowInvocationSha =
+                          Report.completedProductScenarioInvocationDigest evidence
+                      , wireRowContractSha =
+                          Report.completedProductScenarioContractDigest evidence
+                      , wireRowJournalSha =
+                          Report.completedProductScenarioJournalDigest evidence
+                      , wireRowMeasuredSha =
+                          Report.completedProductScenarioMeasuredDigest evidence
+                      , wireRowDeviceWitness =
+                          Report.renderCompletedProductScenarioExecutionProvenance evidence
+                      , wireRowCompletedTraining =
+                          Budget.renderCompletedTraining
+                            (Report.completedProductScenarioCompletedTraining evidence)
+                      , wireRowQualificationReceipt =
+                          maybe
+                            ""
+                            Receipt.renderSupervisedQualificationPublication
+                            (Report.completedProductScenarioQualification evidence)
+                      , wireRowNativeBundle = nativeBundle
+                      , wireRowStatus = "Passed"
+                      }
+                )
+                  <$> nativeLine nativePlans rowId
 
 validateAuthenticatedSource
   :: ProductMatrix.ProductProjectionBatch
@@ -396,22 +486,96 @@ writeProductLaneJournalAtomic path batch authenticated =
   case buildProductLaneJournal batch authenticated of
     Left errors -> pure (Left errors)
     Right issued -> do
-      written <- tryIO (writeAtomic path (issuedProductLaneJournalBytes issued))
-      pure $
-        case written of
-          Left exception ->
-            Left
-              ( ProductLaneJournalIOFailure path (Text.pack (show exception))
-                  :| []
+      objectsWritten <- writeIssuedQualificationObjects path issued
+      case objectsWritten of
+        Left failure -> pure (Left (failure :| []))
+        Right () -> do
+          written <- tryIO (writeAtomic path (issuedProductLaneJournalBytes issued))
+          pure $ case written of
+            Left exception ->
+              Left
+                ( ProductLaneJournalIOFailure path (Text.pack (show exception))
+                    :| []
+                )
+            Right () -> Right issued
+
+-- | Actual portable native admission. Pin/canonical/current coverage validation
+-- precedes native file reads; the old pure entrypoint has no audit capability.
+admitProductLaneJournalWithNativeBundles
+  :: FilePath
+  -> [(Text, ByteString)]
+  -> Text
+  -> ProductMatrix.ProductProjectionBatch
+  -> ByteString
+  -> IO (Either (NonEmpty ProductLaneJournalError) AdmittedProductLaneJournal)
+admitProductLaneJournalWithNativeBundles path objects expectedSha batch bytes =
+  case parsePinnedNativeWire of
+    Left failure -> pure (Left failure)
+    Right journal -> do
+      audits <-
+        traverse auditRow (zip (ProductMatrix.productProjectionBatchProjections batch) (wireRows journal))
+      pure
+        ( sequence audits >>= \actual ->
+            admitProductLaneJournalInternal (concat actual) objects expectedSha batch bytes
+        )
+ where
+  parsePinnedNativeWire = do
+    unless
+      (isCanonicalSha256 expectedSha)
+      (Left (ProductLaneJournalMalformed "expected lane-journal digest is not canonical SHA-256" :| []))
+    unless
+      (sha256Bytes bytes == expectedSha)
+      (Left (ProductLaneJournalDigestMismatch expectedSha (sha256Bytes bytes) :| []))
+    mapLeft (:| []) (rejectObsoleteLaneWire bytes)
+    journal <-
+      mapLeft
+        (\detail -> ProductLaneJournalMalformed (Text.pack detail) :| [])
+        (eitherDecodeStrict' bytes)
+    unless (canonicalBytes journal == bytes) (Left (ProductLaneJournalNonCanonical :| []))
+    case NonEmpty.nonEmpty (validateWire batch journal) of
+      Just failures -> Left failures
+      Nothing -> Right journal
+  auditRow (ProductMatrix.SomeProductProjection _ projection, row)
+    | nativeProjection projection =
+        case Native.parseNativeBundleReferenceData (wireRowNativeBundle row) of
+          Left failure -> pure (Left (ProductLaneJournalMalformed (Text.pack (show failure)) :| []))
+          Right reference -> do
+            actual <- Native.readNativeLaneBundle path expectedSha bytes reference projection
+            pure
+              ( case actual of
+                  Left diagnostic ->
+                    Left
+                      ( ProductLaneJournalSourceRejected
+                          ("native portable physical audit refused: " <> Text.pack (show diagnostic))
+                          :| []
+                      )
+                  Right value -> Right [value]
               )
-          Right () -> Right issued
+    | otherwise = pure (Right [])
 
 admitProductLaneJournal
   :: Text
   -> ProductMatrix.ProductProjectionBatch
   -> ByteString
   -> Either (NonEmpty ProductLaneJournalError) AdmittedProductLaneJournal
-admitProductLaneJournal expectedSha batch bytes = do
+admitProductLaneJournal = admitProductLaneJournalWithQualifications []
+
+admitProductLaneJournalWithQualifications
+  :: [(Text, ByteString)]
+  -> Text
+  -> ProductMatrix.ProductProjectionBatch
+  -> ByteString
+  -> Either (NonEmpty ProductLaneJournalError) AdmittedProductLaneJournal
+admitProductLaneJournalWithQualifications = admitProductLaneJournalInternal []
+
+admitProductLaneJournalInternal
+  :: [Native.NativeBundleAudit]
+  -> [(Text, ByteString)]
+  -> Text
+  -> ProductMatrix.ProductProjectionBatch
+  -> ByteString
+  -> Either (NonEmpty ProductLaneJournalError) AdmittedProductLaneJournal
+admitProductLaneJournalInternal nativeAudits objects expectedSha batch bytes = do
   unless (isCanonicalSha256 expectedSha) $
     Left
       ( ProductLaneJournalMalformed
@@ -421,6 +585,7 @@ admitProductLaneJournal expectedSha batch bytes = do
   let actualSha = sha256Bytes bytes
   unless (actualSha == expectedSha) $
     Left (ProductLaneJournalDigestMismatch expectedSha actualSha :| [])
+  mapLeft (:| []) (rejectObsoleteLaneWire bytes)
   journal <-
     case eitherDecodeStrict' bytes of
       Left detail -> Left (ProductLaneJournalMalformed (Text.pack detail) :| [])
@@ -430,8 +595,16 @@ admitProductLaneJournal expectedSha batch bytes = do
   case NonEmpty.nonEmpty (validateWire batch journal) of
     Just failures -> Left failures
     Nothing -> do
+      expectedKeys <- mapLeft (:| []) (productLaneJournalQualificationObjectKeys bytes)
+      unless
+        ( length (fmap fst objects) == length (List.nub (fmap fst objects))
+            && List.sort (fmap fst objects) == List.sort expectedKeys
+        )
+        ( Left
+            (ProductLaneJournalSourceRejected "qualification object map is missing, duplicate or foreign" :| [])
+        )
       rows <-
-        case traverse (admitRow (wireRunId journal)) (wireRows journal) of
+        case traverse (admitRow batch nativeAudits expectedSha objects (wireRunId journal)) (wireRows journal) of
           Left failure -> Left (failure :| [])
           Right value -> Right value
       substrate <-
@@ -451,10 +624,14 @@ admitProductLaneJournal expectedSha batch bytes = do
           }
 
 admitRow
-  :: Text
+  :: ProductMatrix.ProductProjectionBatch
+  -> [Native.NativeBundleAudit]
+  -> Text
+  -> [(Text, ByteString)]
+  -> Text
   -> ProductLaneJournalRowWire
   -> Either ProductLaneJournalError ProductLaneJournalRow
-admitRow runId row = do
+admitRow batch nativeAudits mainSha objects runId row = do
   completed <-
     maybe
       ( Left
@@ -474,15 +651,21 @@ admitRow runId row = do
       )
       Right
       (parseSubstrate (wireRowSubstrate row))
-  witness <-
-    case Budget.completedTrainingDeviceWitness completed of
+  execution <-
+    case Budget.completedTrainingExecutionProvenance completed of
       Right (Just value) -> Right value
       _ ->
         Left
           ( ProductLaneJournalSourceRejected
-              (wireRowId row <> ": completed_training has no device witness")
+              (wireRowId row <> ": completed_training has no execution provenance")
           )
-  case validateCompletedRow runId row plan lane witness completed of
+  qualification <- admitQualificationRow batch objects row completed
+  nativeAudit <- admitNativeRow batch nativeAudits mainSha objects row completed
+  case (execution, nativeAudit) of
+    (ArsHostLinearExecution _, Nothing) ->
+      Left (ProductLaneJournalSourceRejected "host execution requires an actually audited native bundle")
+    _ -> pure ()
+  case validateCompletedRow runId row plan lane execution completed of
     [] ->
       Right
         ProductLaneJournalRow
@@ -493,7 +676,9 @@ admitRow runId row = do
               RetainedCheckpointIdentity
                 (wireRowExperimentHash row)
                 (wireRowManifestSha row)
-          , admittedRowDevice = witness
+          , admittedRowExecution = execution
+          , admittedRowQualification = qualification
+          , admittedRowNativeAudit = nativeAudit
           , admittedRowCompleted = completed
           }
     failure : _ -> Left (ProductLaneJournalSourceRejected failure)
@@ -503,10 +688,10 @@ validateCompletedRow
   -> ProductLaneJournalRowWire
   -> PlanId
   -> Substrate
-  -> DeviceWitness.DeviceExecutionWitness
+  -> ExecutionProvenance ArsReference.ArsHostReference
   -> CompletedTraining
   -> [Text]
-validateCompletedRow runId row plan lane witness completed =
+validateCompletedRow runId row plan lane execution completed =
   [ label <> " differs from the refined completed_training value"
   | (label, agrees) <-
       [ ("plan_id", wireRowPlanId row == planIdText plan)
@@ -520,10 +705,9 @@ validateCompletedRow runId row plan lane witness completed =
         )
       ,
         ( "device_witness"
-        , DeviceWitness.renderDeviceExecutionWitness witness
-            == wireRowDeviceWitness row
+        , renderExecution execution == wireRowDeviceWitness row
         )
-      , ("device_witness substrate", DeviceWitness.witnessSubstrate witness == lane)
+      , ("execution provenance substrate", executionLane execution == lane)
       ,
         ( "inference_manifest_sha256"
         , wireRowInferenceManifestSha row == wireRowManifestSha row
@@ -565,6 +749,79 @@ validateCompletedRow runId row plan lane witness completed =
             ]
         , not agrees
         ]
+
+nativeProjection :: ProductMatrix.ProductProjection kind -> Bool
+nativeProjection projection =
+  ProductMatrix.productProjectionFamily projection
+    `elem` [ProductMatrix.ReinforcementLearning, ProductMatrix.AlphaZero]
+
+admitNativeRow
+  :: ProductMatrix.ProductProjectionBatch
+  -> [Native.NativeBundleAudit]
+  -> Text
+  -> [(Text, ByteString)]
+  -> ProductLaneJournalRowWire
+  -> CompletedTraining
+  -> Either ProductLaneJournalError (Maybe Native.NativeBundleAudit)
+admitNativeRow batch audits mainSha objects row completed =
+  case [ some
+       | some@(ProductMatrix.SomeProductProjection _ projection) <-
+           ProductMatrix.productProjectionBatchProjections batch
+       , ProductMatrix.productProjectionRowId projection == wireRowId row
+       ] of
+    [ProductMatrix.SomeProductProjection _ projection]
+      | nativeProjection projection -> do
+          reference <-
+            mapLeft
+              (ProductLaneJournalMalformed . Text.pack . show)
+              (Native.parseNativeBundleReferenceData (wireRowNativeBundle row))
+          actual <- case filter
+            ( (== wireRowId row)
+                . NativeBinding.nativeScenarioBindingRowId
+                . Native.nativeBundleBinding
+                . Native.nativeBundleAuditRoot
+            )
+            audits of
+            [value] -> Right value
+            _ -> Left (ProductLaneJournalSourceRejected "native row has no unique actual portable FILE audit")
+          key <-
+            mapLeft
+              (ProductLaneJournalMalformed . Text.pack . show)
+              (Native.nativeBundleReferenceObjectKey reference)
+          actualBytes <-
+            mapLeft
+              (ProductLaneJournalMalformed . Text.pack . show)
+              (Native.encodeNativeBundleRootData (Native.nativeBundleAuditRoot actual))
+          unless
+            (lookup key objects == Just actualBytes)
+            ( Left
+                (ProductLaneJournalSourceRejected "native captured root object map differs from actual FILE audit")
+            )
+          let binding = Native.nativeBundleBinding (Native.nativeBundleAuditRoot actual)
+              agrees =
+                Native.nativeBundleAuditMainSha256 actual == mainSha
+                  && Native.nativeBundleAuditReference actual == reference
+                  && Budget.encodeCompletedTraining (Native.nativeBundleAuditCompleted actual)
+                    == Budget.encodeCompletedTraining completed
+                  && NativeBinding.nativeScenarioBindingPlanId binding == wireRowPlanId row
+                  && NativeBinding.nativeScenarioBindingSubstrate binding == wireRowSubstrate row
+                  && NativeBinding.nativeScenarioBindingExperimentHash binding == wireRowExperimentHash row
+                  && NativeBinding.nativeScenarioBindingManifestSha256 binding == wireRowManifestSha row
+                  && NativeBinding.nativeScenarioBindingInferenceManifestSha256 binding
+                    == wireRowInferenceManifestSha row
+                  && NativeBinding.nativeScenarioBindingCheckpointScopeSha256 binding == wireRowCheckpointScopeSha row
+                  && NativeBinding.nativeScenarioBindingExecutableSha256 binding == wireRowExecutableSha row
+                  && NativeBinding.nativeScenarioBindingInvocationDigest binding == wireRowInvocationSha row
+                  && NativeBinding.nativeScenarioBindingContractSha256 binding == wireRowContractSha row
+                  && NativeBinding.nativeScenarioBindingExecutionJournalSha256 binding == wireRowJournalSha row
+          unless
+            agrees
+            (Left (ProductLaneJournalSourceRejected "native portable audit differs from this exact row"))
+          Right (Just actual)
+      | Text.null (wireRowNativeBundle row) -> Right Nothing
+      | otherwise ->
+          Left (ProductLaneJournalSourceRejected "non-native row carries a native portable bundle")
+    _ -> Left (ProductLaneJournalSourceRejected "native portable row has no unique current projection")
 validateWire
   :: ProductMatrix.ProductProjectionBatch
   -> ProductLaneJournalWire
@@ -618,7 +875,6 @@ validateWire batch journal =
               , ("completion_journal_sha256", wireRowJournalSha row)
               , ("measured_sha256", wireRowMeasuredSha row)
               ]
-            currentContractDigest = Report.productScenarioProjectionContractDigest projection
          in fmap
               ProductLaneJournalSourceRejected
               ( [ rowId <> ": plan_id differs from the current projection"
@@ -634,9 +890,11 @@ validateWire batch journal =
                          /= ProductMatrix.productProjectionExperimentHash projection
                      ]
               )
-              <> [ ProductLaneJournalContractStale rowId currentContractDigest (wireRowContractSha row)
-                 | wireRowContractSha row /= currentContractDigest
-                 ]
+              <> nativeWireFailures projection row
+              <> either
+                (: [])
+                (const [])
+                (validateProductLaneContract projection (wireRowContractSha row))
               <> fmap
                 ProductLaneJournalSourceRejected
                 ( [rowId <> ": status is not Passed" | wireRowStatus row /= "Passed"]
@@ -648,6 +906,32 @@ validateWire batch journal =
                        , not (isCanonicalSha256 value)
                        ]
                 )
+
+nativeWireFailures
+  :: ProductMatrix.ProductProjection kind -> ProductLaneJournalRowWire -> [ProductLaneJournalError]
+nativeWireFailures projection row
+  | nativeProjection projection =
+      case Native.parseNativeBundleReferenceData (wireRowNativeBundle row) of
+        Left failure -> [ProductLaneJournalMalformed (Text.pack (show failure))]
+        Right _ -> []
+  | Text.null (wireRowNativeBundle row) = []
+  | otherwise = [ProductLaneJournalSourceRejected "non-native row carries a native portable bundle"]
+
+-- | Compare one untrusted contract digest with its current opaque projection.
+-- This ordinary structural check grants no journal, source authentication,
+-- checkpoint admission or model authority. The current-wire admission path uses
+-- the same predicate after its independent format, coverage and identity checks.
+validateProductLaneContract
+  :: ProductMatrix.ProductProjection kind
+  -> Text
+  -> Either ProductLaneJournalError ()
+validateProductLaneContract projection observed =
+  if observed == current
+    then Right ()
+    else Left (ProductLaneJournalContractStale rowId current observed)
+ where
+  rowId = ProductMatrix.productProjectionRowId projection
+  current = Report.productScenarioProjectionContractDigest projection
 
 admittedProductLaneJournalRows
   :: AdmittedProductLaneJournal -> [ProductLaneJournalRow]
@@ -691,8 +975,25 @@ productLaneJournalRowJournalDigest :: ProductLaneJournalRow -> Text
 productLaneJournalRowJournalDigest = wireRowJournalSha . admittedRowWire
 
 productLaneJournalRowDeviceWitness
-  :: ProductLaneJournalRow -> DeviceWitness.DeviceExecutionWitness
-productLaneJournalRowDeviceWitness = admittedRowDevice
+  :: ProductLaneJournalRow -> Maybe DeviceWitness.DeviceExecutionWitness
+productLaneJournalRowDeviceWitness row = case admittedRowExecution row of
+  NeuralDeviceExecution value -> Just value
+  ArsHostLinearExecution _ -> Nothing
+
+productLaneJournalRowExecutionProvenance
+  :: ProductLaneJournalRow -> ExecutionProvenance ArsReference.ArsHostReference
+productLaneJournalRowExecutionProvenance = admittedRowExecution
+
+renderProductLaneJournalRowExecutionProvenance :: ProductLaneJournalRow -> Text
+renderProductLaneJournalRowExecutionProvenance = renderExecution . admittedRowExecution
+
+renderExecution :: ExecutionProvenance ArsReference.ArsHostReference -> Text
+renderExecution (NeuralDeviceExecution value) = DeviceWitness.renderDeviceExecutionWitness value
+renderExecution (ArsHostLinearExecution value) = "ars-host-linear-v1:" <> ArsReference.arsHostReferenceContentSha256 value
+
+executionLane :: ExecutionProvenance ArsReference.ArsHostReference -> Substrate
+executionLane (NeuralDeviceExecution value) = DeviceWitness.witnessSubstrate value
+executionLane (ArsHostLinearExecution value) = ArsReference.arsHostReferenceLane value
 
 productLaneJournalRowCompletedTraining
   :: ProductLaneJournalRow -> CompletedTraining
@@ -739,3 +1040,170 @@ ignoreIOException :: IO value -> IO ()
 ignoreIOException action = do
   _ <- tryIO action
   pure ()
+
+issuedProductLaneJournalQualificationObjects :: IssuedProductLaneJournal -> [(Text, ByteString)]
+issuedProductLaneJournalQualificationObjects issued =
+  issuedQualifications issued <> issuedNativeQualifications issued
+
+writeIssuedQualificationObjects
+  :: FilePath -> IssuedProductLaneJournal -> IO (Either ProductLaneJournalError ())
+writeIssuedQualificationObjects path issued = case issuedNativePlans issued of
+  [] -> writeQualificationObjects path (issuedQualifications issued)
+  plans -> do
+    prepared <- Native.prepareNativeBundleDirectory path
+    case prepared of
+      Left diagnostic -> pure (Left (ProductLaneJournalIOFailure path (Text.pack (show diagnostic))))
+      Right () -> do
+        supervised <- writeQualificationObjects path (issuedQualifications issued)
+        case supervised of
+          Left failure -> pure (Left failure)
+          Right () -> writePlans plans
+ where
+  writePlans [] = pure (Right ())
+  writePlans (plan : rest) = do
+    actual <- Native.writeNativeBundleObjects path plan
+    case actual of
+      Left diagnostic -> pure (Left (ProductLaneJournalIOFailure path (Text.pack (show diagnostic))))
+      Right () -> writePlans rest
+
+-- | Parse only canonical current wire bytes before the IO loader discovers
+-- filenames. The caller still verifies its pinned main digest before IO and
+-- admission repeats both checks. No untrusted path is returned.
+productLaneJournalQualificationObjectKeys :: ByteString -> Either ProductLaneJournalError [Text]
+productLaneJournalQualificationObjectKeys bytes = do
+  rejectObsoleteLaneWire bytes
+  journal <- mapLeft (ProductLaneJournalMalformed . Text.pack) (eitherDecodeStrict' bytes)
+  unless (canonicalBytes journal == bytes) (Left ProductLaneJournalNonCanonical)
+  unless
+    ( wireFormat journal == productLaneJournalFormat
+        && wireVersion journal == productLaneJournalWireVersion
+    )
+    (Left (ProductLaneJournalMalformed "unsupported qualification-bearing lane wire"))
+  references <-
+    traverse
+      parseReference
+      [ wireRowQualificationReceipt row
+      | row <- wireRows journal
+      , not (Text.null (wireRowQualificationReceipt row))
+      ]
+  nativeReferences <-
+    traverse
+      (mapLeft (ProductLaneJournalMalformed . Text.pack . show) . Native.parseNativeBundleReferenceData)
+      [wireRowNativeBundle row | row <- wireRows journal, not (Text.null (wireRowNativeBundle row))]
+  nativeKeys <-
+    traverse
+      (mapLeft (ProductLaneJournalMalformed . Text.pack . show) . Native.nativeBundleReferenceObjectKey)
+      nativeReferences
+  let keys = fmap Receipt.qualificationReferenceObjectKey references <> nativeKeys
+  unless
+    (length keys == length (List.nub keys))
+    (Left (ProductLaneJournalMalformed "duplicate detached qualification object keys"))
+  Right keys
+ where
+  parseReference = mapLeft ProductLaneJournalMalformed . Receipt.parseSupervisedQualificationReference
+
+admitQualificationRow
+  :: ProductMatrix.ProductProjectionBatch
+  -> [(Text, ByteString)]
+  -> ProductLaneJournalRowWire
+  -> CompletedTraining
+  -> Either ProductLaneJournalError (Maybe Receipt.RetainedSupervisedQualification)
+admitQualificationRow batch objects row completed =
+  case [ projection
+       | projection@(ProductMatrix.SomeProductProjection _ value) <-
+           ProductMatrix.productProjectionBatchProjections batch
+       , ProductMatrix.productProjectionRowId value == wireRowId row
+       ] of
+    [ProductMatrix.SomeProductProjection Plan.SupervisedTrainingWitness projection] -> do
+      reference <-
+        mapFailure (Receipt.parseSupervisedQualificationReference (wireRowQualificationReceipt row))
+      cohort <- mapFailure (Cohort.mkSupervisedCohortPlan projection)
+      bytes <-
+        maybe
+          ( Left
+              (ProductLaneJournalSourceRejected "qualification artifact is absent from the explicit object map")
+          )
+          Right
+          (lookup (Receipt.qualificationReferenceObjectKey reference) objects)
+      proof <-
+        mapFailure
+          ( Receipt.validateRetainedSupervisedQualification
+              cohort
+              reference
+              bytes
+              (wireRowManifestSha row)
+              (wireRowExecutableSha row)
+              (wireRowInvocationSha row)
+              completed
+          )
+      Right (Just proof)
+    [ProductMatrix.SomeProductProjection _ _] ->
+      if Text.null (wireRowQualificationReceipt row)
+        then Right Nothing
+        else
+          Left (ProductLaneJournalSourceRejected "non-supervised lane row carries supervised qualification")
+    _ ->
+      Left
+        (ProductLaneJournalSourceRejected "qualification row does not have exactly one projected owner")
+ where
+  mapFailure = mapLeft ProductLaneJournalSourceRejected
+
+-- | Content-addressed binary objects are created before the atomic main
+-- journal. Existing bytes must agree; an interrupted write cannot leave a
+-- main journal that points at absent or replaced qualification data.
+writeQualificationObjects
+  :: FilePath -> [(Text, ByteString)] -> IO (Either ProductLaneJournalError ())
+writeQualificationObjects journalPath = go
+ where
+  go [] = pure (Right ())
+  go ((key, bytes) : rest) = do
+    let sha = sha256Bytes bytes
+        filename = Text.unpack sha <> ".cbor"
+        directory = journalPath <> ".qualifications"
+    if not (Text.isSuffixOf ("/" <> sha <> ".cbor") key)
+      then
+        pure (Left (ProductLaneJournalMalformed "qualification object key differs from exact payload hash"))
+      else do
+        written <-
+          Store.writeObjectIfAbsent directory (Text.pack filename) (LazyByteString.fromStrict bytes)
+        case written of
+          Left failure -> pure (Left (ProductLaneJournalIOFailure (directory </> filename) (Text.pack (show failure))))
+          Right _ -> go rest
+
+-- | An explicitly historical wire cannot establish the new contract. Preserve
+-- that typed obsolescence independently of row parsing; no old bytes are
+-- admitted, rewritten, or falsely described as corrupt by this classification.
+rejectObsoleteLaneWire :: ByteString -> Either ProductLaneJournalError ()
+rejectObsoleteLaneWire bytes =
+  case (eitherDecodeStrict' bytes :: Either String Value) of
+    Right (Object record) -> case parseEither (\value -> (,) <$> value .: "format" <*> value .: "version") record of
+      Right (format, version)
+        | format == productLaneJournalFormat && elem version ([1, 2] :: [Word64]) ->
+            Left (ProductLaneJournalWireStale productLaneJournalWireVersion version)
+      _ -> Right ()
+    _ -> Right ()
+
+-- Tuning has no original code-source field in the historical wire. It remains
+-- fully admitted/current-contract checked but is outside either training review.
+-- Missing historical review identity stays Nothing, never inferred from peers.
+admittedProductLaneJournalReviewBindings
+  :: AdmittedProductLaneJournal
+  -> [(Text, Maybe Source.SourceStamp, Maybe (Text, Text, Text), Maybe (Text, Text, Text))]
+admittedProductLaneJournalReviewBindings = map binding . admittedRows
+ where
+  binding row = case (admittedRowQualification row, admittedRowNativeAudit row) of
+    (Just supervised, Nothing) ->
+      ( wireRowId (admittedRowWire row)
+      , Just (Receipt.retainedSupervisedQualificationSource supervised)
+      , Review.criterionReviewIdentityTuple
+          <$> Receipt.retainedSupervisedQualificationReviewIdentity supervised
+      , Nothing
+      )
+    (Nothing, Just native) ->
+      let receipt = Native.nativeBundleReceipt (Native.nativeBundleAuditRoot native)
+       in ( wireRowId (admittedRowWire row)
+          , Just (Parent.nativeParentRequestSource (NativeReceipt.nativeScenarioReceiptRequest receipt))
+          , Nothing
+          , Review.criterionReviewIdentityTuple <$> NativeReceipt.nativeScenarioReceiptCriterionReview receipt
+          )
+    _ -> (wireRowId (admittedRowWire row), Nothing, Nothing, Nothing)

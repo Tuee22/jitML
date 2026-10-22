@@ -9,6 +9,7 @@ module JitML.RL.Command
 where
 
 import Control.Monad.Reader (ask, liftIO)
+import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Foldable (for_, traverse_)
 import Data.Maybe (fromMaybe)
 import Data.Text (Text)
@@ -27,10 +28,12 @@ import JitML.Experiment.Overrides qualified as Overrides
 import JitML.Experiment.Product qualified as ProductExperiment
 import JitML.Numerics.MlpDeviceSelect (rlDeviceForSubstrate)
 import JitML.Plan.Plan qualified as Plan
+import JitML.Product.ArsHostReference qualified as ArsReference
 import JitML.Product.Completion qualified as ProductCompletion
 import JitML.Proto.Rl qualified as ProtoRl
 import JitML.RL.Algorithms qualified as RL
 import JitML.RL.Algorithms.Common qualified as AlgorithmCommon
+import JitML.RL.ArsHostTrace qualified as ArsTrace
 import JitML.RL.Command.AlphaZero qualified as AlphaZeroCommand
 import JitML.RL.Command.Options
   ( envWithDefault
@@ -187,18 +190,6 @@ runRl runtime runConfigPath ["rl", "train"] parsedOptions = do
   -- printed or published in that case.
   substrate <- Overrides.overrideSubstrate overrides <$> rlCommandWorkerSubstrateBase runtime
   env <- ask
-  episodesE <-
-    liftIO
-      ( TrainerExecution.runTrainerEpisodesForPlan
-          substrate
-          (rlDeviceForSubstrate substrate env)
-          atariRomPath
-          plan
-      )
-  trainerRun <- case episodesE of
-    Left err -> exitWithError (InvalidConfig err)
-    Right run -> pure run
-  let episodes = trainerRunEpisodes trainerRun
   liveExperimentHash <- rlCommandWorkerExperimentHash runtime
   let rlExperimentDhall = selectedValue "rl-experiment-dhall" "experiments/cartpole.dhall" parsedOptions
       derivedExperimentHash =
@@ -208,6 +199,43 @@ runRl runtime runConfigPath ["rl", "train"] parsedOptions = do
       experimentHash = fromMaybe derivedExperimentHash liveExperimentHash
       tensorName = "rl-" <> trainerKind <> "-weights"
       compiledPlanId = ProductBudget.compiledRlPlanId plan
+  (episodesE, genericArsOrigin, hostArtifact) <-
+    if trainerKind == "ars"
+      then do
+        attempt <- liftIO (TrainerExecution.runGenericArsAttemptForPlan substrate experimentHash "." plan)
+        let actualOrigin = TrainerExecution.genericArsAttemptOrigin attempt
+        storedTrace <-
+          traverse
+            ( \origin -> do
+                let trace = TrainerExecution.producedGenericArsHostTrace origin
+                    reference = TrainerExecution.producedGenericArsHostReference origin
+                actual <-
+                  CheckpointWriter.writeBinaryArtifact
+                    experimentHash
+                    "ars-host-execution"
+                    (LazyByteString.fromStrict (ArsTrace.encodeArsHostTrace trace))
+                if CheckpointWriter.storedArtifactSha actual == ArsReference.arsHostReferenceContentSha256 reference
+                  && CheckpointWriter.storedArtifactObjectKey actual == ArsReference.arsHostReferenceObjectKey reference
+                  then pure actual
+                  else
+                    exitWithError (InvalidConfig "generic ARS trace write differs from its actual origin reference")
+            )
+            actualOrigin
+        pure (TrainerExecution.genericArsAttemptStrictResult attempt, actualOrigin, storedTrace)
+      else do
+        actual <-
+          liftIO
+            ( TrainerExecution.runTrainerEpisodesForPlan
+                substrate
+                (rlDeviceForSubstrate substrate env)
+                atariRomPath
+                plan
+            )
+        pure (actual, Nothing, Nothing)
+  trainerRun <- case episodesE of
+    Left err -> exitWithError (InvalidConfig err)
+    Right run -> pure run
+  let episodes = trainerRunEpisodes trainerRun
   completionPlanId <-
     case Plan.refinePlanIdText compiledPlanId of
       Left err ->
@@ -265,6 +293,16 @@ runRl runtime runConfigPath ["rl", "train"] parsedOptions = do
           )
   let
     averageReward = metricValueOrZero "avg_reward" completionMetrics
+  -- ARS completion binds the SAME actual trajectory in its immutable graph.
+  -- Other trainer publication order remains unchanged.
+  earlyArsTrajectory <- case genericArsOrigin of
+    Nothing -> pure Nothing
+    Just _ ->
+      Just
+        <$> CheckpointWriter.writeTextArtifact
+          experimentHash
+          "rl-trajectory"
+          (renderRlTrajectoryArtifact experimentHash envName trainerKind resolvedSeed episodes)
   checkpointMaybe <-
     case trainedState of
       Nothing -> pure Nothing
@@ -280,14 +318,29 @@ runRl runtime runConfigPath ["rl", "train"] parsedOptions = do
                 weights
             pure (Just (PersistedRlCandidateCheckpoint stored))
           Just completed -> do
-            stored <-
-              CheckpointWriter.writeLocalCompletedWeightCheckpoint
-                completed
-                experimentHash
-                tensorName
-                checkpointStep
-                completionMetrics
-                weights
+            stored <- case (genericArsOrigin, earlyArsTrajectory) of
+              (Just origin, Just trajectory) ->
+                CheckpointWriter.writeLocalCompletedGenericArsHostCheckpoint
+                  completed
+                  experimentHash
+                  tensorName
+                  checkpointStep
+                  completionMetrics
+                  (TrainerExecution.producedGenericArsHostTrace origin)
+                  [ Checkpoint.ArtifactPointer
+                      { Checkpoint.artifactPointerKind = "rl-trajectory"
+                      , Checkpoint.artifactPointerObjectKey = CheckpointWriter.storedArtifactObjectKey trajectory
+                      , Checkpoint.artifactPointerSha = Just (CheckpointWriter.storedArtifactSha trajectory)
+                      }
+                  ]
+              _ ->
+                CheckpointWriter.writeLocalCompletedWeightCheckpoint
+                  completed
+                  experimentHash
+                  tensorName
+                  checkpointStep
+                  completionMetrics
+                  weights
             pure
               ( Just
                   ( PersistedRlCompletedCheckpoint
@@ -295,11 +348,13 @@ runRl runtime runConfigPath ["rl", "train"] parsedOptions = do
                       stored
                   )
               )
-  replayArtifact <-
-    CheckpointWriter.writeTextArtifact
-      experimentHash
-      "rl-trajectory"
-      (renderRlTrajectoryArtifact experimentHash envName trainerKind resolvedSeed episodes)
+  replayArtifact <- case earlyArsTrajectory of
+    Just actual -> pure actual
+    Nothing ->
+      CheckpointWriter.writeTextArtifact
+        experimentHash
+        "rl-trajectory"
+        (renderRlTrajectoryArtifact experimentHash envName trainerKind resolvedSeed episodes)
   let replayArtifactLines = CheckpointWriter.renderStoredArtifactLines "rl-replay" replayArtifact
   writeText $
     Text.unlines
@@ -318,6 +373,7 @@ runRl runtime runConfigPath ["rl", "train"] parsedOptions = do
             )
             checkpointMaybe
           <> replayArtifactLines
+          <> maybe [] (CheckpointWriter.renderStoredArtifactLines "ars-host") hostArtifact
       )
   case trainerRun of
     TrainerExecution.EvaluationOnly _ -> pure ()

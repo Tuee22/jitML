@@ -30,7 +30,6 @@ import Control.Monad (void, when)
 import Control.Monad.IO.Class (MonadIO)
 import Control.Monad.Reader (ask, asks, liftIO, runReaderT)
 import Crypto.Hash.SHA256 qualified
-import Data.Aeson (eitherDecode, encode)
 import Data.ByteString qualified
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Either (lefts)
@@ -43,15 +42,14 @@ import Data.Word (Word32, Word64)
 import Options.Applicative (ParserResult (..), renderFailure)
 import Path (Abs, Dir, Path, toFilePath)
 import System.Directory
-  ( createDirectoryIfMissing
-  , doesDirectoryExist
+  ( doesDirectoryExist
   , doesFileExist
   , getFileSize
   , listDirectory
+  , makeAbsolute
   , removeFile
   )
 import System.Environment (getArgs, lookupEnv, unsetEnv)
-import System.Exit (ExitCode (..))
 import System.FilePath (takeFileName, (</>))
 import Text.Read (readMaybe)
 
@@ -81,10 +79,13 @@ import JitML.Cache.Key qualified as Cache
 import JitML.Cache.Layout qualified as CacheLayout
 import JitML.Cache.Manifest qualified as CacheManifest
 import JitML.Checkpoint.Format qualified as Checkpoint
+import JitML.Checkpoint.NativeQualificationGc qualified as NativeGc
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Checkpoint.Writer qualified as CheckpointWriter
-import JitML.Cluster.Helm qualified as Helm
-import JitML.Cluster.Publication (ClusterPublication, defaultPublication, renderPublicationSummary)
+import JitML.Cluster.Lifecycle qualified as ClusterLifecycle
+import JitML.Cluster.LifecycleFilesystem qualified as LifecycleFilesystem
+import JitML.Cluster.LifecycleTarget qualified as LifecycleTarget
+import JitML.Cluster.Publication (ClusterPublication, renderPublicationSummary)
 import JitML.Cluster.Publication qualified as Publication
 import JitML.Coordinator.Topology qualified as Topology
 import JitML.Docs.Check (checkDocs, renderDocsDrift)
@@ -144,6 +145,8 @@ import JitML.Product.Completion qualified as ProductCompletion
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Product.Pipeline qualified as ProductPipeline
 import JitML.Product.Publisher qualified as ProductPublisher
+import JitML.Product.Publisher.SourceAuthority qualified as QualificationSource
+import JitML.Product.SourceDigest qualified as NativeSource
 import JitML.Product.StatusEvidence (renderStatusReport)
 import JitML.Product.StatusLoader (loadProductStatusReport)
 import JitML.Project.Config qualified as ProjectConfig
@@ -160,24 +163,25 @@ import JitML.SL.TrainingExecution qualified as TrainingExecution
 import JitML.Service.BootConfig qualified as BootConfig
 import JitML.Service.Capabilities qualified as Capabilities
 import JitML.Service.CatalogSchema qualified as CatalogSchema
-import JitML.Service.Clients qualified as ServiceClients
 import JitML.Service.Command qualified as ServiceCommand
 import JitML.Service.DhallSchema qualified as DhallSchema
 import JitML.Service.HostWorkloadRegistry qualified as HostWorkloadRegistry
 import JitML.Service.MinIOSubprocess qualified as MinIOSubprocess
 import JitML.Service.PulsarWebSocketSubprocess qualified as PulsarWebSocketSubprocess
 import JitML.Service.RunConfig qualified as RunConfig
-import JitML.Sub.Outcome
-  ( ProcessOutcome (..)
-  , processFailureExitCode
+import JitML.Service.WorkerPublication
+  ( WorkerLiveContext
+  , workerLiveMinIOSettings
+  , workerLivePublication
+  , workerLivePulsarSettings
+  , workerLiveUsesMountedServices
   )
-import JitML.Sub.Stream
-  ( defaultSubprocessEnv
-  , runStreaming
-  )
-import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate, substrateEdgePort)
+import JitML.Service.WorkerPublication qualified as WorkerPublication
+import JitML.Sub.Stream (defaultSubprocessEnv)
+import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Test.Command qualified as TestCommand
 import JitML.Test.ProductScenarioJournal qualified as ProductScenarioJournal
+import JitML.Test.Report qualified as ProductReport
 import JitML.Training.Budget qualified as TrainingBudget
 import JitML.Tune.Command qualified as TuneCommand
 
@@ -628,25 +632,29 @@ runCluster ["cluster", "up"] parsedOptions =
 runCluster ["cluster", "status"] _ = do
   publication <- readClusterPublicationOrExit
   writeText (renderPublicationSummary publication)
-runCluster ["cluster", "down"] _ = do
-  publication <- readClusterPublicationOrExit
-  let substrate = Publication.publicationSubstrate publication
-      command = Helm.kindDeleteSubprocess substrate
-      clusterName = "jitml-" <> renderSubstrate substrate
-  outcome <- liftIO (runStreaming defaultSubprocessEnv command)
-  case outcome of
-    ProcessSucceeded _ ->
-      liftIO (writeClusterPublication (publicationWithStatus "stopped" publication))
-        >> writeLine ("cluster down: " <> clusterName <> " deleted; ./.build and ./.data preserved")
-    ProcessFailed failure ->
-      case processFailureExitCode failure of
-        ExitFailure 3 -> do
-          liftIO (writeClusterPublication (publicationWithStatus "stopped" publication))
-          exitWithError (ReconcilerNoop ("cluster down: " <> clusterName <> " already absent"))
-        _ -> exitWithError (SubprocessFailed failure)
+runCluster ["cluster", "down"] parsedOptions = do
+  result <-
+    liftIO (tryAny (ClusterLifecycle.stopCluster "." (optionValues "substrate" parsedOptions)))
+  case result of
+    Left err -> exitWithError (InvalidConfig (Text.pack (displayException err)))
+    Right ClusterLifecycle.ClusterDeleted ->
+      writeLine "cluster down: owned cluster deleted; stateful data and ./.build preserved"
+    Right ClusterLifecycle.ClusterAlreadyAbsent ->
+      exitWithError
+        (ReconcilerNoop "cluster down: owned cluster already absent; retained snapshots unchanged")
 runCluster ["cluster", "reset"] parsedOptions
-  | hasOption "yes" parsedOptions =
-      writeLine "cluster reset: local runtime state reset requested"
+  | hasOption "yes" parsedOptions = do
+      let full = hasOption "full" parsedOptions
+      result <-
+        liftIO (tryAny (ClusterLifecycle.resetCluster "." (optionValues "substrate" parsedOptions) full))
+      case result of
+        Left err -> exitWithError (InvalidConfig (Text.pack (displayException err)))
+        Right () ->
+          writeLine
+            ( if full
+                then "cluster reset: owned cluster, ./.data and ./.build removed"
+                else "cluster reset: owned cluster and ./.data removed; ./.build preserved"
+            )
   | otherwise =
       exitWithError (InvalidConfig "cluster reset requires --yes")
 runCluster path _ =
@@ -924,47 +932,12 @@ eitherToMaybe :: Either a b -> Maybe b
 eitherToMaybe (Right value) = Just value
 eitherToMaybe (Left _) = Nothing
 
-data WorkerLiveContext = WorkerLiveContext
-  { workerLivePublication :: ClusterPublication
-  , workerLiveMinIOSettings :: MinIOSubprocess.MinIOSettings
-  , workerLivePulsarSettings :: PulsarWebSocketSubprocess.PulsarWebSocketSettings
-  , workerLiveUsesMountedServices :: Bool
-  }
-
--- | Resolve live service coordinates for a worker process. Daemon-dispatched
--- Kubernetes Jobs mount @BootConfig.dhall@ but do not have the host's
--- @.build/runtime/cluster-publication.json@, so they must use in-cluster
--- service DNS for MinIO/Pulsar. Host-side developer commands keep using the
--- leased edge publication file.
+-- | Shared mounted-service/host-edge resolution. A present malformed worker
+-- configuration fails closed; a genuinely offline CLI retains no remote target.
 workerLiveContext :: App (Maybe WorkerLiveContext)
 workerLiveContext = do
-  bootMaybe <- liftIO (tryLoadBootConfigFromFile serviceBootConfigPath)
-  case bootMaybe of
-    Just bootConfig -> do
-      let clientSettings = ServiceClients.engineClientSettingsForBootConfig bootConfig
-      pure $
-        Just
-          WorkerLiveContext
-            { workerLivePublication = publicationFromBootConfig bootConfig
-            , workerLiveMinIOSettings = ServiceClients.engineMinIOSettings clientSettings
-            , workerLivePulsarSettings = ServiceClients.enginePulsarSettings clientSettings
-            , workerLiveUsesMountedServices = True
-            }
-    Nothing -> do
-      cluster <- liftIO (readExistingLivePublication ".")
-      pure $
-        fmap
-          ( \publication ->
-              let edgePort = Publication.publicationEdgePort publication
-               in WorkerLiveContext
-                    { workerLivePublication = publication
-                    , workerLiveMinIOSettings = MinIOSubprocess.minioSettingsForLocalEdge edgePort
-                    , workerLivePulsarSettings =
-                        PulsarWebSocketSubprocess.pulsarSettingsForLocalEdge edgePort
-                    , workerLiveUsesMountedServices = False
-                    }
-          )
-          cluster
+  resolved <- liftIO (WorkerPublication.resolveWorkerLiveContext ".")
+  either (exitWithError . InvalidConfig) pure resolved
 
 -- Keep the device-training effect boundary opaque to App's optimizer.
 trainingExecutionRuntime :: TrainingExecution.TrainingExecutionRuntime
@@ -1078,14 +1051,6 @@ rlWorkerServicesFromContext context =
     { RlCommand.rlWorkerServiceSubstrate =
         Publication.publicationSubstrate (workerLivePublication context)
     , RlCommand.rlWorkerServicePulsarSettings = workerLivePulsarSettings context
-    }
-
-publicationFromBootConfig :: BootConfig.BootConfig -> ClusterPublication
-publicationFromBootConfig bootConfig =
-  (defaultPublication (BootConfig.bootSubstrate bootConfig))
-    { Publication.publicationEdgePort = substrateEdgePort (BootConfig.bootSubstrate bootConfig)
-    , Publication.publicationPulsarUrl = BootConfig.bootPulsarServiceUrl bootConfig
-    , Publication.publicationMinioUrl = BootConfig.bootMinioEndpoint bootConfig
     }
 
 -- | Sprint 13.5 — resolve the worker's broker publish target. A
@@ -1519,7 +1484,7 @@ runConfigPath = "/etc/jitml/run/RunConfig.dhall"
 -- worker can read 'JitML.Service.BootConfig' instead of @JITML_SUBSTRATE@ /
 -- @JITML_PULSAR_WS@.
 serviceBootConfigPath :: FilePath
-serviceBootConfigPath = "/etc/jitml/service/BootConfig.dhall"
+serviceBootConfigPath = WorkerPublication.workerServiceBootConfigPath
 
 envWithDefault :: String -> Text -> IO Text
 envWithDefault name fallback = do
@@ -1841,8 +1806,10 @@ runInternalTrainAndPublishProductRows parsedOptions = do
           commandRow
           (Text.pack <$> rowFilterRaw)
       )
-  rawInvocation <- liftIO $ do
+  (rawInvocation, rawQualificationSource, rawCriterionReview) <- liftIO $ do
     encoded <- lookupEnv "JITML_PRODUCT_SCENARIO_INVOCATION"
+    source <- lookupEnv QualificationSource.supervisedQualificationSourceEnvironment
+    criterionReview <- lookupEnv QualificationSource.supervisedCriterionReviewEnvironment
     case encoded of
       Nothing -> pure ()
       Just _ ->
@@ -1850,11 +1817,28 @@ runInternalTrainAndPublishProductRows parsedOptions = do
         -- after the atomic read, before parsing, training, codegen, or compiler
         -- helpers can inherit a replayable scenario challenge.
         unsetEnv "JITML_PRODUCT_SCENARIO_INVOCATION"
-    pure encoded
+    unsetEnv QualificationSource.supervisedQualificationSourceEnvironment
+    unsetEnv QualificationSource.supervisedCriterionReviewEnvironment
+    pure (encoded, Text.pack <$> source, criterionReview)
+  let runtime =
+        productPublisherRuntime
+          { ProductPublisher.publisherSupervisedQualificationProducer =
+              \invocation -> case ProductReport.productScenarioReviewContractSetSha256 substrate of
+                Left reason -> pure (Left reason)
+                Right contracts ->
+                  liftIO
+                    ( QualificationSource.captureReviewedSupervisedQualificationProducer
+                        substrate
+                        contracts
+                        rawQualificationSource
+                        rawCriterionReview
+                        invocation
+                    )
+          }
   case rawInvocation of
     Nothing ->
       ProductPublisher.runTrainAndPublishProductRows
-        productPublisherRuntime
+        runtime
         substrate
         selectedRows
     Just encodedInvocation -> do
@@ -1865,9 +1849,10 @@ runInternalTrainAndPublishProductRows parsedOptions = do
                 ("invalid JITML_PRODUCT_SCENARIO_INVOCATION: " <> err)
             )
         Right invocation -> do
-          ProductPublisher.runTrainAndPublishProductRowsForInvocation
+          ProductPublisher.runTrainAndPublishProductRowsForInvocationWithSource
             invocation
-            productPublisherRuntime
+            (NativeSource.SourceStamp NativeSource.sourceDigestAlgorithm <$> rawQualificationSource)
+            (runtime {ProductPublisher.publisherWriteBinaryArtifact = writeProductBinaryArtifact True})
             substrate
             selectedRows
 
@@ -1875,17 +1860,13 @@ productPublisherRuntime :: ProductPublisher.ProductPublisherRuntime
 productPublisherRuntime =
   ProductPublisher.ProductPublisherRuntime
     { ProductPublisher.publisherRunSupervisedTraining =
-        \substrate problem trainLimit epochs testLimit batchSize exactLearningRate -> do
+        \child -> do
           fmap supervisedPublishRunFromTrainingMetrics
-            <$> TrainingExecution.runDeviceMnistTrainingWithLimitsAndLearningRate
+            <$> TrainingExecution.runDeviceSupervisedSeedTraining
               trainingExecutionRuntime
-              substrate
-              problem
-              trainLimit
-              epochs
-              testLimit
-              batchSize
-              (Just exactLearningRate)
+              child
+    , ProductPublisher.publisherSupervisedQualificationProducer =
+        liftIO . QualificationSource.captureSupervisedQualificationProducer Nothing
     , ProductPublisher.publisherRunRlTraining =
         \substrate device plan ->
           TrainerExecution.runTrainerEpisodesForPlan substrate device Nothing plan
@@ -1909,6 +1890,7 @@ productPublisherRuntime =
             ( CheckpointWriter.storedArtifactSha stored
             , CheckpointWriter.storedArtifactObjectKey stored
             )
+    , ProductPublisher.publisherWriteBinaryArtifact = writeProductBinaryArtifact False
     , ProductPublisher.publisherLoadTuningDataset =
         fmap (fmap tuningPublishDatasetFromExecutionDataset)
           . TuneCommand.loadTuningExecutionDataset tuningCommandRuntime
@@ -1926,6 +1908,20 @@ productPublisherRuntime =
     }
 {-# NOINLINE productPublisherRuntime #-}
 
+-- | A parsed scenario invocation must durably publish every binary attempt
+-- record before returning its identity. The mandatory cohort-start write uses
+-- this adapter before the first child; later raw returns/outcomes/verdicts use
+-- the same rule. Direct local publication remains explicitly offline-capable.
+writeProductBinaryArtifact :: Bool -> Text -> Text -> LazyByteString.ByteString -> App (Text, Text)
+writeProductBinaryArtifact requireLive experimentHash kind payload = do
+  stored <- CheckpointWriter.writeBinaryArtifact experimentHash kind payload
+  when (requireLive && not (CheckpointWriter.storedArtifactMirroredToLive stored)) $
+    exitWithError
+      ( MinIOFailed
+          "scenario qualification attempt artifacts require verified configured remote publication"
+      )
+  pure (CheckpointWriter.storedArtifactSha stored, CheckpointWriter.storedArtifactObjectKey stored)
+
 supervisedPublishRunFromTrainingMetrics
   :: TrainingMetrics
   -> ProductPublisher.SupervisedPublishRun
@@ -1942,6 +1938,8 @@ supervisedPublishRunFromTrainingMetrics metrics =
     , ProductPublisher.supervisedPublishRuntimeProgram = tmSupervisedRuntimeProgram metrics
     , ProductPublisher.supervisedPublishLayerGraphMetadata =
         tmTrainedLayerGraphMetadata metrics
+    , ProductPublisher.supervisedPublishInitialLayerGraphMetadata =
+        tmInitialLayerGraphMetadata metrics
     , ProductPublisher.supervisedPublishInitialJmw1Bytes = tmInitialJmw1Bytes metrics
     , ProductPublisher.supervisedPublishFinalJmw1Bytes = tmFinalJmw1Bytes metrics
     , ProductPublisher.supervisedPublishVerifiedDatasetShaAtRead =
@@ -2173,6 +2171,17 @@ runFreshGcConvergence publication minioSettings substrateText experimentHash ret
             experimentHash
             freshManifests
         )
+    let freshRoots = freshCatalogueRoots <> freshPointerRoots
+        freshBasePlan =
+          CheckpointStore.buildGcPlan experimentHash retention freshManifests freshRoots
+    freshNativeRoots <-
+      runGcMinIO
+        minioSettings
+        "fresh native qualification reachability"
+        ( NativeGc.loadNativeQualificationGcReachability
+            experimentHash
+            (NativeGc.nativeGcKeptManifests (freshManifests <> freshRoots) freshBasePlan)
+        )
     freshReservations <-
       runGcMinIO
         minioSettings
@@ -2208,13 +2217,7 @@ runFreshGcConvergence publication minioSettings substrateText experimentHash ret
       freshCancelled
       freshReady
       freshPublished
-    let freshRoots = freshCatalogueRoots <> freshPointerRoots
-        freshPlan =
-          CheckpointStore.buildGcPlan
-            experimentHash
-            retention
-            freshManifests
-            freshRoots
+    freshPlan <- protectNativeGcPlan freshNativeRoots freshBasePlan
     if freshEpochBefore /= freshEpochAfter
       then pure (Left (discovered, recoveredTerminalEvents))
       else do
@@ -2486,12 +2489,16 @@ runInternalGc parsedOptions = do
           "mutable-pointer root admission"
           (CheckpointStore.loadCheckpointPointerGcRoots experimentHash manifests)
       let roots = catalogueRoots <> pointerRoots
-          plan =
-            CheckpointStore.buildGcPlan
+          basePlan = CheckpointStore.buildGcPlan experimentHash retention manifests roots
+      nativeRoots <-
+        runGcMinIO
+          minioSettings
+          "native qualification reachability"
+          ( NativeGc.loadNativeQualificationGcReachability
               experimentHash
-              retention
-              manifests
-              roots
+              (NativeGc.nativeGcKeptManifests (manifests <> roots) basePlan)
+          )
+      plan <- protectNativeGcPlan nativeRoots basePlan
       initialDiscoveredIntents <-
         case gcFreshPlanIntentsToPersist plan initialPending of
           Left reason ->
@@ -2569,7 +2576,18 @@ runInternalGc parsedOptions = do
         case loadedManifests of
           Left err -> exitWithError (InvalidConfig ("gc manifest scan: " <> err))
           Right found -> pure found
-      let plan = CheckpointStore.buildGcPlan experimentHash retention manifests []
+      let basePlan = CheckpointStore.buildGcPlan experimentHash retention manifests []
+      nativeRootsResult <-
+        liftIO
+          ( NativeGc.loadLocalNativeQualificationGcReachability
+              checkpointRoot
+              experimentHash
+              (NativeGc.nativeGcKeptManifests manifests basePlan)
+          )
+      nativeRoots <- case nativeRootsResult of
+        Left reason -> exitWithError (InvalidConfig ("gc native qualification reachability: " <> reason))
+        Right value -> pure value
+      plan <- protectNativeGcPlan nativeRoots basePlan
       writeLine
         ( "gc: "
             <> experimentHash
@@ -2892,48 +2910,13 @@ readClusterPublicationOrExit = do
 
 readClusterPublication :: IO (Either Text ClusterPublication)
 readClusterPublication = do
-  let publicationPath = ".build/runtime/cluster-publication.json"
-  exists <- doesFileExist publicationPath
-  if exists
-    then do
-      bytes <- LazyByteString.readFile publicationPath
-      pure $ case eitherDecode bytes of
-        Left err ->
-          Left
-            ( "cluster publication is corrupt: "
-                <> Text.pack publicationPath
-                <> ": "
-                <> Text.pack err
-            )
-        Right publication
-          | Publication.publicationHasLiveEvidence publication -> Right publication
-          | otherwise ->
-              Left
-                ( "cluster publication has no live readiness evidence: "
-                    <> Text.pack publicationPath
-                    <> "; run `jitml cluster up --substrate <substrate>` or `jitml bootstrap --<substrate>`"
-                )
-    else
-      pure
-        ( Left
-            ( "cluster publication is missing: "
-                <> Text.pack publicationPath
-                <> "; run `jitml cluster up --substrate <substrate>` or `jitml bootstrap --<substrate>`"
-            )
-        )
-
-writeClusterPublication :: ClusterPublication -> IO ()
-writeClusterPublication publication = do
-  let runtimeRoot = ".build" </> "runtime"
-  createDirectoryIfMissing True runtimeRoot
-  LazyByteString.writeFile (runtimeRoot </> "cluster-publication.json") (encode publication)
-
-publicationWithStatus :: Text -> ClusterPublication -> ClusterPublication
-publicationWithStatus status publication =
-  publication
-    { Publication.publicationComponents =
-        [(name, status) | (name, _) <- Publication.publicationComponents publication]
-    }
+  root <- makeAbsolute "."
+  observed <- tryAny (LifecycleFilesystem.readLifecyclePublication root)
+  pure $ case observed of
+    Left err -> Left (Text.pack (displayException err))
+    Right (LifecycleTarget.PublicationPresent publication, _) -> Right publication
+    Right (LifecycleTarget.PublicationCorrupt message, _) -> Left ("cluster publication is corrupt: " <> message)
+    Right (LifecycleTarget.PublicationMissing, _) -> Left "cluster publication is missing; run bootstrap for the selected substrate"
 
 extractGlobalFlags :: [String] -> Either AppError (GlobalFlags, [String])
 extractGlobalFlags = go defaultGlobalFlags []
@@ -2992,3 +2975,12 @@ parseColorMode "always" = Right ColorAlways
 parseColorMode "never" = Right ColorNever
 parseColorMode value =
   Left (InvalidConfig ("invalid --color value: " <> Text.pack value))
+
+-- Ordinary reachability removes physical deletion candidates only; real GC
+-- authorization still requires the original complete fresh epoch view.
+protectNativeGcPlan
+  :: NativeGc.NativeQualificationGcReachability -> CheckpointStore.GcPlan -> App CheckpointStore.GcPlan
+protectNativeGcPlan roots plan =
+  case CheckpointStore.protectGcPlanObjectKeys (NativeGc.nativeGcProtectedObjectKeys roots) plan of
+    Left reason -> exitWithError (InvalidConfig ("gc native qualification protected keys: " <> reason))
+    Right value -> pure value

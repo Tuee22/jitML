@@ -1,0 +1,2728 @@
+{
+  "domain": "jitml-phase278-independent-current-source-native-criterion-review-v1",
+  "source": {
+    "algorithm": 1,
+    "sha256": "57cf61d1cf6149f353d852e21d8c663418d40e0ecc415e30d54dbdf5ef57ae16"
+  },
+  "lane": "linux-cpu",
+  "scope": "native",
+  "reviewer": "Codex /root/cpu_native_review independent Native43 reviewer",
+  "reviewed_at_utc": "2026-10-19T05:13:35.935714+00:00",
+  "verdict": "CLEAR for prospective fixed finite Native43 criteria on actual Source57cf/603 and exact exported CPU55 transport, with every existing acquisition/admission restriction retained. No actual five-run outcome, CPU image/runtime pass, Store admission, source-image qualification, journal, registration, standing-lane or phase closure is conferred.",
+  "reviewed_full55_contract_set": {
+    "lane": "linux-cpu",
+    "rows": [
+      {
+        "contract_sha256": "2b0f0c9427a2b82db3bec2d4e9be83d78c6cef29710b1b806543e8f338666d89",
+        "plan_id": "8d0e685d27f8718a09aca8d9cde10246d8b46b300107a21c780a567482c1c3d2",
+        "row_id": "mnist-shallow-mlp"
+      },
+      {
+        "contract_sha256": "0da5bb7256b5ecd738abdc81c0384d7403525c0a58efcc2e9f1f3dd2b7fc468d",
+        "plan_id": "7d6c88b9b487aceff26c06d1524ed2ed43acd17e6f8087941ff22dd39228bce0",
+        "row_id": "mnist-deep-mlp"
+      },
+      {
+        "contract_sha256": "c2e2393f77655c574ce79fadbd2701e94ca9063673bdbc365f0d4ea35f8683f6",
+        "plan_id": "cd822dc8fb4f572bd3afd7eb59db68cb8d855c845dcd790ed3752b2201b532d2",
+        "row_id": "mnist-lenet"
+      },
+      {
+        "contract_sha256": "7ddf1b2330614ad06aa785b7f853eef3cd42b3bcbd03d1b70e6b62d914484712",
+        "plan_id": "d9c4e4436dc9428d80a5460f51bc1f0edbf0720e8c0c615610aa138d9e0f9aad",
+        "row_id": "fashion-mnist-mlp"
+      },
+      {
+        "contract_sha256": "8afd7429805deec69ceb715b3e6f2dfb37b1161c5d7e6a9d419bcbe0f029c232",
+        "plan_id": "642dcb131084debf6bccbdd8672317a05944cfc60e132cd7008e91f082e2d011",
+        "row_id": "fashion-mnist-resnet"
+      },
+      {
+        "contract_sha256": "e62fd1e34a8a68f8c5b4d03a74230a007f6b97a0d2d2711e6fc13cdc7ed21be3",
+        "plan_id": "65c19dd44a4aca73e7edc5f3e02b8024384405f510b1eaf16b7db551dbbb7bf3",
+        "row_id": "cifar10-resnet20"
+      },
+      {
+        "contract_sha256": "4b84439cd31efbde505121d6743a17ed003a57a1be868bd8b59dbc5e68629372",
+        "plan_id": "89c824f4e59f96e5ab6f6f34f087be13cca712663149775ecf98a313666f1648",
+        "row_id": "cifar10-resnet56"
+      },
+      {
+        "contract_sha256": "3806772a5b8cf0976ab378bb16f0b42993d8a5b60530eb2fc8b6e4c7984779b5",
+        "plan_id": "13d288a249d79d2f92974df7d0b81d9a446b2be84201a9c0e38b325bc2638e7d",
+        "row_id": "cifar100-wide-resnet"
+      },
+      {
+        "contract_sha256": "db708282e304e2d8d20dfa662d13792a7c2ce762fbb6bf56e435ab45ce8dfe82",
+        "plan_id": "1528574480a5d949aab8e19a29dbe8d94f5161241a3559c07ac298b78fef2268",
+        "row_id": "cifar10-vit"
+      },
+      {
+        "contract_sha256": "a1683cceb3306f925a2797fc1fa5dc7ba809a0c7c89a09cc705996014cb5e226",
+        "plan_id": "1bf17525109200326669ce753b27f664ab44094195d7615892813e8a28929468",
+        "row_id": "tiny-imagenet-resnet50"
+      },
+      {
+        "contract_sha256": "b84672dcf5ed6553948f8e86f77c7d0e6c46339d0131c666a55292ed90f61c89",
+        "plan_id": "d4c6fa29025c4d112abdb2c2d1c948f3934700b67c58e25c22dae7a2a878e4ae",
+        "row_id": "california-housing-mlp"
+      },
+      {
+        "contract_sha256": "97d97b5a9115dc44c57543d7fd8552ead3ffd4407e2c7b5cfaaacf26ff29179e",
+        "plan_id": "4738f6852ded47b1d60c0f25934bace5cb7bfe14a71726815912ae88ca5482fd",
+        "row_id": "PPO/cartpole"
+      },
+      {
+        "contract_sha256": "4f128168a4ba25e1f647b995df7b503e59681da84868543cd76e07152cf7fe18",
+        "plan_id": "dcc7fdf5226680c8e2fec3bab7429d70f2d2acb31f0c475b6cb90cb5fd12b0bc",
+        "row_id": "PPO/mountain-car"
+      },
+      {
+        "contract_sha256": "a8290e19575cf6ffe5b3acb668c2a54a9e6762f7ea7fc255170129b917382678",
+        "plan_id": "1d2b533d9eb63b3223d1b65d11252fc8e450d617cf26c5bac7d228e5ee9e2ece",
+        "row_id": "PPO/acrobot"
+      },
+      {
+        "contract_sha256": "9cf6d8de8ae265ec9051352b0ee431b137e82cc2a82b902e7ef9c770f2d4defa",
+        "plan_id": "30e6fef48517b3aad55bd78fc9a2d11a91fea9baf3df122bbb4e778e0daa7045",
+        "row_id": "PPO/lunar-lander"
+      },
+      {
+        "contract_sha256": "cb42a67176df531e55104b7020518f4711c83b9f312755b5d7468d22042e2889",
+        "plan_id": "3242bd966467db4950d9af908ca334071e692e8a13f57edacdea0d7a53f83573",
+        "row_id": "PPO/key-door-grid"
+      },
+      {
+        "contract_sha256": "c8f003ba579ee3ef22734824e601f6b9967e662c21cf8223a714a5a75516e524",
+        "plan_id": "875597507848f0ff7aeb8860f1e8dc0e87cd9d78f42cc7cfe1998b369873d4e7",
+        "row_id": "PPO/gridworld-deterministic"
+      },
+      {
+        "contract_sha256": "52d29a3ace1c218f7757e07452f58d627fa76b1aa70145f6f1cff415e617115e",
+        "plan_id": "2c9d43cc1b30281c86d0aa42a47795a0bd5e238d1f4658373271e298a8036d79",
+        "row_id": "A2C/cartpole"
+      },
+      {
+        "contract_sha256": "cca1477d56c18c29098afc210c721dd3994a967f55060b9dc8dc214d2a04fc16",
+        "plan_id": "0f50baac23160462ad65a037188c5c5fda1e11dd8a657449e4ac0a3ad35105f2",
+        "row_id": "A2C/mountain-car"
+      },
+      {
+        "contract_sha256": "e900dc2c10d59c03ffd856deb1ce897cfd270ffc8d37940350c83881917f3463",
+        "plan_id": "e5c20d18ea819396f59413f1feb3e4d06bcf9959260935db2cd0765d44b71c88",
+        "row_id": "A2C/lunar-lander"
+      },
+      {
+        "contract_sha256": "5d6a2cae120623af83b4cee41d5ae3617beb5061a93bd4aa20509c4854c00b1d",
+        "plan_id": "edb6c13c3d2c175799714c2dcc14ae7f7e16392fbf25b83d95f961ab10c9b238",
+        "row_id": "A2C/key-door-grid"
+      },
+      {
+        "contract_sha256": "aa761aaf510c4061e633a5ae14b2e3d164a748c5ab1158400364574b6a0f7c50",
+        "plan_id": "140b0d1e6a970b0261e92119288a28cb288c7ebc99ff9aa7ac0452235b885d7e",
+        "row_id": "TRPO/cartpole"
+      },
+      {
+        "contract_sha256": "e54b3975118ebb3f40f8188d0af4f0fb24d9c61a435370bd7175f5480af86f0a",
+        "plan_id": "ea932ce8e676404c6845b4fe8fc3ef4ae851c51bc1ef1c2baa0fdcc8e8b26d6b",
+        "row_id": "TRPO/mountain-car"
+      },
+      {
+        "contract_sha256": "67111fb370e4d4f57683f10c7bf74720ae0961eda9ba1b6f894b7630dbd8b844",
+        "plan_id": "70462e574e19aa04a90e982d063d5801908cc358bc838f93c53da9d84e8e1dde",
+        "row_id": "TRPO/lunar-lander"
+      },
+      {
+        "contract_sha256": "5ee6cd27bc5e589825a0d8df932fcd593bd83a6be41e8a56387214c1a2cb466f",
+        "plan_id": "dba414857f7ffead6ee377c5e5dc55c195177f980ef5af672ab3e9a88a8b0778",
+        "row_id": "TRPO/key-door-grid"
+      },
+      {
+        "contract_sha256": "8044640163f2109f5ac0329c3dc9d8c7d031a70f0fe2dbbbb98bb1b278c9e694",
+        "plan_id": "723a2917e4935001acce8940208c4a712912c46d0a6d33c82a8dfb0ba0690330",
+        "row_id": "MaskablePPO/cartpole"
+      },
+      {
+        "contract_sha256": "a0b22bfd24e3d2deb160e2c2b5c41556aa26385bee6040e4cf22e81339f327bb",
+        "plan_id": "85ca26d47128af901af2a5a540e49a2396f3801ba272c04b53df012d3d45673a",
+        "row_id": "MaskablePPO/mountain-car"
+      },
+      {
+        "contract_sha256": "874ac25d604204279d8a47178e850f1af1094eb016b543f29387874636e30024",
+        "plan_id": "83773d586135b97df31b958d1b563c89805f6a09069d69b8e6e65fb5ac7b648b",
+        "row_id": "MaskablePPO/lunar-lander"
+      },
+      {
+        "contract_sha256": "29e08ac7ecb31016c12a3ac7eeee603a669fe4e980552119906a0042c6ff7965",
+        "plan_id": "95c3fde209b95c84e0983bc8a1ab15004cc4d074566c1fa568d171d173fffd6e",
+        "row_id": "MaskablePPO/key-door-grid"
+      },
+      {
+        "contract_sha256": "aa9216ccecf0b2255caaa28de69bfc723472d384fdec838cf8479e8abeeb3420",
+        "plan_id": "e3638fbb0afa548dffcf772950aa6fc028b52bbfac49330eee1b014ad2a980fb",
+        "row_id": "RecurrentPPO/cartpole"
+      },
+      {
+        "contract_sha256": "5864085e1a780b79181c48aa92f5939252ced2be83cc461ea314e06c296e800e",
+        "plan_id": "2e22c5d7db78eed527c09923c196a92bdd96fe5f9b305fff80740661775c1426",
+        "row_id": "RecurrentPPO/mountain-car"
+      },
+      {
+        "contract_sha256": "269319914eeb69624848db421d91d04d69d4331c3787d2890b4dfc9c592441a6",
+        "plan_id": "10124c9bdd7281ae5a3a3d1f1660b11dc64b05f26268e32a89cd2249aa03bf98",
+        "row_id": "RecurrentPPO/lunar-lander"
+      },
+      {
+        "contract_sha256": "9b98e80190bc4a2e2089cf6d399e2cb419f6b7090453d5c049e5bb447993b6ec",
+        "plan_id": "8db33b19f18c5d97cccaac3911f08b9e63166c44708cffc3a90c253d3c49dfa6",
+        "row_id": "RecurrentPPO/key-door-grid"
+      },
+      {
+        "contract_sha256": "fc7fbcf1c0bd5760b97a09fef18926c600b65284e5fb3ec79d0e21a7ec69d0a4",
+        "plan_id": "777e2c2422e4b2bc83fae3d8a3d3e79dba629340019c761ce9816d41c7b2346c",
+        "row_id": "DQN/cartpole"
+      },
+      {
+        "contract_sha256": "c8174517988359bd1c168eee6ecff627e47bc13edc841cacd0c701cce239bff0",
+        "plan_id": "6e45a778521cfaad1bbb4d2976dad8af8e97d6ddb3590ee24906fd07a9625e52",
+        "row_id": "DQN/mountain-car"
+      },
+      {
+        "contract_sha256": "87636ad94509940be447668573843aaa842ca5e2a7c319e24d39eb961fd38413",
+        "plan_id": "b51a3c6dd97466d68bd725cde8a58958003b07c55c089aadf49720615e9ae462",
+        "row_id": "DQN/key-door-grid"
+      },
+      {
+        "contract_sha256": "dfbf05098a3bafe59db3edb0bdcb5b9f050f4d914f15f8dca2be65701bed9e87",
+        "plan_id": "1af5b34cdd01a834ffdfc4b90ae61ecd56fe03111a6057e069a09732af0e0805",
+        "row_id": "QR-DQN/cartpole"
+      },
+      {
+        "contract_sha256": "88d7837cc0093aeff423cd5ca6822099fbac0e72c64bf32d1f472984cd85b54b",
+        "plan_id": "ad3db1ff9b71ec818060329a6d1a928c5e691f33cec5aac36d25fea3e482234c",
+        "row_id": "QR-DQN/mountain-car"
+      },
+      {
+        "contract_sha256": "e069a66f417d76d435b5936df13a40e315f32b1e5e141aeea593734d15c916ee",
+        "plan_id": "6d460c05503090a87700a3abc41c2d2b8a44cb385dab76aeb320ca81de615527",
+        "row_id": "QR-DQN/key-door-grid"
+      },
+      {
+        "contract_sha256": "0b00b3c053324c6ac8b479c6b16c23f2b1ecd76de0a288d86fe937c27ab9d331",
+        "plan_id": "49e0f1119a93110f6404f54e7f17c487e753dc992cd21ce23f38d2484fc8b0f0",
+        "row_id": "DDPG/lunar-lander"
+      },
+      {
+        "contract_sha256": "2c0f908bea64b6d0e0125fd111af2091464969d98c3752b7ca90ebfdf7b83891",
+        "plan_id": "7c467a8800795771440733dad69aa8fd34316003aa305947059a0e30539c38ec",
+        "row_id": "TD3/lunar-lander"
+      },
+      {
+        "contract_sha256": "40cff79b1217c09a76e538032be07f39e4e4f94e1e6a79db7a535277af56e83b",
+        "plan_id": "8f2a49e644952b49350b70ff937b525b9d116ad2309ebe8bd82981a18a011539",
+        "row_id": "SAC/lunar-lander"
+      },
+      {
+        "contract_sha256": "56d560406d4c7bec19aaf04553d73baabb64845df3d5e4af75f9cb2f0b4ed3bf",
+        "plan_id": "17ed88f8efadb3b8373a9ba8f51478f27a3d8971215f09ff8c452b32f39f68f7",
+        "row_id": "SAC/pendulum"
+      },
+      {
+        "contract_sha256": "513d4c45828931678963a242845ab472e599b78af53fc5b86b164a9e5a2b4bee",
+        "plan_id": "1e371e4cb09bfa6826436b334c600c4eee38b1e1d62b40bce0df0672c91ca2dd",
+        "row_id": "CrossQ/lunar-lander"
+      },
+      {
+        "contract_sha256": "87146d3a0b052d7c9d2437b04b832fd6b9c54ed305fbb80229b9de4dcd491cdb",
+        "plan_id": "61459512d7eac5f5946784503562b04afc7a09eb59c7d6fb2f3504affe195caa",
+        "row_id": "TQC/lunar-lander"
+      },
+      {
+        "contract_sha256": "5faa96ac72468ace693b46ae7d116e4e4e346bdd0f54be2459f316f204642660",
+        "plan_id": "1b8b6067991cd505dc839a72a8eb2c2d799fb36904e7ed6efdbce8e54338cfa6",
+        "row_id": "ARS/cartpole"
+      },
+      {
+        "contract_sha256": "e88021faa066f89157c20e3469d06527ad1722fe62a93b88bbd97a3d2eacd1b0",
+        "plan_id": "8a90a9ce4a6c465c0cde3841c1eb918a0126560bbd678a681c73fee8f9545d7b",
+        "row_id": "ARS/mountain-car"
+      },
+      {
+        "contract_sha256": "3d6346099397821a831c2e67ffa6d4218675ed415b7bed52f1f4a240f9aecd4b",
+        "plan_id": "346e16e06fd0632e205947b52e939b058de11f60330ec36bbfb057afdac78a3e",
+        "row_id": "ARS/lunar-lander"
+      },
+      {
+        "contract_sha256": "86eea7bf5de174cd91e44d64cfa126db35245edc6eba0881831d7973068c1b43",
+        "plan_id": "9e5e47efba8415453cb19fb8a1f1d3de78ff22c03977e57120bde0fac6ccb831",
+        "row_id": "ARS/key-door-grid"
+      },
+      {
+        "contract_sha256": "4240a5a23de857edb9c533c4f16e79789935b38fc0b63568f8043c52b88f1283",
+        "plan_id": "61ff4a52cb963afea5a44719466753c16bb5754a5245404f35046e2f829a7548",
+        "row_id": "HER/goal-reaching"
+      },
+      {
+        "contract_sha256": "954af02d8734e5cb1df7a7b09eb85b9786cb2b491dce4269165b58fa9c760bd0",
+        "plan_id": "c2c5caf762d9b1d322d87b12ce1406a74f44d40d04b054f635814c6906338ea9",
+        "row_id": "connect4"
+      },
+      {
+        "contract_sha256": "0191af33569290e301e02810c5bc2f7cdaa60366c85a0b49f733c50d89bceec4",
+        "plan_id": "e12682a93ff704f59576536fe1aa981ffdf828967b1dd0e35f7536cdc1d93c73",
+        "row_id": "othello"
+      },
+      {
+        "contract_sha256": "83ed06d07890d8ed0bc9c530279b1aab60258864c66c4bf102f8d8f6107d968b",
+        "plan_id": "a44cbeba8a9cb086b88beb07f8dfd3121a94830ff37e10a19eda9d81d3c30de4",
+        "row_id": "hex"
+      },
+      {
+        "contract_sha256": "2a09242488a3d87c73d2a9a1bd22f118bda90bc4898cd4d28ec2b289512eb073",
+        "plan_id": "75437658421a71735e90f06f0ad925544be1b9d0ebe9059ba3fbabf0b2f2ca55",
+        "row_id": "gomoku"
+      },
+      {
+        "contract_sha256": "db3d651c28a80efa52b4465b23fcc10f8a0b3d5adcbb829dcd1ef7724bb4a4db",
+        "plan_id": "4150d67ddfa20cda8b76351328560973fa713b98773cf08bb2456c2bfec56384",
+        "row_id": "hyperparameter-tuning"
+      }
+    ],
+    "sha256": "555aa3ad727fec53c2e2b361df5f8f10e6c89875c89ed4ca7d1f2cbdc9331b2c"
+  },
+  "native43_semantic_approval_ids": [
+    "PPO/cartpole",
+    "PPO/mountain-car",
+    "PPO/acrobot",
+    "PPO/lunar-lander",
+    "PPO/key-door-grid",
+    "PPO/gridworld-deterministic",
+    "A2C/cartpole",
+    "A2C/mountain-car",
+    "A2C/lunar-lander",
+    "A2C/key-door-grid",
+    "TRPO/cartpole",
+    "TRPO/mountain-car",
+    "TRPO/lunar-lander",
+    "TRPO/key-door-grid",
+    "MaskablePPO/cartpole",
+    "MaskablePPO/mountain-car",
+    "MaskablePPO/lunar-lander",
+    "MaskablePPO/key-door-grid",
+    "RecurrentPPO/cartpole",
+    "RecurrentPPO/mountain-car",
+    "RecurrentPPO/lunar-lander",
+    "RecurrentPPO/key-door-grid",
+    "DQN/cartpole",
+    "DQN/mountain-car",
+    "DQN/key-door-grid",
+    "QR-DQN/cartpole",
+    "QR-DQN/mountain-car",
+    "QR-DQN/key-door-grid",
+    "DDPG/lunar-lander",
+    "TD3/lunar-lander",
+    "SAC/lunar-lander",
+    "SAC/pendulum",
+    "CrossQ/lunar-lander",
+    "TQC/lunar-lander",
+    "ARS/cartpole",
+    "ARS/mountain-car",
+    "ARS/lunar-lander",
+    "ARS/key-door-grid",
+    "HER/goal-reaching",
+    "connect4",
+    "othello",
+    "hex",
+    "gomoku"
+  ],
+  "scope_separation": {
+    "supervised11": "Full55 transport identity only; separate supervised review owns those criteria.",
+    "tuning1": {
+      "actual_triplet": {
+        "contract_sha256": "db3d651c28a80efa52b4465b23fcc10f8a0b3d5adcbb829dcd1ef7724bb4a4db",
+        "plan_id": "4150d67ddfa20cda8b76351328560973fa713b98773cf08bb2456c2bfec56384",
+        "row_id": "hyperparameter-tuning"
+      },
+      "unchanged_policy": "128 trials seed1729, MNIST DeepDense TPE/ASHA/MedianPruner, old best_objective>=1.0-0.05",
+      "judgment": "Separate optimization row; no Native43 learning/five-training-seed approval."
+    }
+  },
+  "fresh_independent_reasoning": "I read the sole complete module delta and independently inverted it to literal old15c bytes; derived the embedded archive from current Haskell literals and compared actual production compile/emission bytes. I independently reconstructed current603 source digest and membership, verified602 unchanged files, all115 scientific provider rows/67 files byte-equal15c, actual new host compile/export0 receipts and source603/native9 closed window, and both current full55 contract hashes/all110 literal triples. I re-parsed38 current quality declarations and reconstructed all43 unchanged schedules/reference dimensions, and explicitly reassessed each finite learning/quality conjunction below. Previous15c primary remains literal historical approval; this newly authored current judgment is not its source-pin replacement.",
+  "source_delta_review": {
+    "source": {
+      "algorithm": 1,
+      "sha256": "57cf61d1cf6149f353d852e21d8c663418d40e0ecc415e30d54dbdf5ef57ae16"
+    },
+    "previous_source": {
+      "algorithm": 1,
+      "sha256": "15c6dbdabc9048216ff3a13cb00d08c3e0b4f5ff89fc7b17a5474a0f04380248"
+    },
+    "changed_paths": [
+      "src/JitML/Cluster/PVSnapshotPrograms.hs"
+    ],
+    "unchanged_source_inputs": 602,
+    "module_before": {
+      "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/reviewed-root-metadata-source-candidate/PVSnapshotPrograms.before.hs",
+      "bytes": 20372,
+      "sha256": "7b28e407dcc2501de1ce2c119ac42f1f7d8c8df55d7c2569c4cea079e5093ac8"
+    },
+    "module_after": {
+      "path": "src/JitML/Cluster/PVSnapshotPrograms.hs",
+      "bytes": 25097,
+      "sha256": "46e68698eee8a4bac680cdd1ec25cbe5d72de72f26a6f2d25a321316c4bafb7a"
+    },
+    "literal_complete_diff": "--- Source15c/PVSnapshotPrograms.hs\n+++ Source57cf/PVSnapshotPrograms.hs\n@@ -22,7 +22,7 @@\n snapshotManifestSHA256 = \"dd63819f70c93a7bfde80d38dd203a74f5d1419c82344a6cdcf2125f2718210d\"\n \n snapshotArchiveSHA256 :: Text\n-snapshotArchiveSHA256 = \"aa075ce8ba7f0291d970e0b8bd7819b9962f3daeb66cf324869356e735cee791\"\n+snapshotArchiveSHA256 = \"db4b1fd2cfc8319dc85516c41581b5ed74750375bd178073b5fbf12523d24cc6\"\n \n defaultSnapshotPrograms :: SnapshotPrograms\n defaultSnapshotPrograms =\n@@ -143,6 +143,7 @@\n           , \"import hashlib\"\n           , \"import json\"\n           , \"import os\"\n+          , \"import re\"\n           , \"import stat\"\n           , \"import subprocess\"\n           , \"import sys\"\n@@ -274,6 +275,62 @@\n           , \"        os.close(parent)\"\n           , \"\"\n           , \"\"\n+          , \"def root_metadata(fd, root):\"\n+          , \"    # The root-only GNU tar pass must select ONE literal directory entry.\"\n+          , \"    assert root.name in ['.', './'] and root.isdir() and not root.linkname\"\n+          , \"    assert root.size == 0 and 0 <= root.uid < 2**32 and 0 <= root.gid < 2**32\"\n+          , \"    assert 0 <= root.mode <= 0o7777\"\n+          , \"    # Read the raw extended header instead of TarInfo's float timestamps.\"\n+          , \"    span = root.offset_data - root.offset\"\n+          , \"    assert 512 <= span <= 1024 * 1024\"\n+          , \"    raw = os.pread(fd, span, root.offset)\"\n+          , \"    assert len(raw) == span\"\n+          , \"    position, pax = 0, {}\"\n+          , \"    if raw[156:157] == tarfile.XHDTYPE:\"\n+          , \"        header = tarfile.TarInfo.frombuf(raw[:512], 'utf-8', 'surrogateescape')\"\n+          , \"        assert 0 <= header.size <= 1024 * 1024 - 1024\"\n+          , \"        body = raw[512:512 + header.size]\"\n+          , \"        cursor = 0\"\n+          , \"        while cursor < len(body):\"\n+          , \"            space = body.index(b' ', cursor)\"\n+          , \"            length_raw = body[cursor:space]\"\n+          , \"            assert re.fullmatch(rb'[1-9][0-9]*', length_raw)\"\n+          , \"            length = int(length_raw)\"\n+          , \"            assert length > space - cursor + 3 and cursor + length <= len(body)\"\n+          , \"            record = body[space + 1:cursor + length]\"\n+          , \"            assert record.endswith(b'\\\\n') and b'=' in record\"\n+          , \"            key, value = record[:-1].split(b'=', 1)\"\n+          , \"            key = key.decode('utf-8', 'surrogateescape')\"\n+          , \"            value = value.decode('utf-8', 'surrogateescape')\"\n+          , \"            assert key and '\\\\x00' not in key and key not in pax, 'ambiguous root PAX key'\"\n+          , \"            pax[key] = value\"\n+          , \"            cursor += length\"\n+          , \"        assert cursor == len(body)\"\n+          , \"        position = 512 + ((header.size + 511) // 512) * 512\"\n+          , \"    assert position + 512 == len(raw), 'ambiguous root extension/header'\"\n+          , \"    plain = tarfile.TarInfo.frombuf(raw[position:], 'utf-8', 'surrogateescape')\"\n+          , \"    assert plain.name in ['.', './'] and plain.isdir() and not plain.linkname\"\n+          , \"    assert pax == root.pax_headers\"\n+          , \"    allowed = {'mtime', 'atime', 'ctime', 'SCHILY.acl.access', 'SCHILY.acl.default'}\"\n+          , \"    assert all(key in allowed or (key.startswith('SCHILY.xattr.') and\"\n+          , \"               len(key) > len('SCHILY.xattr.')) for key in pax), 'unsafe root PAX field'\"\n+          , \"    times = {}\"\n+          , \"    for key in ['mtime', 'atime', 'ctime']:\"\n+          , \"        if key in pax:\"\n+          , \"            value = pax[key]\"\n+          , \"            match = re.fullmatch(r'(-?)([0-9]+)(?:\\\\.([0-9]{1,9}))?', value)\"\n+          , \"            assert match is not None, ('unsafe root PAX time', key)\"\n+          , \"            nanos = (int(match[2]) * 10**9 + int((match[3] or '').ljust(9, '0')))\"\n+          , \"            if match[1]:\"\n+          , \"                nanos = -nanos\"\n+          , \"            assert -(2**63) <= nanos < 2**63, 'root PAX time out of range'\"\n+          , \"            times[key] = nanos\"\n+          , \"    assert 'mtime' in times or (isinstance(plain.mtime, int) and\"\n+          , \"           -(2**63) <= plain.mtime * 10**9 < 2**63)\"\n+          , \"    return dict(member_name=root.name, uid=root.uid, gid=root.gid, mode=root.mode,\"\n+          , \"                times_ns=times, pax=pax)\"\n+          , \"\"\n+          , \"\"\n           , \"def archive_preflight(fd):\"\n           , \"    # Standard-library reader, not a replacement TAR decoder. Validate EVERY\"\n           , \"    # member before GNU tar can write either scratch or a new node root.\"\n@@ -290,6 +347,7 @@\n           , \"    with os.fdopen(os.dup(fd), 'rb') as stream:\"\n           , \"        with tarfile.open(fileobj=stream, mode='r:') as archive:\"\n           , \"            members = archive.getmembers()\"\n+          , \"            assert not archive.pax_headers, 'global PAX metadata is not a snapshot root'\"\n           , \"    entries = {}\"\n           , \"    for member in members:\"\n           , \"        name = key(member.name)\"\n@@ -300,6 +358,8 @@\n           , \"        assert name != '.' or member.isdir()\"\n           , \"        entries[name] = member\"\n           , \"    assert '.' in entries and entries['.'].isdir()\"\n+          , \"    assert members and members[0] is entries['.'], 'snapshot root must be first'\"\n+          , \"    root = root_metadata(fd, entries['.'])\"\n           , \"    for name, member in entries.items():\"\n           , \"        parts = name.split('/')\"\n           , \"        for end in range(1, len(parts)):\"\n@@ -321,7 +381,7 @@\n           , \"                    break\"\n           , \"                assert linked.islnk(), ('hardlink to non-regular payload', name)\"\n           , \"                target = key(linked.linkname)\"\n-          , \"    return dict(member_count=len(entries), safe_members=True,\"\n+          , \"    return dict(member_count=len(entries), safe_members=True, root_metadata=root,\"\n           , \"                symlink_count=sum(m.issym() for m in members),\"\n           , \"                hardlink_count=sum(m.islnk() for m in members))\"\n           , \"\"\n@@ -350,6 +410,16 @@\n           , \"                 '--numeric-owner', '-C', '/proc/self/fd/' + str(target_fd),\"\n           , \"                 '-xpf', '/proc/self/fd/' + str(fd)],\"\n           , \"                pass_fds=(fd, target_fd))\"\n+          , \"            # A second pass selects ONLY the validated root directory, never\"\n+          , \"            # its children. Keep the payload pass's no-overwrite policy above.\"\n+          , \"            os.lseek(fd, 0, os.SEEK_SET)\"\n+          , \"            run(['tar', '--overwrite-dir', '--no-recursion',\"\n+          , \"                 '--delay-directory-restore', '--same-owner', '--same-permissions',\"\n+          , \"                 '--acls', '--xattrs', '--xattrs-include=*', '--numeric-owner',\"\n+          , \"                 '-C', '/proc/self/fd/' + str(target_fd),\"\n+          , \"                 '-xpf', '/proc/self/fd/' + str(fd), '--',\"\n+          , \"                 preflight['root_metadata']['member_name']],\"\n+          , \"                pass_fds=(fd, target_fd))\"\n           , \"            after = digest_fd(fd)\"\n           , \"            assert initial == after\"\n           , \"            assert sig(os.stat(leaf, dir_fd=parent, follow_symlinks=False)) == before\"\n",
+    "exact_inverse_verified": "Only embedded archive program and its SHA constant differ; replacing those exactly reproduces literal old15c module. Manifest program, Haskell API and renderer unchanged.",
+    "compiled_emission_archive": {
+      "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/production-emission-20261019T050736261247Z/archive-emitted.py",
+      "bytes": 13461,
+      "sha256": "db4b1fd2cfc8319dc85516c41581b5ed74750375bd178073b5fbf12523d24cc6"
+    },
+    "embedded_literal_reconstruction_equals_actual_compiled_emission": true,
+    "compiled_emission_receipts": [
+      {
+        "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/production-emission-20261019T050736261247Z/compile/result.json",
+        "bytes": 325,
+        "sha256": "94b062205d9b391ea9af26ee8e7f23b9d8baf92e7a920f33267907451a620d7b"
+      },
+      {
+        "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/production-emission-20261019T050736261247Z/emit/result.json",
+        "bytes": 322,
+        "sha256": "250408494051ebfcaf063eb8a5acf5b719a29ea64479d9eb763add400626a00a"
+      }
+    ],
+    "independent_assessment": "Change validates one first literal root directory with bounded raw PAX fields and exact timestamp syntax, rejects global/duplicate/ambiguous/root-path metadata, retains payload keep-old-files extraction, then selects only the validated root via no-recursion second GNU tar pass. Both passes use same held archive/destination descriptors and close with exact archive SHA/full identity checks. This repairs root metadata restoration and changes no learned-state, reference, initial-gain, seed, budget, floor, review capture, Store admission or eligibility rule. Runtime snapshot availability may change; all later live/source/producer/Store requirements still apply.",
+    "scientific_provider_intersection": [],
+    "claim_limits": "This native criterion review does not rerun extraction, grant a down-up pass, current CPU image readiness, actual training or qualification; fixture evidence retains its own scope."
+  },
+  "native43_per_row_current_review": [
+    {
+      "full55_index": 11,
+      "row_id": "PPO/cartpole",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "97d97b5a9115dc44c57543d7fd8552ead3ffd4407e2c7b5cfaaacf26ff29179e",
+        "plan_id": "4738f6852ded47b1d60c0f25934bace5cb7bfe14a71726815912ae88ca5482fd",
+        "row_id": "PPO/cartpole"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          16
+        ],
+        "physical_transitions": 1228800,
+        "max_episode_steps": 500
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 500,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "475.0",
+        "slack_literal": "25.0",
+        "exact_decimal_difference": "450",
+        "binary64_threshold_hex": "0x1.c200000000000p+8",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 2,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 12,
+      "row_id": "PPO/mountain-car",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "4f128168a4ba25e1f647b995df7b503e59681da84868543cd76e07152cf7fe18",
+        "plan_id": "dcc7fdf5226680c8e2fec3bab7429d70f2d2acb31f0c475b6cb90cb5fd12b0bc",
+        "row_id": "PPO/mountain-car"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          16
+        ],
+        "physical_transitions": 1228800,
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "(-110.0)",
+        "slack_literal": "45.0",
+        "exact_decimal_difference": "-155",
+        "binary64_threshold_hex": "-0x1.3600000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 3,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 13,
+      "row_id": "PPO/acrobot",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "a8290e19575cf6ffe5b3acb668c2a54a9e6762f7ea7fc255170129b917382678",
+        "plan_id": "1d2b533d9eb63b3223d1b65d11252fc8e450d617cf26c5bac7d228e5ee9e2ece",
+        "row_id": "PPO/acrobot"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          16
+        ],
+        "physical_transitions": 1228800,
+        "max_episode_steps": 500
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 500,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "(-100.0)",
+        "slack_literal": "50.0",
+        "exact_decimal_difference": "-150",
+        "binary64_threshold_hex": "-0x1.2c00000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 3,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 14,
+      "row_id": "PPO/lunar-lander",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "9cf6d8de8ae265ec9051352b0ee431b137e82cc2a82b902e7ef9c770f2d4defa",
+        "plan_id": "30e6fef48517b3aad55bd78fc9a2d11a91fea9baf3df122bbb4e778e0daa7045",
+        "row_id": "PPO/lunar-lander"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          1000,
+          16
+        ],
+        "physical_transitions": 2400000,
+        "max_episode_steps": 1000
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 1000,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "200.0",
+        "slack_literal": "40.0",
+        "exact_decimal_difference": "160",
+        "binary64_threshold_hex": "0x1.4000000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 4,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 15,
+      "row_id": "PPO/key-door-grid",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "cb42a67176df531e55104b7020518f4711c83b9f312755b5d7468d22042e2889",
+        "plan_id": "3242bd966467db4950d9af908ca334071e692e8a13f57edacdea0d7a53f83573",
+        "row_id": "PPO/key-door-grid"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          16
+        ],
+        "physical_transitions": 1228800,
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "1.0",
+        "slack_literal": "0.5",
+        "exact_decimal_difference": "1/2",
+        "binary64_threshold_hex": "0x1.0000000000000p-1",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 720,
+        "family": "all6! complete fixed masked preferences, first actual legal action",
+        "reference_tie": "only actual reference AND final attain current full-state/time DP-certified maximum; impossible above-bound episodes reject"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 16,
+      "row_id": "PPO/gridworld-deterministic",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "c8f003ba579ee3ef22734824e601f6b9967e662c21cf8223a714a5a75516e524",
+        "plan_id": "875597507848f0ff7aeb8860f1e8dc0e87cd9d78f42cc7cfe1998b369873d4e7",
+        "row_id": "PPO/gridworld-deterministic"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          16
+        ],
+        "physical_transitions": 1228800,
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "1.0",
+        "slack_literal": "0.20",
+        "exact_decimal_difference": "4/5",
+        "binary64_threshold_hex": "0x1.999999999999ap-1",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 4,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 17,
+      "row_id": "A2C/cartpole",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "52d29a3ace1c218f7757e07452f58d627fa76b1aa70145f6f1cff415e617115e",
+        "plan_id": "2c9d43cc1b30281c86d0aa42a47795a0bd5e238d1f4658373271e298a8036d79",
+        "row_id": "A2C/cartpole"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          16
+        ],
+        "physical_transitions": 1228800,
+        "max_episode_steps": 500
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 500,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "475.0",
+        "slack_literal": "40.0",
+        "exact_decimal_difference": "435",
+        "binary64_threshold_hex": "0x1.b300000000000p+8",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 2,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 18,
+      "row_id": "A2C/mountain-car",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "cca1477d56c18c29098afc210c721dd3994a967f55060b9dc8dc214d2a04fc16",
+        "plan_id": "0f50baac23160462ad65a037188c5c5fda1e11dd8a657449e4ac0a3ad35105f2",
+        "row_id": "A2C/mountain-car"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          16
+        ],
+        "physical_transitions": 1228800,
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "(-110.0)",
+        "slack_literal": "45.0",
+        "exact_decimal_difference": "-155",
+        "binary64_threshold_hex": "-0x1.3600000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 3,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 19,
+      "row_id": "A2C/lunar-lander",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "e900dc2c10d59c03ffd856deb1ce897cfd270ffc8d37940350c83881917f3463",
+        "plan_id": "e5c20d18ea819396f59413f1feb3e4d06bcf9959260935db2cd0765d44b71c88",
+        "row_id": "A2C/lunar-lander"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          1000,
+          16
+        ],
+        "physical_transitions": 2400000,
+        "max_episode_steps": 1000
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 1000,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "200.0",
+        "slack_literal": "60.0",
+        "exact_decimal_difference": "140",
+        "binary64_threshold_hex": "0x1.1800000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 4,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 20,
+      "row_id": "A2C/key-door-grid",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "5d6a2cae120623af83b4cee41d5ae3617beb5061a93bd4aa20509c4854c00b1d",
+        "plan_id": "edb6c13c3d2c175799714c2dcc14ae7f7e16392fbf25b83d95f961ab10c9b238",
+        "row_id": "A2C/key-door-grid"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          16
+        ],
+        "physical_transitions": 1228800,
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "1.0",
+        "slack_literal": "0.5",
+        "exact_decimal_difference": "1/2",
+        "binary64_threshold_hex": "0x1.0000000000000p-1",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 720,
+        "family": "all6! complete fixed masked preferences, first actual legal action",
+        "reference_tie": "only actual reference AND final attain current full-state/time DP-certified maximum; impossible above-bound episodes reject"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 21,
+      "row_id": "TRPO/cartpole",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "aa761aaf510c4061e633a5ae14b2e3d164a748c5ab1158400364574b6a0f7c50",
+        "plan_id": "140b0d1e6a970b0261e92119288a28cb288c7ebc99ff9aa7ac0452235b885d7e",
+        "row_id": "TRPO/cartpole"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          16
+        ],
+        "physical_transitions": 1228800,
+        "max_episode_steps": 500
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 500,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "475.0",
+        "slack_literal": "75.0",
+        "exact_decimal_difference": "400",
+        "binary64_threshold_hex": "0x1.9000000000000p+8",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 2,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 22,
+      "row_id": "TRPO/mountain-car",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "e54b3975118ebb3f40f8188d0af4f0fb24d9c61a435370bd7175f5480af86f0a",
+        "plan_id": "ea932ce8e676404c6845b4fe8fc3ef4ae851c51bc1ef1c2baa0fdcc8e8b26d6b",
+        "row_id": "TRPO/mountain-car"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          16
+        ],
+        "physical_transitions": 1228800,
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "(-110.0)",
+        "slack_literal": "35.0",
+        "exact_decimal_difference": "-145",
+        "binary64_threshold_hex": "-0x1.2200000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 3,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 23,
+      "row_id": "TRPO/lunar-lander",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "67111fb370e4d4f57683f10c7bf74720ae0961eda9ba1b6f894b7630dbd8b844",
+        "plan_id": "70462e574e19aa04a90e982d063d5801908cc358bc838f93c53da9d84e8e1dde",
+        "row_id": "TRPO/lunar-lander"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          1000,
+          16
+        ],
+        "physical_transitions": 2400000,
+        "max_episode_steps": 1000
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 1000,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "200.0",
+        "slack_literal": "45.0",
+        "exact_decimal_difference": "155",
+        "binary64_threshold_hex": "0x1.3600000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 4,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 24,
+      "row_id": "TRPO/key-door-grid",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "5ee6cd27bc5e589825a0d8df932fcd593bd83a6be41e8a56387214c1a2cb466f",
+        "plan_id": "dba414857f7ffead6ee377c5e5dc55c195177f980ef5af672ab3e9a88a8b0778",
+        "row_id": "TRPO/key-door-grid"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          16
+        ],
+        "physical_transitions": 1228800,
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "1.0",
+        "slack_literal": "0.25",
+        "exact_decimal_difference": "3/4",
+        "binary64_threshold_hex": "0x1.8000000000000p-1",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 720,
+        "family": "all6! complete fixed masked preferences, first actual legal action",
+        "reference_tie": "only actual reference AND final attain current full-state/time DP-certified maximum; impossible above-bound episodes reject"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 25,
+      "row_id": "MaskablePPO/cartpole",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "8044640163f2109f5ac0329c3dc9d8c7d031a70f0fe2dbbbb98bb1b278c9e694",
+        "plan_id": "723a2917e4935001acce8940208c4a712912c46d0a6d33c82a8dfb0ba0690330",
+        "row_id": "MaskablePPO/cartpole"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          16
+        ],
+        "physical_transitions": 1228800,
+        "max_episode_steps": 500
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 500,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "475.0",
+        "slack_literal": "25.0",
+        "exact_decimal_difference": "450",
+        "binary64_threshold_hex": "0x1.c200000000000p+8",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 2,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 26,
+      "row_id": "MaskablePPO/mountain-car",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "a0b22bfd24e3d2deb160e2c2b5c41556aa26385bee6040e4cf22e81339f327bb",
+        "plan_id": "85ca26d47128af901af2a5a540e49a2396f3801ba272c04b53df012d3d45673a",
+        "row_id": "MaskablePPO/mountain-car"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          16
+        ],
+        "physical_transitions": 1228800,
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "(-110.0)",
+        "slack_literal": "45.0",
+        "exact_decimal_difference": "-155",
+        "binary64_threshold_hex": "-0x1.3600000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 3,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 27,
+      "row_id": "MaskablePPO/lunar-lander",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "874ac25d604204279d8a47178e850f1af1094eb016b543f29387874636e30024",
+        "plan_id": "83773d586135b97df31b958d1b563c89805f6a09069d69b8e6e65fb5ac7b648b",
+        "row_id": "MaskablePPO/lunar-lander"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          1000,
+          16
+        ],
+        "physical_transitions": 2400000,
+        "max_episode_steps": 1000
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 1000,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "200.0",
+        "slack_literal": "40.0",
+        "exact_decimal_difference": "160",
+        "binary64_threshold_hex": "0x1.4000000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 4,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 28,
+      "row_id": "MaskablePPO/key-door-grid",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "29e08ac7ecb31016c12a3ac7eeee603a669fe4e980552119906a0042c6ff7965",
+        "plan_id": "95c3fde209b95c84e0983bc8a1ab15004cc4d074566c1fa568d171d173fffd6e",
+        "row_id": "MaskablePPO/key-door-grid"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          16
+        ],
+        "physical_transitions": 1228800,
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "1.0",
+        "slack_literal": "0.15",
+        "exact_decimal_difference": "17/20",
+        "binary64_threshold_hex": "0x1.b333333333333p-1",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 720,
+        "family": "all6! complete fixed masked preferences, first actual legal action",
+        "reference_tie": "only actual reference AND final attain current full-state/time DP-certified maximum; impossible above-bound episodes reject"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 29,
+      "row_id": "RecurrentPPO/cartpole",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "aa9216ccecf0b2255caaa28de69bfc723472d384fdec838cf8479e8abeeb3420",
+        "plan_id": "e3638fbb0afa548dffcf772950aa6fc028b52bbfac49330eee1b014ad2a980fb",
+        "row_id": "RecurrentPPO/cartpole"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          16
+        ],
+        "physical_transitions": 1228800,
+        "max_episode_steps": 500
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 500,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "475.0",
+        "slack_literal": "40.0",
+        "exact_decimal_difference": "435",
+        "binary64_threshold_hex": "0x1.b300000000000p+8",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 2,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 30,
+      "row_id": "RecurrentPPO/mountain-car",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "5864085e1a780b79181c48aa92f5939252ced2be83cc461ea314e06c296e800e",
+        "plan_id": "2e22c5d7db78eed527c09923c196a92bdd96fe5f9b305fff80740661775c1426",
+        "row_id": "RecurrentPPO/mountain-car"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          16
+        ],
+        "physical_transitions": 1228800,
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "(-110.0)",
+        "slack_literal": "50.0",
+        "exact_decimal_difference": "-160",
+        "binary64_threshold_hex": "-0x1.4000000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 3,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 31,
+      "row_id": "RecurrentPPO/lunar-lander",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "269319914eeb69624848db421d91d04d69d4331c3787d2890b4dfc9c592441a6",
+        "plan_id": "10124c9bdd7281ae5a3a3d1f1660b11dc64b05f26268e32a89cd2249aa03bf98",
+        "row_id": "RecurrentPPO/lunar-lander"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          1000,
+          16
+        ],
+        "physical_transitions": 2400000,
+        "max_episode_steps": 1000
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 1000,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "200.0",
+        "slack_literal": "60.0",
+        "exact_decimal_difference": "140",
+        "binary64_threshold_hex": "0x1.1800000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 4,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 32,
+      "row_id": "RecurrentPPO/key-door-grid",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "9b98e80190bc4a2e2089cf6d399e2cb419f6b7090453d5c049e5bb447993b6ec",
+        "plan_id": "8db33b19f18c5d97cccaac3911f08b9e63166c44708cffc3a90c253d3c49dfa6",
+        "row_id": "RecurrentPPO/key-door-grid"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "on_policy",
+        "factors_iterations_ticks_vectors": [
+          150,
+          512,
+          4
+        ],
+        "physical_transitions": 307200,
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "1.0",
+        "slack_literal": "0.35",
+        "exact_decimal_difference": "13/20",
+        "binary64_threshold_hex": "0x1.4cccccccccccdp-1",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 720,
+        "family": "all6! complete fixed masked preferences, first actual legal action",
+        "reference_tie": "only actual reference AND final attain current full-state/time DP-certified maximum; impossible above-bound episodes reject"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 33,
+      "row_id": "DQN/cartpole",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "fc7fbcf1c0bd5760b97a09fef18926c600b65284e5fb3ec79d0e21a7ec69d0a4",
+        "plan_id": "777e2c2422e4b2bc83fae3d8a3d3e79dba629340019c761ce9816d41c7b2346c",
+        "row_id": "DQN/cartpole"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "fixed_steps",
+        "physical_transitions": 50000,
+        "maximum_operands": [
+          50000,
+          10000,
+          2000
+        ],
+        "max_episode_steps": 500
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 500,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "475.0",
+        "slack_literal": "30.0",
+        "exact_decimal_difference": "445",
+        "binary64_threshold_hex": "0x1.bd00000000000p+8",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 2,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 34,
+      "row_id": "DQN/mountain-car",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "c8174517988359bd1c168eee6ecff627e47bc13edc841cacd0c701cce239bff0",
+        "plan_id": "6e45a778521cfaad1bbb4d2976dad8af8e97d6ddb3590ee24906fd07a9625e52",
+        "row_id": "DQN/mountain-car"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "fixed_steps",
+        "physical_transitions": 120000,
+        "maximum_operands": [
+          120000,
+          4000,
+          2000
+        ],
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "(-110.0)",
+        "slack_literal": "40.0",
+        "exact_decimal_difference": "-150",
+        "binary64_threshold_hex": "-0x1.2c00000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 3,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 35,
+      "row_id": "DQN/key-door-grid",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "87636ad94509940be447668573843aaa842ca5e2a7c319e24d39eb961fd38413",
+        "plan_id": "b51a3c6dd97466d68bd725cde8a58958003b07c55c089aadf49720615e9ae462",
+        "row_id": "DQN/key-door-grid"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "fixed_steps",
+        "physical_transitions": 50000,
+        "maximum_operands": [
+          50000,
+          4000,
+          2000
+        ],
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "1.0",
+        "slack_literal": "0.30",
+        "exact_decimal_difference": "7/10",
+        "binary64_threshold_hex": "0x1.6666666666666p-1",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 720,
+        "family": "all6! complete fixed masked preferences, first actual legal action",
+        "reference_tie": "only actual reference AND final attain current full-state/time DP-certified maximum; impossible above-bound episodes reject"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 36,
+      "row_id": "QR-DQN/cartpole",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "dfbf05098a3bafe59db3edb0bdcb5b9f050f4d914f15f8dca2be65701bed9e87",
+        "plan_id": "1af5b34cdd01a834ffdfc4b90ae61ecd56fe03111a6057e069a09732af0e0805",
+        "row_id": "QR-DQN/cartpole"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "fixed_steps",
+        "physical_transitions": 50000,
+        "maximum_operands": [
+          50000,
+          10000,
+          2000
+        ],
+        "max_episode_steps": 500
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 500,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "475.0",
+        "slack_literal": "25.0",
+        "exact_decimal_difference": "450",
+        "binary64_threshold_hex": "0x1.c200000000000p+8",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 2,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 37,
+      "row_id": "QR-DQN/mountain-car",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "88d7837cc0093aeff423cd5ca6822099fbac0e72c64bf32d1f472984cd85b54b",
+        "plan_id": "ad3db1ff9b71ec818060329a6d1a928c5e691f33cec5aac36d25fea3e482234c",
+        "row_id": "QR-DQN/mountain-car"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "fixed_steps",
+        "physical_transitions": 120000,
+        "maximum_operands": [
+          120000,
+          4000,
+          2000
+        ],
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "(-110.0)",
+        "slack_literal": "35.0",
+        "exact_decimal_difference": "-145",
+        "binary64_threshold_hex": "-0x1.2200000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 3,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 38,
+      "row_id": "QR-DQN/key-door-grid",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "e069a66f417d76d435b5936df13a40e315f32b1e5e141aeea593734d15c916ee",
+        "plan_id": "6d460c05503090a87700a3abc41c2d2b8a44cb385dab76aeb320ca81de615527",
+        "row_id": "QR-DQN/key-door-grid"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "fixed_steps",
+        "physical_transitions": 120000,
+        "maximum_operands": [
+          120000,
+          4000,
+          2000
+        ],
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "1.0",
+        "slack_literal": "0.25",
+        "exact_decimal_difference": "3/4",
+        "binary64_threshold_hex": "0x1.8000000000000p-1",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 720,
+        "family": "all6! complete fixed masked preferences, first actual legal action",
+        "reference_tie": "only actual reference AND final attain current full-state/time DP-certified maximum; impossible above-bound episodes reject"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 39,
+      "row_id": "DDPG/lunar-lander",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "0b00b3c053324c6ac8b479c6b16c23f2b1ecd76de0a288d86fe937c27ab9d331",
+        "plan_id": "49e0f1119a93110f6404f54e7f17c487e753dc992cd21ce23f38d2484fc8b0f0",
+        "row_id": "DDPG/lunar-lander"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "fixed_steps",
+        "physical_transitions": 120000,
+        "maximum_operands": [
+          120000,
+          20000,
+          2000
+        ],
+        "max_episode_steps": 1000
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 1000,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "200.0",
+        "slack_literal": "95.0",
+        "exact_decimal_difference": "105",
+        "binary64_threshold_hex": "0x1.a400000000000p+6",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 3,
+        "family": "constant native0,actual low,actual high",
+        "values": [
+          0,
+          -1,
+          1
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 40,
+      "row_id": "TD3/lunar-lander",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "2c0f908bea64b6d0e0125fd111af2091464969d98c3752b7ca90ebfdf7b83891",
+        "plan_id": "7c467a8800795771440733dad69aa8fd34316003aa305947059a0e30539c38ec",
+        "row_id": "TD3/lunar-lander"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "fixed_steps",
+        "physical_transitions": 50000,
+        "maximum_operands": [
+          50000,
+          20000,
+          2000
+        ],
+        "max_episode_steps": 1000
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 1000,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "200.0",
+        "slack_literal": "60.0",
+        "exact_decimal_difference": "140",
+        "binary64_threshold_hex": "0x1.1800000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 3,
+        "family": "constant native0,actual low,actual high",
+        "values": [
+          0,
+          -1,
+          1
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 41,
+      "row_id": "SAC/lunar-lander",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "40cff79b1217c09a76e538032be07f39e4e4f94e1e6a79db7a535277af56e83b",
+        "plan_id": "8f2a49e644952b49350b70ff937b525b9d116ad2309ebe8bd82981a18a011539",
+        "row_id": "SAC/lunar-lander"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "fixed_steps",
+        "physical_transitions": 50000,
+        "maximum_operands": [
+          50000,
+          20000,
+          2000
+        ],
+        "max_episode_steps": 1000
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 1000,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "200.0",
+        "slack_literal": "40.0",
+        "exact_decimal_difference": "160",
+        "binary64_threshold_hex": "0x1.4000000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 3,
+        "family": "constant native0,actual low,actual high",
+        "values": [
+          0,
+          -1,
+          1
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 42,
+      "row_id": "SAC/pendulum",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "56d560406d4c7bec19aaf04553d73baabb64845df3d5e4af75f9cb2f0b4ed3bf",
+        "plan_id": "17ed88f8efadb3b8373a9ba8f51478f27a3d8971215f09ff8c452b32f39f68f7",
+        "row_id": "SAC/pendulum"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "fixed_steps",
+        "physical_transitions": 4000,
+        "maximum_operands": [
+          2000,
+          4000,
+          2000
+        ],
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "(-200.0)",
+        "slack_literal": "180.0",
+        "exact_decimal_difference": "-380",
+        "binary64_threshold_hex": "-0x1.7c00000000000p+8",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 3,
+        "family": "constant native0,actual low,actual high",
+        "values": [
+          0,
+          -2,
+          2
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 43,
+      "row_id": "CrossQ/lunar-lander",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "513d4c45828931678963a242845ab472e599b78af53fc5b86b164a9e5a2b4bee",
+        "plan_id": "1e371e4cb09bfa6826436b334c600c4eee38b1e1d62b40bce0df0672c91ca2dd",
+        "row_id": "CrossQ/lunar-lander"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "fixed_steps",
+        "physical_transitions": 50000,
+        "maximum_operands": [
+          50000,
+          20000,
+          2000
+        ],
+        "max_episode_steps": 1000
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 1000,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "200.0",
+        "slack_literal": "40.0",
+        "exact_decimal_difference": "160",
+        "binary64_threshold_hex": "0x1.4000000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 3,
+        "family": "constant native0,actual low,actual high",
+        "values": [
+          0,
+          -1,
+          1
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 44,
+      "row_id": "TQC/lunar-lander",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "87146d3a0b052d7c9d2437b04b832fd6b9c54ed305fbb80229b9de4dcd491cdb",
+        "plan_id": "61459512d7eac5f5946784503562b04afc7a09eb59c7d6fb2f3504affe195caa",
+        "row_id": "TQC/lunar-lander"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "fixed_steps",
+        "physical_transitions": 50000,
+        "maximum_operands": [
+          50000,
+          20000,
+          2000
+        ],
+        "max_episode_steps": 1000
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 1000,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "200.0",
+        "slack_literal": "40.0",
+        "exact_decimal_difference": "160",
+        "binary64_threshold_hex": "0x1.4000000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 3,
+        "family": "constant native0,actual low,actual high",
+        "values": [
+          0,
+          -1,
+          1
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 45,
+      "row_id": "ARS/cartpole",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "5faa96ac72468ace693b46ae7d116e4e4e346bdd0f54be2459f316f204642660",
+        "plan_id": "1b8b6067991cd505dc839a72a8eb2c2d799fb36904e7ed6efdbce8e54338cfa6",
+        "row_id": "ARS/cartpole"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "ARS",
+        "factors_iterations_pair_directions_horizon": [
+          50,
+          2,
+          16,
+          500
+        ],
+        "physical_transitions": 800000,
+        "max_episode_steps": 500
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 500,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "475.0",
+        "slack_literal": "75.0",
+        "exact_decimal_difference": "400",
+        "binary64_threshold_hex": "0x1.9000000000000p+8",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 2,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 46,
+      "row_id": "ARS/mountain-car",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "e88021faa066f89157c20e3469d06527ad1722fe62a93b88bbd97a3d2eacd1b0",
+        "plan_id": "8a90a9ce4a6c465c0cde3841c1eb918a0126560bbd678a681c73fee8f9545d7b",
+        "row_id": "ARS/mountain-car"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "ARS",
+        "factors_iterations_pair_directions_horizon": [
+          50,
+          2,
+          16,
+          200
+        ],
+        "physical_transitions": 320000,
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "(-110.0)",
+        "slack_literal": "80.0",
+        "exact_decimal_difference": "-190",
+        "binary64_threshold_hex": "-0x1.7c00000000000p+7",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 3,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 47,
+      "row_id": "ARS/lunar-lander",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "3d6346099397821a831c2e67ffa6d4218675ed415b7bed52f1f4a240f9aecd4b",
+        "plan_id": "346e16e06fd0632e205947b52e939b058de11f60330ec36bbfb057afdac78a3e",
+        "row_id": "ARS/lunar-lander"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "ARS",
+        "factors_iterations_pair_directions_horizon": [
+          50,
+          2,
+          16,
+          1000
+        ],
+        "physical_transitions": 1600000,
+        "max_episode_steps": 1000
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 1000,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "200.0",
+        "slack_literal": "120.0",
+        "exact_decimal_difference": "80",
+        "binary64_threshold_hex": "0x1.4000000000000p+6",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 4,
+        "family": "each constant discrete action",
+        "actions": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "reference_tie": "never"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 48,
+      "row_id": "ARS/key-door-grid",
+      "family": "RETURN",
+      "actual_current_export_triplet": {
+        "contract_sha256": "86eea7bf5de174cd91e44d64cfa126db35245edc6eba0881831d7973068c1b43",
+        "plan_id": "9e5e47efba8415453cb19fb8a1f1d3de78ff22c03977e57120bde0fac6ccb831",
+        "row_id": "ARS/key-door-grid"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "kind": "ARS",
+        "factors_iterations_pair_directions_horizon": [
+          50,
+          2,
+          16,
+          200
+        ],
+        "physical_transitions": 320000,
+        "max_episode_steps": 200
+      },
+      "paired_evaluation": {
+        "cases": 20,
+        "ids": "0..19",
+        "horizon": 200,
+        "initial_final_reference_reset": "actual same canonical fresh start, not necessarily distinct cases",
+        "learning_reducer": "exact rational median of retained finite binary64 rewards",
+        "old_quality_reducer": "unchanged Framework Double median"
+      },
+      "quality": {
+        "target_literal": "1.0",
+        "slack_literal": "0.45",
+        "exact_decimal_difference": "11/20",
+        "binary64_threshold_hex": "0x1.199999999999ap-1",
+        "scope": "full-five median AND served0 own statistic"
+      },
+      "references": {
+        "controllers": 720,
+        "family": "all6! complete fixed masked preferences, first actual legal action",
+        "reference_tie": "only actual reference AND final attain current full-state/time DP-certified maximum; impossible above-bound episodes reject"
+      },
+      "joint_learning": "strict final exactmedian>actual effective initial exactmedian AND pass every prescribed actual reference",
+      "current_independent_decision": "CLEAR prospective finite conjunction; retain old project floor and exact budget. Strict paired gain and all task references add a meaningful finite learning requirement even where a negative old floor alone is broad. No published-recipe or population claim."
+    },
+    {
+      "full55_index": 49,
+      "row_id": "HER/goal-reaching",
+      "family": "HER",
+      "actual_current_export_triplet": {
+        "contract_sha256": "4240a5a23de857edb9c533c4f16e79789935b38fc0b63568f8043c52b88f1283",
+        "plan_id": "61ff4a52cb963afea5a44719466753c16bb5754a5245404f35046e2f829a7548",
+        "row_id": "HER/goal-reaching"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "episodes": 334,
+        "steps_per_episode": 6,
+        "physical_transitions": 2004
+      },
+      "evaluation": {
+        "cases": 20,
+        "bits": 6,
+        "horizon": 6,
+        "sampler_only_seed": 104771,
+        "identical_goals_initial_final_references_all_five": true,
+        "duplicates_retained": true
+      },
+      "reference_family": {
+        "all_goal_blind_length6_sequences": 46656,
+        "all20_goals_per_reference": true,
+        "both_extrema_all_attainers_retained": true
+      },
+      "joint_learning": "Same final success count>actual initial AND exact mean normalized distance<actual initial AND beat exhaustive reference success maximum except actual both20 AND improve exhaustive reference distance minimum except actual both0.",
+      "old_quality": "Original binary64 success>=0.90-0.05 AND distance<=0.05 at full-five medians and served0 own scopes.",
+      "current_independent_decision": "CLEAR prospective finite conjunction. Counts<=20 and nonnegative distance justify exact endpoint-only reference ties. Success-only gain cannot hide distance regression. Neither initial gain is relaxed."
+    },
+    {
+      "full55_index": 50,
+      "row_id": "connect4",
+      "family": "AlphaZero",
+      "actual_current_export_triplet": {
+        "contract_sha256": "954af02d8734e5cb1df7a7b09eb85b9786cb2b491dce4269165b58fa9c760bd0",
+        "plan_id": "c2c5caf762d9b1d322d87b12ce1406a74f44d40d04b054f635814c6906338ea9",
+        "row_id": "connect4"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "generations": 64,
+        "games_per_generation": 2,
+        "total_games": 128,
+        "training_MCTS_simulations_per_move": 128,
+        "max_plies": 42,
+        "optimizer_updates_per_generation": 8,
+        "total_optimizer_updates": 512,
+        "actual_game_length_not_inferred_from_max_plies": true
+      },
+      "evaluation": {
+        "all_keyed_cases": 9,
+        "addressed_tape_seed": 7961,
+        "roles": "learned player1, uniform legal opponent",
+        "same_initial_final_reference_tape": true,
+        "exact_score": "(2*wins+draws)/18",
+        "references": [
+          "plain legal-uniform",
+          "neutral-prior zero-value legal MCTS"
+        ],
+        "neutral_MCTS_simulations": 48
+      },
+      "joint_learning": "Exact final>authentic initial AND separately final>each actual reference except actual final=actual reference=1.",
+      "old_quality": "Budget CriterionAtLeastExcluding: binary64 score>=0.45-0.05 AND abs(score-0.5)>1e-12, legal>=1, at full-five medians AND served0 own scopes.",
+      "precision": "Threshold is unattainable on all19 complete k/18 scores and their five-member median, so > vs >= agrees on valid support; actual reducer unchanged.",
+      "current_independent_decision": "CLEAR prospective finite conjunction. Nine contributions<=1 prove maximum1 iff9wins0draws0losses. Historical neutral-MCTS9/9 Connect4/Hex/Gomoku observations authorize no present calibration: each actual named reference must freshly replay and attain1. Below-maximum ties always fail, and initial gain remains strict even at optimum."
+    },
+    {
+      "full55_index": 51,
+      "row_id": "othello",
+      "family": "AlphaZero",
+      "actual_current_export_triplet": {
+        "contract_sha256": "0191af33569290e301e02810c5bc2f7cdaa60366c85a0b49f733c50d89bceec4",
+        "plan_id": "e12682a93ff704f59576536fe1aa981ffdf828967b1dd0e35f7536cdc1d93c73",
+        "row_id": "othello"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "generations": 96,
+        "games_per_generation": 4,
+        "total_games": 384,
+        "training_MCTS_simulations_per_move": 192,
+        "max_plies": 60,
+        "optimizer_updates_per_generation": 16,
+        "total_optimizer_updates": 1536,
+        "actual_game_length_not_inferred_from_max_plies": true
+      },
+      "evaluation": {
+        "all_keyed_cases": 9,
+        "addressed_tape_seed": 7961,
+        "roles": "learned player1, uniform legal opponent",
+        "same_initial_final_reference_tape": true,
+        "exact_score": "(2*wins+draws)/18",
+        "references": [
+          "plain legal-uniform",
+          "neutral-prior zero-value legal MCTS"
+        ],
+        "neutral_MCTS_simulations": 128
+      },
+      "joint_learning": "Exact final>authentic initial AND separately final>each actual reference except actual final=actual reference=1.",
+      "old_quality": "Budget CriterionAtLeastExcluding: binary64 score>=0.45-0.05 AND abs(score-0.5)>1e-12, legal>=1, at full-five medians AND served0 own scopes.",
+      "precision": "Threshold is unattainable on all19 complete k/18 scores and their five-member median, so > vs >= agrees on valid support; actual reducer unchanged.",
+      "current_independent_decision": "CLEAR prospective finite conjunction. Nine contributions<=1 prove maximum1 iff9wins0draws0losses. Historical neutral-MCTS9/9 Connect4/Hex/Gomoku observations authorize no present calibration: each actual named reference must freshly replay and attain1. Below-maximum ties always fail, and initial gain remains strict even at optimum."
+    },
+    {
+      "full55_index": 52,
+      "row_id": "hex",
+      "family": "AlphaZero",
+      "actual_current_export_triplet": {
+        "contract_sha256": "83ed06d07890d8ed0bc9c530279b1aab60258864c66c4bf102f8d8f6107d968b",
+        "plan_id": "a44cbeba8a9cb086b88beb07f8dfd3121a94830ff37e10a19eda9d81d3c30de4",
+        "row_id": "hex"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "generations": 128,
+        "games_per_generation": 2,
+        "total_games": 256,
+        "training_MCTS_simulations_per_move": 256,
+        "max_plies": 121,
+        "optimizer_updates_per_generation": 8,
+        "total_optimizer_updates": 1024,
+        "actual_game_length_not_inferred_from_max_plies": true
+      },
+      "evaluation": {
+        "all_keyed_cases": 9,
+        "addressed_tape_seed": 7961,
+        "roles": "learned player1, uniform legal opponent",
+        "same_initial_final_reference_tape": true,
+        "exact_score": "(2*wins+draws)/18",
+        "references": [
+          "plain legal-uniform",
+          "neutral-prior zero-value legal MCTS"
+        ],
+        "neutral_MCTS_simulations": 192
+      },
+      "joint_learning": "Exact final>authentic initial AND separately final>each actual reference except actual final=actual reference=1.",
+      "old_quality": "Budget CriterionAtLeastExcluding: binary64 score>=0.45-0.05 AND abs(score-0.5)>1e-12, legal>=1, at full-five medians AND served0 own scopes.",
+      "precision": "Threshold is unattainable on all19 complete k/18 scores and their five-member median, so > vs >= agrees on valid support; actual reducer unchanged.",
+      "current_independent_decision": "CLEAR prospective finite conjunction. Nine contributions<=1 prove maximum1 iff9wins0draws0losses. Historical neutral-MCTS9/9 Connect4/Hex/Gomoku observations authorize no present calibration: each actual named reference must freshly replay and attain1. Below-maximum ties always fail, and initial gain remains strict even at optimum."
+    },
+    {
+      "full55_index": 53,
+      "row_id": "gomoku",
+      "family": "AlphaZero",
+      "actual_current_export_triplet": {
+        "contract_sha256": "2a09242488a3d87c73d2a9a1bd22f118bda90bc4898cd4d28ec2b289512eb073",
+        "plan_id": "75437658421a71735e90f06f0ad925544be1b9d0ebe9059ba3fbabf0b2f2ca55",
+        "row_id": "gomoku"
+      },
+      "ordered_actual_training_seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "unchanged_per_seed_schedule": {
+        "generations": 128,
+        "games_per_generation": 2,
+        "total_games": 256,
+        "training_MCTS_simulations_per_move": 256,
+        "max_plies": 225,
+        "optimizer_updates_per_generation": 8,
+        "total_optimizer_updates": 1024,
+        "actual_game_length_not_inferred_from_max_plies": true
+      },
+      "evaluation": {
+        "all_keyed_cases": 9,
+        "addressed_tape_seed": 7961,
+        "roles": "learned player1, uniform legal opponent",
+        "same_initial_final_reference_tape": true,
+        "exact_score": "(2*wins+draws)/18",
+        "references": [
+          "plain legal-uniform",
+          "neutral-prior zero-value legal MCTS"
+        ],
+        "neutral_MCTS_simulations": 192
+      },
+      "joint_learning": "Exact final>authentic initial AND separately final>each actual reference except actual final=actual reference=1.",
+      "old_quality": "Budget CriterionAtLeastExcluding: binary64 score>=0.45-0.05 AND abs(score-0.5)>1e-12, legal>=1, at full-five medians AND served0 own scopes.",
+      "precision": "Threshold is unattainable on all19 complete k/18 scores and their five-member median, so > vs >= agrees on valid support; actual reducer unchanged.",
+      "current_independent_decision": "CLEAR prospective finite conjunction. Nine contributions<=1 prove maximum1 iff9wins0draws0losses. Historical neutral-MCTS9/9 Connect4/Hex/Gomoku observations authorize no present calibration: each actual named reference must freshly replay and attain1. Below-maximum ties always fail, and initial gain remains strict even at optimum."
+    }
+  ],
+  "cohort_policy_assessment": {
+    "actual_five": "Exactly five original budget-complete models at ordered42..46. Missing/incomplete/nonfinite required observations fail; all finite low-quality/no-improvement/zero-update auxiliaries remain. No imputation, replacement, retraining-to-score, score-based selection or episode pooling.",
+    "joint_success": "At least3 models each satisfy their whole same-model strict-initial-plus-reference predicate; coordinate successes on different models cannot combine.",
+    "unchanged_quality": "Median of allfive original per-policy binary64 statistics passes every unchanged quality criterion. Served0 independently passes own learning/quality and stricter original positive-update/curve/evidence/completion gates. Five separate individual quality passes are not required; failing finite auxiliaries remain in full medians.",
+    "served0": "Original index0 seed42 fixed before scores, own served metric separate from median; exact physical budget, honest selected-device/ARS host lineage, Store admission and fetched final-weight replay stay mandatory.",
+    "actual_initial": "Each actual effective numerical initial is captured/evaluated before the same single-use continuation. Hash/reconstructed initializer alone insufficient. SAC/pendulum keeps cold/effective actor plus actual425*800=340000 warm Adam preparation work separately; strict gain begins at effective actor.",
+    "exact_maximum_only_ties": "RETURN only current complete KeyDoor9-field-state/time proof and reject above-bound episodes; unsupported tasks stay strict. HER actual exhaustive extrema20success/0distance. Arena actual named reference AND final exactly1 from all9 keyed outcomes. No initial-gain tie permitted at any endpoint.",
+    "ARS": "Real host-Double discrete linear search, whole applied aggregate theta-before/after lineage and actual improving applied step; retain no-op/worsening steps. Favorable perturbation or unrelated MLP probe cannot qualify."
+  },
+  "current_native_consumption_assessment": "Current unchanged policy modules require five ordered original observations and full medians/served0 restrictions. NativeRlCohortPlan and Assessment bind exact canonical projections/plans/seeds and producer-owned calibration. ServingCandidate requires actual complete budget data allfive, selects only0 and preserves old strict served artifact gates. StoredServing physically writes/reads exact completed checkpoint/companion, and StoreLoadedReplay checks physical JMW1/F64 values and full canonical fetched-final replay bytes with process/device evidence. Parent source/lane NativeCriterionReview capture and expected actual55 digest remain required before reserve/spawn, with independent physical policy/evaluation replay afterward. The snapshot metadata change touches none of those gates.",
+  "bar_provenance_and_limits": "Native simulators, compact budgets and project-calibrated slacks do not reproduce published recipe anchors. The prospective finite conjunction is meaningful through authentic paired gain, all declared task references, prescribed actual training seeds, old median quality and served0 own restrictions. No population/generalization probability or supervised-null guarantee transfers to RL/HER/self-play. If a strong fixed reference makes a task infeasible, this review permits no relaxation.",
+  "finite_independent_mathematics": {
+    "all361_arena_exact_reference_pair_boundaries_rechecked": true,
+    "all19_attainable_scores": [
+      "0",
+      "1/18",
+      "1/9",
+      "1/6",
+      "2/9",
+      "5/18",
+      "1/3",
+      "7/18",
+      "4/9",
+      "1/2",
+      "5/9",
+      "11/18",
+      "2/3",
+      "13/18",
+      "7/9",
+      "5/6",
+      "8/9",
+      "17/18",
+      "1"
+    ],
+    "no_threshold_equality_at_binary64_0_45_minus_0_05": true,
+    "HER_complete_reference_sequences": 46656,
+    "HER_sequence_goal_pairs": 933120,
+    "HER_budget": 2004,
+    "KeyDoor_proof_reasoning": "Complete nine-field Markov state/time fixes future legal transitions; current solver expands every legal edge and every terminal/horizon candidate. Monotone finite correctly-rounded binary64 addition permits dominant prefix per state. Only actual complete canonical solver constructs certificate for8 KeyDoor rows. No historical scalar is promoted."
+  },
+  "scientific_provider_observation": {
+    "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/current57cf-cpu-native-independent-review-20261019T051335.935714Z/current-scientific-provider-observation.json",
+    "bytes": 53077,
+    "sha256": "74d225fd41f540381d277114bb7557243cab8d03e8161a6426fa1f0806df5a38"
+  },
+  "actual_input_pins": {
+    "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/current57cf-cpu-native-independent-review-20261019T051335.935714Z/actual-input-pins.json",
+    "bytes": 6301,
+    "sha256": "7ff842b688ca605496cd79c1d0f32db6fc2aad5c22981fea038221e6c02ea305"
+  },
+  "actual_export_binding": [
+    {
+      "path": ".build/phase278-mac-validation/native-criterion-review-candidate-outputs/20261019T050620000000Z-source57cf61d1-contracts110/contracts.json",
+      "bytes": 21678,
+      "sha256": "b4dbaa0d365d34b59e294c6c4601358df5beab497b3a19314b078c340f87befa"
+    },
+    {
+      "path": ".build/phase278-mac-validation/native-criterion-review-candidate-outputs/20261019T050620000000Z-source57cf61d1-contracts110/binding-input.json",
+      "bytes": 1138,
+      "sha256": "9a6023064e847fdf9f979aebd0038da520219b0968df13f67343ffd509f3c8c0"
+    },
+    {
+      "path": ".build/phase278-mac-validation/native-criterion-review-candidate-outputs/20261019T050620000000Z-source57cf61d1-contracts110/manifest.json",
+      "bytes": 1023,
+      "sha256": "87e810c151bc4efb60065c78e48e714a93506d4e9783c8752eb6a735b45c20fb"
+    },
+    {
+      "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/criterion-native-export-root-metadata-20261019T050327Z/RESULT.json",
+      "bytes": 6219,
+      "sha256": "dcb9cb1d5b9c69e93ceb3a7a07cd9ebdb087ce427eb3cdf438826c0dca943b8e"
+    }
+  ],
+  "prior15c_primary_literal": {
+    "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/current15c-cpu-native-independent-review-20261019T044419.888791Z/linux-cpu-native-review.json",
+    "bytes": 170247,
+    "sha256": "06006c14849761d73e8f4479c44cff82436a83a9c1722e2b81647d366788f400"
+  },
+  "original_supporting_artifacts": [
+    {
+      "path": "DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/criterion-reviews/4f593f2b52d0cfef4705357fe44df0f875b7e29dfcb73367dd75beb662bbb081/linux-cpu/native/artifacts/38d9aceb03b0d02df1170b8eed919f63cb4d6699d3c018dc39b11ea28694c056.bin",
+      "bytes": 9649,
+      "sha256": "38d9aceb03b0d02df1170b8eed919f63cb4d6699d3c018dc39b11ea28694c056"
+    },
+    {
+      "path": "DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/criterion-reviews/4f593f2b52d0cfef4705357fe44df0f875b7e29dfcb73367dd75beb662bbb081/linux-cpu/native/artifacts/2a0ef1888cd7c0f864ba18816be574ea44daf31f96a307743e005c2b2dbdc401.bin",
+      "bytes": 61424,
+      "sha256": "2a0ef1888cd7c0f864ba18816be574ea44daf31f96a307743e005c2b2dbdc401"
+    },
+    {
+      "path": "DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/criterion-reviews/4f593f2b52d0cfef4705357fe44df0f875b7e29dfcb73367dd75beb662bbb081/linux-cpu/native/artifacts/488ec708801c97d90a7d77baae1d8a05dd814365d77720dc89f36a037c68bced.bin",
+      "bytes": 3823,
+      "sha256": "488ec708801c97d90a7d77baae1d8a05dd814365d77720dc89f36a037c68bced"
+    }
+  ],
+  "four_artifact_profile": "New current57cf primary plus same3 byte-exact historical supporting artifacts. Old15c primary stays literal an input, not a re-sourced artifact or extra selected profile member.",
+  "verification_scope": {
+    "new_current_source603_criterion_judgment": true,
+    "one_module_delta_reviewed": true,
+    "scientific115_all_equal15c": true,
+    "all43_semantics_explicitly_reviewed": true,
+    "no_training_Store_cpu_runtime_or_qualification_claim": true,
+    "no_source_Cabal_Docker_attestation_mutation": true
+  }
+}

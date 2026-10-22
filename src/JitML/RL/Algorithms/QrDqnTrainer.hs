@@ -28,6 +28,35 @@ module JitML.RL.Algorithms.QrDqnTrainer
   , trainQrDqnOnDevice
   , trainQrDqnOnDeviceWithEnvironment
   , evaluateQrDqnPolicyWithEnvironment
+  , qrDqnEvaluationContract
+  , evaluateQrDqnPolicyOnDeviceWithEnvironment
+  , QrDqnTrainObservation
+  , refineQrDqnTrainObservation
+  , trainQrDqnOnCartpoleRaw
+  , trainQrDqnOnDeviceWithEnvironmentRaw
+  , PreparedQrDqn
+  , QrDqnPreparedSnapshot
+  , preparedQrDqnSnapshot
+  , continuePreparedQrDqnRaw
+  , prepareQrDqnOnCartpole
+  , prepareQrDqnOnDeviceWithEnvironment
+  , qrDqnPreparedConfig
+  , qrDqnPreparedInitialParams
+  , qrDqnPreparedOnlineParams
+  , qrDqnPreparedTargetParams
+  , qrDqnPreparedAdam
+  , qrDqnPreparedGenerator
+  , qrDqnPreparedReplay
+  , qrDqnPreparedStep
+  , qrDqnPreparedState
+  , qrDqnPreparedEpisodeLength
+  , qrDqnPreparedEpisodeReturn
+  , qrDqnPreparedRecentReturns
+  , qrDqnPreparedStatistics
+  , qrDqnPreparedEnvironmentName
+  , qrDqnPreparedObservationWidth
+  , qrDqnPreparedActionCount
+  , qrDqnPreparedFrame
   )
 where
 
@@ -40,11 +69,12 @@ import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
 
 import JitML.Env.Env (Env)
+import JitML.Execution.SingleUse qualified as SingleUse
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState (..)
   , MlpGradient (..)
-  , MlpParams
+  , MlpParams (..)
   , MlpShape (..)
   , adamInit
   , adamStep
@@ -62,7 +92,8 @@ import JitML.RL.Algorithms.Common qualified as Common
 import JitML.RL.Algorithms.QrDqnLoss (quantileMidpoints)
 import JitML.RL.RewardShaping qualified as RewardShaping
 import JitML.RL.Simulator
-  ( SimStep (..)
+  ( CartPoleState
+  , SimStep (..)
   , SimulatedEnvironment (..)
   , SomeSimulatedEnvironment (..)
   , cartPoleEnvironment
@@ -142,6 +173,7 @@ data QrDqnIterationStat = QrDqnIterationStat
 
 data QrDqnTrainResult = QrDqnTrainResult
   { qrResultStats :: ![QrDqnIterationStat]
+  , qrResultInitialParams :: !MlpParams
   , qrResultFinalParams :: !MlpParams
   , qrResultMeasuredCounters :: !Common.MeasuredTrainerCounters
   -- ^ Actual environment transitions plus Adam applications executed against
@@ -150,28 +182,190 @@ data QrDqnTrainResult = QrDqnTrainResult
   }
   deriving stock (Eq, Show)
 
+-- | Uncensored numerical return; no producer/device/learning authority.
+type QrDqnTrainObservation = Common.RawTrainerResult MlpParams QrDqnIterationStat QrDqnTrainConfig
+
+refineQrDqnTrainObservation :: QrDqnTrainObservation -> Either Text QrDqnTrainResult
+refineQrDqnTrainObservation observed = do
+  counters <- Common.refineObservedTrainerCounters (Common.rawTrainerCounters observed)
+  pure
+    QrDqnTrainResult
+      { qrResultStats = Common.rawTrainerStats observed
+      , qrResultInitialParams = Common.rawTrainerInitialParams observed
+      , qrResultFinalParams = Common.rawTrainerFinalParams observed
+      , qrResultMeasuredCounters = counters
+      , qrResultConfig = Common.rawTrainerConfig observed
+      }
+
 trainQrDqnOnCartpole :: QrDqnTrainConfig -> IO QrDqnTrainResult
 trainQrDqnOnCartpole config = do
+  observed <- trainQrDqnOnCartpoleRaw config
+  either (fail . Text.unpack) pure (refineQrDqnTrainObservation observed)
+
+-- | Captured numerical state only. No producer, device, durable or completion authority.
+-- Fields stay lazy so old wrappers do not acquire new forcing/exception order.
+data QrDqnPreparedSnapshot state = QrDqnPreparedSnapshot
+  { internalQrDqnConfig :: QrDqnTrainConfig
+  , internalQrDqnInitialParams :: MlpParams
+  , internalQrDqnOnlineParams :: MlpParams
+  , internalQrDqnTargetParams :: MlpParams
+  , internalQrDqnAdam :: AdamState
+  , internalQrDqnGenerator :: Random.StdGen
+  , internalQrDqnReplay :: [Transition]
+  , internalQrDqnStep :: Int
+  , internalQrDqnState :: state
+  , internalQrDqnEpisodeLength :: Int
+  , internalQrDqnEpisodeReturn :: Double
+  , internalQrDqnRecentReturns :: [Double]
+  , internalQrDqnStatistics :: [QrDqnIterationStat]
+  , internalQrDqnEnvironmentName :: Text
+  , internalQrDqnObservationWidth :: Int
+  , internalQrDqnActionCount :: Int
+  , internalQrDqnFrame :: Vector Double
+  }
+  deriving stock (Eq, Show)
+
+-- Constructor and continuation are private; no parsed snapshot can reconstruct one.
+data PreparedQrDqn state
+  = PreparedQrDqn
+      (QrDqnPreparedSnapshot state)
+      SingleUse.SingleUse
+      (IO (Either Text QrDqnTrainObservation))
+
+preparedQrDqnSnapshot :: PreparedQrDqn state -> QrDqnPreparedSnapshot state
+preparedQrDqnSnapshot (PreparedQrDqn snapshot _ _) = snapshot
+
+continuePreparedQrDqnRaw :: PreparedQrDqn state -> IO (Either Text QrDqnTrainObservation)
+continuePreparedQrDqnRaw (PreparedQrDqn _ guard action) = do
+  consumed <- SingleUse.tryConsumeSingleUse guard
+  if consumed then action else pure (Left "prepared QrDqn continuation has already been consumed")
+
+qrDqnPreparedConfig :: QrDqnPreparedSnapshot state -> QrDqnTrainConfig
+qrDqnPreparedConfig = internalQrDqnConfig
+
+qrDqnPreparedInitialParams :: QrDqnPreparedSnapshot state -> MlpParams
+qrDqnPreparedInitialParams = internalQrDqnInitialParams
+
+qrDqnPreparedOnlineParams :: QrDqnPreparedSnapshot state -> MlpParams
+qrDqnPreparedOnlineParams = internalQrDqnOnlineParams
+
+qrDqnPreparedTargetParams :: QrDqnPreparedSnapshot state -> MlpParams
+qrDqnPreparedTargetParams = internalQrDqnTargetParams
+
+qrDqnPreparedAdam :: QrDqnPreparedSnapshot state -> AdamState
+qrDqnPreparedAdam = internalQrDqnAdam
+
+qrDqnPreparedGenerator :: QrDqnPreparedSnapshot state -> Random.StdGen
+qrDqnPreparedGenerator = internalQrDqnGenerator
+
+qrDqnPreparedReplay
+  :: QrDqnPreparedSnapshot state -> [(Vector Double, Int, Double, Vector Double, Bool)]
+qrDqnPreparedReplay =
+  fmap
+    ( \transition ->
+        ( transObs transition
+        , transAction transition
+        , transReward transition
+        , transNextObs transition
+        , transDone transition
+        )
+    )
+    . internalQrDqnReplay
+
+qrDqnPreparedStep :: QrDqnPreparedSnapshot state -> Int
+qrDqnPreparedStep = internalQrDqnStep
+
+qrDqnPreparedState :: QrDqnPreparedSnapshot state -> state
+qrDqnPreparedState = internalQrDqnState
+
+qrDqnPreparedEpisodeLength :: QrDqnPreparedSnapshot state -> Int
+qrDqnPreparedEpisodeLength = internalQrDqnEpisodeLength
+
+qrDqnPreparedEpisodeReturn :: QrDqnPreparedSnapshot state -> Double
+qrDqnPreparedEpisodeReturn = internalQrDqnEpisodeReturn
+
+qrDqnPreparedRecentReturns :: QrDqnPreparedSnapshot state -> [Double]
+qrDqnPreparedRecentReturns = internalQrDqnRecentReturns
+
+qrDqnPreparedStatistics :: QrDqnPreparedSnapshot state -> [QrDqnIterationStat]
+qrDqnPreparedStatistics = internalQrDqnStatistics
+
+qrDqnPreparedEnvironmentName :: QrDqnPreparedSnapshot state -> Text
+qrDqnPreparedEnvironmentName = internalQrDqnEnvironmentName
+
+qrDqnPreparedObservationWidth :: QrDqnPreparedSnapshot state -> Int
+qrDqnPreparedObservationWidth = internalQrDqnObservationWidth
+
+qrDqnPreparedActionCount :: QrDqnPreparedSnapshot state -> Int
+qrDqnPreparedActionCount = internalQrDqnActionCount
+
+qrDqnPreparedFrame :: QrDqnPreparedSnapshot state -> Vector Double
+qrDqnPreparedFrame = internalQrDqnFrame
+
+trainQrDqnOnCartpoleRaw :: QrDqnTrainConfig -> IO QrDqnTrainObservation
+trainQrDqnOnCartpoleRaw config = do
+  prepared <- prepareQrDqnOnCartpole config
+  result <- continuePreparedQrDqnRaw prepared
+  either (fail . Text.unpack) pure result
+
+prepareQrDqnOnCartpole :: QrDqnTrainConfig -> IO (PreparedQrDqn CartPoleState)
+prepareQrDqnOnCartpole config = do
   let shape = qrDqnMlpShape config
       initialParams = initialQrDqnParams config
-  loop
-    cartPoleEnvironment
-    config
-    (\online target adam batch -> pure (qrUpdate config online target adam batch))
-    initialParams
-    initialParams
-    (adamInit shape)
-    (Random.mkStdGen (qrSeed config + 1))
-    []
-    0
-    (envInitial cartPoleEnvironment)
-    0
-    0.0
-    []
-    []
+      initialOnline = initialParams
+      initialTarget = initialParams
+      initialAdam = adamInit shape
+      initialGenerator = Random.mkStdGen (qrSeed config + 1)
+      initialReplay = []
+      initialStep = 0
+      initialState = envInitial cartPoleEnvironment
+      initialEpisodeLength = 0
+      initialEpisodeReturn = 0.0
+      initialRecentReturns = []
+      initialStatistics = []
+  guard <- SingleUse.newSingleUse
+  let snapshot =
+        QrDqnPreparedSnapshot
+          config
+          initialParams
+          initialOnline
+          initialTarget
+          initialAdam
+          initialGenerator
+          initialReplay
+          initialStep
+          initialState
+          initialEpisodeLength
+          initialEpisodeReturn
+          initialRecentReturns
+          initialStatistics
+          (envName cartPoleEnvironment)
+          (envObservationSize cartPoleEnvironment)
+          (envActionCount cartPoleEnvironment)
+          (obsVector cartPoleEnvironment initialState)
+      action =
+        Right
+          <$> loop
+            initialParams
+            cartPoleEnvironment
+            config
+            (\online target adam batch -> pure (qrUpdate config online target adam batch))
+            initialOnline
+            initialTarget
+            initialAdam
+            initialGenerator
+            initialReplay
+            initialStep
+            initialState
+            initialEpisodeLength
+            initialEpisodeReturn
+            initialRecentReturns
+            initialStatistics
+  pure (PreparedQrDqn snapshot guard action)
 
 loop
-  :: SimulatedEnvironment state
+  :: MlpParams
+  -> SimulatedEnvironment state
   -> QrDqnTrainConfig
   -> (MlpParams -> MlpParams -> AdamState -> [Transition] -> IO (MlpParams, AdamState))
   -> MlpParams
@@ -185,10 +379,11 @@ loop
   -> Double
   -> [Double]
   -> [QrDqnIterationStat]
-  -> IO QrDqnTrainResult
-loop environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats = do
+  -> IO QrDqnTrainObservation
+loop initialSnapshot environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats = do
   result <-
     loopEither
+      initialSnapshot
       environment
       config
       (\o t a batch -> Right <$> update o t a batch)
@@ -206,7 +401,8 @@ loop environment config update online target adam gen buffer step state episodeL
   either (fail . Text.unpack) pure result
 
 loopEither
-  :: SimulatedEnvironment state
+  :: MlpParams
+  -> SimulatedEnvironment state
   -> QrDqnTrainConfig
   -> (MlpParams -> MlpParams -> AdamState -> [Transition] -> IO (Either Text (MlpParams, AdamState)))
   -> MlpParams
@@ -220,20 +416,21 @@ loopEither
   -> Double
   -> [Double]
   -> [QrDqnIterationStat]
-  -> IO (Either Text QrDqnTrainResult)
-loopEither environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
+  -> IO (Either Text QrDqnTrainObservation)
+loopEither initialSnapshot environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
   | step >= qrNumSteps config =
       pure $ do
         counters <-
-          Common.mkMeasuredTrainerCounters
+          Common.mkObservedTrainerCounters
             (toInteger step)
             (toInteger (adamStep_ adam))
         pure
-          QrDqnTrainResult
-            { qrResultStats = reverse stats
-            , qrResultFinalParams = online
-            , qrResultMeasuredCounters = counters
-            , qrResultConfig = config
+          Common.RawTrainerResult
+            { Common.rawTrainerInitialParams = initialSnapshot
+            , Common.rawTrainerFinalParams = online
+            , Common.rawTrainerStats = reverse stats
+            , Common.rawTrainerCounters = counters
+            , Common.rawTrainerConfig = config
             }
   | otherwise = do
       let epsilon = currentEpsilon config step
@@ -292,6 +489,7 @@ loopEither environment config update online target adam gen buffer step state ep
                      in QrDqnIterationStat (step + 1) (length newEpisodes) meanR : stats
                   else stats
           loopEither
+            initialSnapshot
             environment
             config
             update
@@ -457,23 +655,72 @@ trainQrDqnOnDeviceWithEnvironment device (SomeSimulatedEnvironment environment) 
 trainQrDqnOnDeviceWithSimulatedEnvironment
   :: MlpDevice -> SimulatedEnvironment state -> QrDqnTrainConfig -> IO (Either Text QrDqnTrainResult)
 trainQrDqnOnDeviceWithSimulatedEnvironment device environment config = do
+  observed <- trainQrDqnOnDeviceWithSimulatedEnvironmentRaw device environment config
+  pure (observed >>= refineQrDqnTrainObservation)
+
+trainQrDqnOnDeviceWithSimulatedEnvironmentRaw
+  :: MlpDevice
+  -> SimulatedEnvironment state
+  -> QrDqnTrainConfig
+  -> IO (Either Text QrDqnTrainObservation)
+trainQrDqnOnDeviceWithSimulatedEnvironmentRaw device environment config = do
+  prepared <- prepareQrDqnOnDeviceWithEnvironment device environment config
+  continuePreparedQrDqnRaw prepared
+
+prepareQrDqnOnDeviceWithEnvironment
+  :: MlpDevice -> SimulatedEnvironment state -> QrDqnTrainConfig -> IO (PreparedQrDqn state)
+prepareQrDqnOnDeviceWithEnvironment device environment config = do
   let shape = qrDqnMlpShape config
       initialParams = initialQrDqnParams config
-  loopEither
-    environment
-    config
-    (qrUpdateDevice device config)
-    initialParams
-    initialParams
-    (adamInit shape)
-    (Random.mkStdGen (qrSeed config + 1))
-    []
-    0
-    (envInitial environment)
-    0
-    0.0
-    []
-    []
+      initialOnline = initialParams
+      initialTarget = initialParams
+      initialAdam = adamInit shape
+      initialGenerator = Random.mkStdGen (qrSeed config + 1)
+      initialReplay = []
+      initialStep = 0
+      initialState = envInitial environment
+      initialEpisodeLength = 0
+      initialEpisodeReturn = 0.0
+      initialRecentReturns = []
+      initialStatistics = []
+  guard <- SingleUse.newSingleUse
+  let snapshot =
+        QrDqnPreparedSnapshot
+          config
+          initialParams
+          initialOnline
+          initialTarget
+          initialAdam
+          initialGenerator
+          initialReplay
+          initialStep
+          initialState
+          initialEpisodeLength
+          initialEpisodeReturn
+          initialRecentReturns
+          initialStatistics
+          (envName environment)
+          (envObservationSize environment)
+          (envActionCount environment)
+          (obsVector environment initialState)
+      action =
+        loopEither
+          initialParams
+          environment
+          config
+          (qrUpdateDevice device config)
+          initialOnline
+          initialTarget
+          initialAdam
+          initialGenerator
+          initialReplay
+          initialStep
+          initialState
+          initialEpisodeLength
+          initialEpisodeReturn
+          initialRecentReturns
+          initialStatistics
+  pure (PreparedQrDqn snapshot guard action)
 
 qrDqnMlpShape :: QrDqnTrainConfig -> MlpShape
 qrDqnMlpShape config =
@@ -559,3 +806,119 @@ qrUpdateDevice device config online target adam batch = do
       , gradW2 = VU.map (* sc) (gradW2 g)
       , gradB2 = VU.map (* sc) (gradB2 g)
       }
+
+-- | Versioned identity of final-policy scoring; training and the pure oracle
+-- above retain their original semantics.
+qrDqnEvaluationContract :: Text
+qrDqnEvaluationContract = "qrdqn-selected-device-final-evaluation-v1"
+
+-- | Score every frozen quantile-Q policy forward through the supplied device.
+-- Quantile means, masks, leftmost ties, resets, rewards and horizon are shared
+-- with the existing pure oracle. A failed member rejects the entire cohort.
+evaluateQrDqnPolicyOnDeviceWithEnvironment
+  :: MlpDevice
+  -> SomeSimulatedEnvironment
+  -> QrDqnTrainConfig
+  -> MlpParams
+  -> Int
+  -> IO (Either Text [Common.EvaluationEpisodeResult])
+evaluateQrDqnPolicyOnDeviceWithEnvironment device (SomeSimulatedEnvironment environment) config params episodeCount
+  | episodeCount <= 0
+      || qrMaxEpisodeSteps config <= 0
+      || qrObsSize config <= 0
+      || qrHiddenUnits config <= 0
+      || qrActionCount config <= 0
+      || qrNumQuantiles config <= 0
+      || toInteger (qrActionCount config) * toInteger (qrNumQuantiles config) > toInteger (maxBound :: Int)
+      || envObservationSize environment /= qrObsSize config
+      || envActionCount environment /= qrActionCount config =
+      pure (Left "QR-DQN device evaluation configuration does not match the environment")
+  | not (qrEvaluationParams (qrDqnMlpShape config) params) =
+      pure (Left "QR-DQN device evaluation parameters are malformed or overflow the Float32 ABI")
+  | otherwise = collect episodeCount []
+ where
+  collect remaining episodes
+    | remaining <= 0 = pure (Right (reverse episodes))
+    | otherwise = do
+        evaluated <- go (envInitial environment) 0 0.0
+        case evaluated of
+          Left err -> pure (Left err)
+          Right episode -> collect (remaining - 1) (episode : episodes)
+  go state episodeLen episodeReturn
+    | episodeLen >= qrMaxEpisodeSteps config =
+        pure (Right (Common.EvaluationEpisodeResult episodeReturn episodeLen False))
+    | VU.length observation /= qrObsSize config || not (qrEvaluationVector observation) =
+        pure (Left "QR-DQN device evaluation observation is malformed or overflows the Float32 ABI")
+    | Just mask <- actionMask
+    , length mask /= qrActionCount config || not (or mask) =
+        pure (Left "QR-DQN device evaluation action mask is malformed or has no legal action")
+    | otherwise = do
+        forwarded <- mlpdForward device params observation
+        case forwarded of
+          Left err -> pure (Left ("QR-DQN device forward failed during evaluation: " <> err))
+          Right forward
+            | VU.length (forwardOutput forward) /= qrActionCount config * qrNumQuantiles config
+                || not (qrEvaluationVector (forwardOutput forward)) ->
+                pure (Left "QR-DQN device evaluation output has the wrong shape or is not finite Float32")
+            | otherwise -> do
+                let output = forwardOutput forward
+                    qValues = [actionMeanQ config output actionIndex | actionIndex <- [0 .. qrActionCount config - 1]]
+                case qrEvaluationLegalArgmax actionMask qValues of
+                  Left err -> pure (Left err)
+                  Right action -> do
+                    let stepResult = envStep environment state action
+                        nextReturn = episodeReturn + simStepReward stepResult
+                        nextLen = episodeLen + 1
+                    if not (qrEvaluationFinite (simStepReward stepResult) && qrEvaluationFinite nextReturn)
+                      then pure (Left "QR-DQN device evaluation produced a non-finite reward")
+                      else
+                        if simStepDone stepResult
+                          then pure (Right (Common.EvaluationEpisodeResult nextReturn nextLen True))
+                          else go (simStepState stepResult) nextLen nextReturn
+   where
+    observation = obsVector environment state
+    actionMask = envActionMask environment <*> Just state
+
+-- Float32 is the selected MLP ABI. Finite binary64 values are accepted when
+-- conversion remains finite; underflow/rounding is allowed, exact Float32
+-- representability is not required. Environment rewards stay finite Double.
+qrEvaluationFinite :: Double -> Bool
+qrEvaluationFinite value = not (isNaN value || isInfinite value)
+
+qrEvaluationVector :: Vector Double -> Bool
+qrEvaluationVector =
+  VU.all
+    ( \value ->
+        qrEvaluationFinite value
+          && let encoded = realToFrac value :: Float in not (isNaN encoded || isInfinite encoded)
+    )
+
+qrEvaluationParams :: MlpShape -> MlpParams -> Bool
+qrEvaluationParams shape params =
+  paramShape params == shape
+    && toInteger (VU.length (paramW1 params)) == toInteger (mlpHidden shape) * toInteger (mlpInputs shape)
+    && VU.length (paramB1 params) == mlpHidden shape
+    && toInteger (VU.length (paramW2 params)) == toInteger (mlpOutputs shape) * toInteger (mlpHidden shape)
+    && VU.length (paramB2 params) == mlpOutputs shape
+    && all qrEvaluationVector [paramW1 params, paramB1 params, paramW2 params, paramB2 params]
+
+-- Filter illegal actions rather than assigning a finite sentinel: every legal
+-- Q may be below any such sentinel. Original indices and leftmost ties survive.
+qrEvaluationLegalArgmax :: Maybe [Bool] -> [Double] -> Either Text Int
+qrEvaluationLegalArgmax mask values
+  | not (all qrEvaluationFinite values) =
+      Left "QR-DQN device evaluation produced a non-finite action mean"
+  | Just legal <- mask
+  , length legal /= length values =
+      Left "QR-DQN device evaluation action mask width does not match action means"
+  | otherwise = case eligible of
+      [] -> Left "QR-DQN device evaluation has no legal action"
+      first : rest -> Right (snd (Data.List.foldl' choose first rest))
+ where
+  eligible = [(value, index) | (value, index) <- zip values [0 ..], maybe True (!! index) mask]
+  choose left right = if fst right > fst left then right else left
+
+trainQrDqnOnDeviceWithEnvironmentRaw
+  :: MlpDevice -> SomeSimulatedEnvironment -> QrDqnTrainConfig -> IO (Either Text QrDqnTrainObservation)
+trainQrDqnOnDeviceWithEnvironmentRaw device (SomeSimulatedEnvironment environment) =
+  trainQrDqnOnDeviceWithSimulatedEnvironmentRaw device environment

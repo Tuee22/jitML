@@ -1,0 +1,142 @@
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE OverloadedStrings #-}
+
+module Main where
+
+import Control.Exception (evaluate)
+import Control.Monad (unless)
+import Crypto.Hash.SHA256 qualified as SHA256
+import Data.Aeson (Value, encode, object, (.=))
+import Data.ByteString qualified as BS
+import Data.ByteString.Lazy qualified as LBS
+import Data.List qualified as List
+import Data.Map.Strict qualified as Map
+import Data.Text (Text)
+import Data.Text qualified as Text
+import Data.Time.Clock (getCurrentTime)
+import Data.Vector.Unboxed qualified as VU
+import Data.Version (showVersion)
+import Numeric (showHex)
+import System.Environment (getArgs, getExecutablePath)
+import System.Info (arch, compilerName, compilerVersion, os)
+
+import JitML.Product.LearningSignal qualified as LearningSignal
+import JitML.Product.SourceDigest qualified as SourceDigest
+import JitML.SL.Classifier qualified as Classifier
+import JitML.SL.Dataset qualified as Dataset
+import JitML.SL.TinyImageNet qualified as Tiny
+
+hex :: BS.ByteString -> Text
+hex = Text.pack . concatMap (\byte -> let digits = showHex byte "" in replicate (2 - length digits) '0' <> digits) . BS.unpack
+
+identity :: FilePath -> IO Value
+identity path = do
+  bytes <- BS.readFile path
+  pure (object ["path" .= path, "bytes" .= BS.length bytes, "sha256" .= hex (SHA256.hash bytes)])
+
+stampValue :: SourceDigest.SourceStamp -> Value
+stampValue source = object ["algorithm" .= SourceDigest.stampAlgorithm source, "sha256" .= SourceDigest.stampSha256 source]
+
+histogram :: Classifier.Dataset -> Value
+histogram examples =
+  let counts = Map.fromListWith (+) [(Classifier.exampleLabel example, 1 :: Int) | example <- examples]
+   in object
+        [ "examples" .= length examples
+        , "represented_classes" .= Map.size counts
+        , "maximum_class_count" .= maximum (0 : Map.elems counts)
+        , "counts" .= counts
+        ]
+
+-- Force every decoded pixel through finite checks and deterministic scalar
+-- aggregates, rather than obtaining labels alone from a lazy decode result.
+featureSummary :: Classifier.Dataset -> Either String Value
+featureSummary examples = do
+  let (!count, !invalid, !total, !squared) = List.foldl' perImage (0 :: Integer, 0 :: Integer, 0.0, 0.0) examples
+      widths = List.nub (fmap (VU.length . Classifier.exampleFeatures) examples)
+  unless (invalid == 0 && not (isNaN total || isInfinite total || isNaN squared || isInfinite squared))
+    (Left "decoded features or their deterministic aggregates are non-finite")
+  unless (widths == [64 * 64 * 3]) (Left "decoded image widths differ from 64x64x3")
+  pure (object ["feature_values_forced" .= count, "non_finite_feature_values" .= invalid,
+                "feature_widths" .= widths, "ordered_feature_sum" .= total,
+                "ordered_squared_feature_sum" .= squared])
+ where
+  perImage !accumulator example = VU.foldl' perFeature accumulator (Classifier.exampleFeatures example)
+  perFeature (!count, !invalid, !total, !squared) value =
+    (count + 1, invalid + if isNaN value || isInfinite value then 1 else 0, total + value, squared + value * value)
+
+require :: Either String value -> IO value
+require = either fail pure
+
+requireText :: Either Text value -> IO value
+requireText = either (fail . Text.unpack) pure
+
+main :: IO ()
+main = do
+  arguments <- getArgs
+  (archivePath, outputPath) <- case arguments of
+    [archivePath, outputPath] -> pure (archivePath, outputPath)
+    _ -> fail "expected: tiny-production-loader ARCHIVE.zip OUTPUT.json"
+  started <- getCurrentTime
+  sourceBefore <- SourceDigest.computeSourceStamp >>= requireText
+  let sourcePaths = ["src/JitML/SL/TinyImageNet.hs", "src/JitML/SL/Dataset.hs",
+                     "src/JitML/Product/LearningSignal.hs", "jitml.cabal", "cabal.project"]
+  filesBefore <- traverse identity sourcePaths
+  executablePath <- getExecutablePath
+  executable <- identity executablePath
+  macBinaryBefore <- identity ".build/jitml"
+  expected <- maybe (fail "production Tiny archive SHA pin is absent") pure
+    (Dataset.canonicalArtifactSha256For "Tiny ImageNet" Dataset.TrainSplit Dataset.ArchiveArtifact)
+  bytes <- BS.readFile archivePath
+  let digestBefore = hex (SHA256.hash bytes)
+  unless (digestBefore == expected) (fail "input archive does not match the production Tiny SHA-256 pin")
+  (config, trainingPrefix) <- require
+    (Tiny.decodeTinyImageNetArchiveBoundedClassificationDataset Classifier.defaultClassifierConfig Dataset.TrainSplit (Just 9600) bytes)
+  heldOut <- require (Tiny.decodeTinyImageNetArchiveBoundedDataset Dataset.TestSplit (Just 1000) bytes)
+  unless (length trainingPrefix == 9600 && length heldOut == 1000 && Classifier.clfClasses config == 200)
+    (fail "production decoder did not return the exact image/class budgets")
+  let gradient = take 8000 trainingPrefix
+      selection = drop 8000 trainingPrefix
+      classCounts examples = Map.fromListWith (+) [(Classifier.exampleLabel example, 1 :: Int) | example <- examples]
+  unless (classCounts gradient == Map.fromList [(label, 40) | label <- [0 .. 199]])
+    (fail "production gradient prefix is not exactly forty images of every canonical class")
+  unless (classCounts selection == Map.fromList [(label, 8) | label <- [0 .. 199]])
+    (fail "production selection prefix is not exactly eight images of every canonical class")
+  minimumCorrect <- requireText (LearningSignal.classificationMinimumCorrect 200 (fmap Classifier.exampleLabel heldOut))
+  unless (maximum (Map.elems (classCounts heldOut)) == 10 && minimumCorrect == 15)
+    (fail "production held-out labels or additional floor differ from the independent review")
+  gradientFeatures <- require (featureSummary gradient)
+  selectionFeatures <- require (featureSummary selection)
+  heldOutFeatures <- require (featureSummary heldOut)
+  -- Encoding forces every summary before the after-read/source checks below.
+  let payload = object
+        [ "gradient" .= histogram gradient, "selection" .= histogram selection, "held_out" .= histogram heldOut
+        , "gradient_features" .= gradientFeatures, "selection_features" .= selectionFeatures, "held_out_features" .= heldOutFeatures
+        , "additional_minimum_correct" .= minimumCorrect, "classes" .= Classifier.clfClasses config
+        , "configured_input_width" .= Classifier.clfInputs config
+        ]
+  !payloadLength <- evaluate (LBS.length (encode payload))
+  afterBytes <- BS.readFile archivePath
+  let digestAfter = hex (SHA256.hash afterBytes)
+  unless (digestAfter == expected && BS.length afterBytes == BS.length bytes)
+    (fail "input archive changed while production decoding ran")
+  sourceAfter <- SourceDigest.computeSourceStamp >>= requireText
+  filesAfter <- traverse identity sourcePaths
+  macBinaryAfter <- identity ".build/jitml"
+  unless (sourceBefore == sourceAfter && filesBefore == filesAfter && macBinaryBefore == macBinaryAfter)
+    (fail "production code, project inputs, or pinned Mac executable changed during this diagnostic")
+  finished <- getCurrentTime
+  LBS.writeFile outputPath (encode (object
+    [ "schema" .= ("jitml-production-tiny-decoder-diagnostic-v1" :: Text)
+    , "scope" .= ("pinned dataset decoding only; no model training, GPU execution, cluster, or GateTranscript" :: Text)
+    , "started_at_utc" .= started, "finished_at_utc" .= finished
+    , "host" .= object ["os" .= os, "architecture" .= arch, "compiler" .= compilerName, "compiler_version" .= showVersion compilerVersion]
+    , "archive" .= object ["path" .= archivePath, "bytes" .= BS.length bytes, "production_sha256" .= expected,
+                            "sha256_before" .= digestBefore, "sha256_after" .= digestAfter]
+    , "selection_contract" .= Tiny.tinyImageNetTrainingSelectionContract
+    , "learning_signal_contract" .= LearningSignal.learningSignalPolicyContract
+    , "source_before" .= stampValue sourceBefore, "source_after" .= stampValue sourceAfter
+    , "source_files_before" .= filesBefore, "source_files_after" .= filesAfter
+    , "diagnostic_executable" .= executable, "pinned_mac_executable_before" .= macBinaryBefore, "pinned_mac_executable_after" .= macBinaryAfter
+    , "forced_summary_json_bytes" .= payloadLength, "decoded" .= payload
+    ]) <> "\n")
+  putStrLn ("Production Tiny decode completed; exact output: " <> outputPath)

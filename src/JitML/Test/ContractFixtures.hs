@@ -68,6 +68,7 @@ module JitML.Test.ContractFixtures
   , trainingEvidenceEvent
   , updateEventId
   , withAdmittedProductProjection
+  , qualificationForAdmittedProductFixture
   , withDifferentProductProjection
   , withDifferentSupervisedProductProjection
   , withFirstProductProjection
@@ -84,6 +85,7 @@ import Data.List (find)
 import Data.List.NonEmpty (NonEmpty)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text.Encoding
 import Data.Word (Word32, Word64)
 import Numeric (showHex)
 import System.Directory
@@ -125,6 +127,10 @@ import JitML.Product.Convergence qualified as ProductConvergence
 import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.Product.SupervisedCohortPlan qualified as Cohort
+import JitML.Product.SupervisedQualification qualified as Qualification
+import JitML.Product.SupervisedQualificationPolicy qualified as QualificationPolicy
+import JitML.Product.SupervisedQualificationReceipt qualified as QualificationReceipt
 import JitML.Proto.Rl qualified as Rl
 import JitML.Proto.Training qualified as Training
 import JitML.Run.Contract
@@ -132,10 +138,12 @@ import JitML.SL.Architecture qualified as Architecture
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Classifier qualified as Classifier
 import JitML.SL.Dataset qualified as Dataset
+import JitML.SL.InitialComparison qualified as Initial
 import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Substrate (Substrate (..), renderSubstrate)
+import JitML.Test.DeviceWitnessFixture qualified as DeviceWitnessFixture
 import JitML.Test.LiveWorkflow qualified as LiveWorkflow
 import JitML.Test.ProductScenarioInterpreter.Internal qualified as ProductScenarioInterpreter
 import JitML.Test.Report qualified as Report
@@ -214,7 +222,22 @@ withAdmittedProductProjection action =
       addressed <-
         Report.admitAddressedProductScenarioCompletion root projection manifestSha
           >>= expectRight
-      action root row projection precondition addressed admitted
+      publication <- qualificationForAdmittedProductFixture projection admitted
+      let reference = QualificationReceipt.supervisedQualificationPublicationReference publication
+          qualificationBytes =
+            Qualification.encodeSupervisedQualification
+              ( Qualification.qualifiedSupervisedCohortData
+                  (QualificationReceipt.supervisedQualificationPublicationData publication)
+              )
+      _ <-
+        expectRight
+          =<< CheckpointStore.writeObjectIfAbsent
+            root
+            (QualificationReceipt.qualificationReferenceObjectKey reference)
+            (LazyByteString.fromStrict qualificationBytes)
+      qualifiedAddressed <-
+        expectRight (Report.attachAddressedProductScenarioQualification publication addressed)
+      action root row projection precondition qualifiedAddressed admitted
 
 withSupervisedProductFixture
   :: ( ProductMatrix.ProductRow 'ProductMatrix.Declared
@@ -338,16 +361,19 @@ productCompletionParts row problem projection invocation = do
   let plan =
         case ProductMatrix.productProjectionResolvedPlan projection of
           ProductMatrix.ResolvedSupervisedProductPlan resolved -> resolved
-      -- Phase 239: the fixture checkpoint is the trained dense mnist-shallow-mlp
-      -- graph.  Its graph-ordered parameter count anchors the synthetic weight
-      -- blobs, the flat weight layout, and admission.
+      -- The synthetic fixture uses the real dense mnist-shallow-mlp graph
+      -- descriptor. Its graph-ordered count anchors the deliberately constructed
+      -- bytes and real Store admission; this is not evidence of training.
       graphMeta =
         layerGraphMetadataFromGraph (Architecture.archLayerGraph fixtureSpec)
       parameterCount = layerGraphMetadataParameterCount graphMeta
       initialBytes = WeightCodec.encodeJmw1 (replicate parameterCount 0.0)
       finalBytes =
         WeightCodec.encodeJmw1
-          (0.25 : replicate (parameterCount - 1) 0.0)
+          ( if ProductMatrix.rowId row == "mnist-shallow-mlp"
+              then inputDependentFixtureWeights parameterCount
+              else 0.25 : replicate (parameterCount - 1) 0.0
+          )
       initialSha = WeightCodec.jmw1ContentSha initialBytes
       finalSha = WeightCodec.jmw1ContentSha finalBytes
       experiment = ProductMatrix.productProjectionExperimentHash projection
@@ -380,7 +406,8 @@ productCompletionParts row problem projection invocation = do
       )
   metadata <-
     expectRight (Checkpoint.canonicalSupervisedRuntimeManifestMetadata payload)
-  fixtureWitness <- reportFixtureDeviceWitness
+  fixtureWitness <-
+    expectRight =<< DeviceWitnessFixture.fixtureClassificationDeviceExecutionWitnessFor LinuxCPU
   unboundCompleted <-
     expectRight
       ( ProductCompletion.completedTrainingForProductRowWithWeightHashes
@@ -980,3 +1007,124 @@ curveMeasurement = expectSuccess (mkFiniteMeasurement "training-loss" 0.75)
 
 finalMeasurement :: FiniteMeasurement
 finalMeasurement = expectSuccess (mkFiniteMeasurement "final-return" 42.0)
+
+-- | Explicitly synthetic test support over real persisted/admitted bytes. These
+-- five observations are not five training executions or authenticated producer
+-- history. They provide a sound mathematical/Store baseline for corruption
+-- controls; live ProductScenario execution remains a separate integration proof.
+qualificationForAdmittedProductFixture
+  :: ProductMatrix.ProductProjection 'SupervisedTraining
+  -> CheckpointStore.AdmittedCompletedCheckpoint
+  -> IO QualificationReceipt.SupervisedQualificationPublication
+qualificationForAdmittedProductFixture projection admitted = do
+  cohort <- expectRight (Cohort.mkSupervisedCohortPlan projection)
+  let checkpoint = CheckpointStore.admittedCompletedCheckpoint admitted
+      manifest = CheckpointStore.admittedCheckpointManifest checkpoint
+      completed = CheckpointStore.admittedCompletedTraining admitted
+  payload <-
+    maybe
+      (assertFailure "qualification fixture has no supervised runtime")
+      pure
+      (Checkpoint.manifestSupervisedRuntime manifest)
+  metadata <-
+    maybe
+      (assertFailure "qualification fixture has no exact graph metadata")
+      pure
+      (RuntimeArtifact.payloadLayerGraphMetadata payload)
+  let runtime = RuntimeArtifact.supervisedRuntimeToRaw (RuntimeArtifact.payloadRuntime payload)
+      initialBytes = WeightCodec.encodeJmw1 (replicate (layerGraphMetadataParameterCount metadata) 0.0)
+      source = sha256HexFixture "synthetic-qualification-fixture-source"
+  (executableSha, invocationSha) <- case TrainingBudget.completedTrainingProductScenarioInvocation completed of
+    Just invocation ->
+      pure
+        ( TrainingBudget.productScenarioInvocationExecutableSha256 invocation
+        , TrainingBudget.productScenarioInvocationDigest invocation
+        )
+    Nothing -> do
+      executableSha <- productScenarioFixtureExecutableSha256
+      pure (executableSha, sha256HexFixture "synthetic-direct-qualification-attempt")
+  finalBytes <- case CheckpointStore.admittedCheckpointWeights checkpoint of
+    [tensor] -> pure (CheckpointStore.loadedWeightJmw1Bytes tensor)
+    _ -> assertFailure "qualification fixture requires one actual graph tensor"
+  snapshot <-
+    expectRight
+      ( Initial.refineInitialComparisonSnapshot
+          (Initial.RawInitialComparisonSnapshot 1 runtime metadata (LazyByteString.toStrict initialBytes))
+      )
+  let evaluation = Qualification.RawClassificationEvaluation (qualificationFixtureExamples projection)
+      producer = Qualification.RawQualificationProducer source executableSha invocationSha
+      rawChild child =
+        let plan = Cohort.supervisedSeedPlanWorkload child
+         in Qualification.RawSupervisedSeedOutcome
+              { Qualification.rawSeedIndex =
+                  QualificationPolicy.supervisedSeedIndexValue (Cohort.supervisedSeedPlanIndex child)
+              , Qualification.rawSeedValue = Cohort.supervisedSeedPlanSeed child
+              , Qualification.rawSeedPlanId = planIdText (WorkloadPlan.supervisedPlanId plan)
+              , Qualification.rawSeedPlanTransport = WorkloadPlan.renderSupervisedPlanTransport plan
+              , Qualification.rawSeedAttemptIdentity =
+                  Qualification.prescribedSupervisedChildAttempt invocationSha child
+              , Qualification.rawSeedObservedEpochs = quantityValue (WorkloadPlan.supervisedPlanEpochs plan)
+              , Qualification.rawSeedObservedExamples =
+                  quantityValue (WorkloadPlan.supervisedPlanEpochs plan)
+                    * quantityValue (WorkloadPlan.supervisedPlanTrainingExamples plan)
+              , Qualification.rawSeedObservedOptimizerUpdates =
+                  quantityValue (WorkloadPlan.supervisedPlanOptimizerUpdates plan)
+              , Qualification.rawSeedDatasetSha256 = RuntimeArtifact.payloadDatasetSha256 payload
+              , Qualification.rawSeedEvaluationSha256 = Qualification.qualificationEvaluationSha256 evaluation
+              , Qualification.rawSeedFinalRuntimeSha256 = Qualification.qualificationRuntimeSha256 runtime
+              , Qualification.rawSeedFinalGraphSha256 = Qualification.qualificationGraphSha256 metadata
+              , Qualification.rawSeedDeviceWitness =
+                  DeviceWitness.deviceExecutionWitnessToRaw (CheckpointStore.admittedCompletedDeviceWitness admitted)
+              , Qualification.rawSeedInitialSnapshotBytes = Initial.encodeInitialComparisonSnapshot snapshot
+              , Qualification.rawSeedFinalJmw1Bytes = finalBytes
+              }
+  dataValue <-
+    expectRight
+      ( Qualification.buildSupervisedQualification
+          cohort
+          producer
+          evaluation
+          runtime
+          metadata
+          (fmap rawChild (Cohort.supervisedCohortPlanChildren cohort))
+      )
+  qualified <- expectRight (Qualification.qualifySupervisedCohort dataValue)
+  let key =
+        QualificationReceipt.supervisedQualificationObjectKey
+          cohort
+          (Qualification.supervisedQualificationSha256 dataValue)
+  expectRight
+    (QualificationReceipt.bindSupervisedQualificationPublication cohort qualified key admitted)
+
+-- Three known input-dependent decisions: blank->1, pixel0->0, pixel1->2.
+-- Every other output is zero. These are fixture parameters, not learned weights.
+inputDependentFixtureWeights :: Int -> [Double]
+inputDependentFixtureWeights count =
+  [ if index == 0 || index == 2 * 784 + 1
+      then 10
+      else if index == count - 11 + 1 then 5 else 0
+  | index <- [0 .. count - 1]
+  ]
+
+qualificationFixtureExamples
+  :: ProductMatrix.ProductProjection 'SupervisedTraining -> [([Double], Int)]
+qualificationFixtureExamples projection =
+  [ (features, if index < correct then predicted else (predicted + 1) `mod` 3)
+  | index <- [0 .. count - 1]
+  , let (features, predicted) = case index `mod` 3 of
+          0 -> (replicate 784 0, 1)
+          1 -> (1 : replicate 783 0, 0)
+          _ -> (0 : 1 : replicate 782 0, 2)
+  ]
+ where
+  count :: Int
+  count = case ProductMatrix.productProjectionResolvedPlan projection of
+    ProductMatrix.ResolvedSupervisedProductPlan plan -> fromIntegral (quantityValue (WorkloadPlan.supervisedPlanEvaluationExamples plan))
+  correct =
+    ceiling
+      ( ProductConvergence.convergenceThreshold (ProductMatrix.productProjectionConvergenceBar projection)
+          * fromIntegral count
+      )
+
+sha256HexFixture :: Text -> Text
+sha256HexFixture = WeightCodec.jmw1ContentSha . LazyByteString.fromStrict . Text.Encoding.encodeUtf8

@@ -1,0 +1,84 @@
+{
+  "scope": "Independent exact arithmetic/source review only; no training/gate/policy/source changes.",
+  "critical_counts": [
+    {
+      "n": 1000,
+      "classes": 10,
+      "critical_count": 136,
+      "predecessor_fails": true,
+      "critical_passes": true,
+      "tail_at_previous": 0.00024394550714750528,
+      "tail_at_critical": 0.0001693452442258408
+    },
+    {
+      "n": 1000,
+      "classes": 100,
+      "critical_count": 24,
+      "predecessor_fails": true,
+      "critical_passes": true,
+      "tail_at_previous": 0.0002721563481729341,
+      "tail_at_critical": 0.00010908385071228082
+    },
+    {
+      "n": 1000,
+      "classes": 200,
+      "critical_count": 16,
+      "predecessor_fails": true,
+      "critical_passes": true,
+      "tail_at_previous": 0.00021580336348481794,
+      "tail_at_critical": 6.515582032004274e-05
+    }
+  ],
+  "pointwise_majority_indicator_checked_for_all_32_patterns": true,
+  "alpha": "1/5000",
+  "all_five_uniform_null_cohort_bound": "1/3000",
+  "30_classification_cohort_union_bound": "1/100",
+  "index0_joint_requirement_only_restricts_event_further": true,
+  "sources": [
+    {
+      "path": ".build/phase278-mac-validation/compact-criterion-proposal/revision-2/contract.md",
+      "bytes": 14519,
+      "sha256": "9667039af1d4bdb216898c4988a190c731588edae8f84a2e1c91ebb07de57c94"
+    },
+    {
+      "path": ".build/phase278-mac-validation/compact-criterion-proposal/revision-2/implementation-design.md",
+      "bytes": 19108,
+      "sha256": "d9a1f657d4a356ac3d480c9148af0a1c0fa3aad7bd9b05a313f36e9117e46974"
+    },
+    {
+      "path": "README.md",
+      "bytes": 308280,
+      "sha256": "6a69f46751fce6b3c055ef43439e5f49525bc7063620cd208cfb4ae85174e9d8"
+    },
+    {
+      "path": "DEVELOPMENT_PLAN/README.md",
+      "bytes": 335375,
+      "sha256": "f314ce7a0c8a020f0f6142a6e4accb0ad6e95d264c9086dec39b8630fce84087"
+    },
+    {
+      "path": "documents/engineering/product_completion_contract.md",
+      "bytes": 42865,
+      "sha256": "f464380c3c0d6be2e286abf6defe51a1e071f76ff9ceed9deedf0ea1f40f3b7c"
+    },
+    {
+      "path": "src/JitML/Product/ServedMetric.hs",
+      "bytes": 9455,
+      "sha256": "375a01f6ecfb0ef23d9e86718cd68a28467799da897bd0723634616892044693"
+    },
+    {
+      "path": "src/JitML/SL/ConvergenceThresholds.hs",
+      "bytes": 6222,
+      "sha256": "f0c61dccac013c190cee680d04f575cb3a6819a9a22954893902f640bba81cb8"
+    },
+    {
+      "path": "src/JitML/RL/ConvergenceThresholds.hs",
+      "bytes": 15245,
+      "sha256": "5275585e1cfa6caff46fea1e9180f6af9b018d6971bad2bd5c9b86c20be24e1c"
+    }
+  ],
+  "primary_sources_consulted": [
+    "https://www.itl.nist.gov/div898/handbook/eda/section3/eda366i.htm",
+    "https://www.itl.nist.gov/div898/handbook/prc/section4/prc473.htm",
+    "https://www.jmlr.org/papers/v11/cawley10a.html"
+  ]
+}

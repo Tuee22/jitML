@@ -1,0 +1,162 @@
+# Five-training-seed scope review
+
+Review prepared 2026-10-15/16 for the Phase 278 continuation. This is an ignored,
+read-only assessment of repository contracts and implementation. Options below
+are PROPOSED, NOT IMPLEMENTED. No seed pool, threshold, budget, source, governed
+document, phase status, evidence pin, or ownership has changed through this note.
+Current candidate source observed during review: `dad8365b06db40cdae745ff3ab946975446bacb446baadc6c3b3980b2f5df4a1`
+(383 files). Source references are repository-relative and line numbers describe
+that observation; later edits can move them.
+
+## Existing requirement and unresolved policy
+
+- `README.md:2562` and `README.md:2604` require SL statistical convergence over
+  five training seeds. Each seed completes the fixed budget, and the median is
+  compared with the independently justified target minus declared slack.
+- `README.md:3116-3126` requires the RL headline convergence check to freeze a
+  five-seed pool and hyperparameters, then train each seed for exactly the
+  terminating budget. Failure triggers investigation, not replacement seeds,
+  longer training, or a lower bar. The numerical-fixture prohibition remains.
+- `documents/engineering/training_metrics_and_splits.md:522-536` says the cohort
+  statistic is the median across training seeds, explicitly documents today's
+  singleton ProductRows, and says this does not establish the README target.
+- The cardinality and need for actual training are therefore binding. Exact
+  seed values, the common pool derivation, the division between headline cohort
+  proof and individual checkpoint eligibility, and specialized AlphaZero/tuning
+  coverage are not fully specified. Resolve those prospectively; do not treat
+  this ambiguity as permission to call singleton evidence five-seed evidence.
+- For RL, distinguish the complete final evaluation episode set of each trained
+  seed from the cohort of independently trained seeds. The existing evidence
+  design grades the median of per-seed metrics; for a return criterion, each
+  seed contributes its own `median_final_reward`. Pooling all episodes, taking
+  the best seed, or repeating one deterministic trajectory does not substitute
+  for five training runs. The README evaluator prose around 2890-2914 should be
+  reconciled explicitly with this two-level statistic.
+
+## No canonical five-value pool found
+
+The review searched current `src`, `test`, `experiments`, README, and engineering
+documentation. A literal-five-integer seed-list check covered 425 Haskell and
+Dhall files. Its only hit was the intentionally invalid duplicate-cohort fixture
+`[5,3,9,5,3]` at `src/JitML/Test/NegativeControls/Request.hs:391`.
+
+`test/rl-canonicals/Main.hs:1096` uses `[42,7,1234]` for a short, pure PPO
+measurement-path smoke. It uses eight iterations and a measured-baseline margin;
+it is not a five-seed all-recipe literature-threshold gate. The historical
+`DEVELOPMENT_PLAN/phase-233-typed-layer-ir-reverse-mode-autodiff.md:104-118` reports
+five ViT scores from a throwaway oneDNN harness, but does not supply a reusable
+canonical seed pool or current five-seed proof for all recipes. Generic three-seed
+controls in `test/model-convergence/WiringControls.hs:606-719` relabel a retained
+seed template to exercise coverage/median predicates; they are not three new
+training runs and cannot supply five-run evidence.
+
+Current base seeds are already declared independently of this decision:
+SL rows use their canonical problem seeds (1001 through 1011); RL/HER/AlphaZero
+product configs use 42 (`src/JitML/Product/Matrix.hs:1001-1009`); tuning uses 1729.
+
+## Concrete production gaps
+
+1. `src/JitML/Product/Matrix.hs:1778` always constructs
+   `rawRunSeeds = [productPlanSeed row]`.
+2. `src/JitML/Experiment/Product.hs:515-524` requires exactly one projected seed;
+   its exact supervised resolver also matches the canonical problem seed at
+   405-425. Existing descriptor/config authority must not be bypassed to run a
+   different seed under the same identity.
+3. `src/JitML/SL/TrainingExecution.hs:91-107` intentionally requires exactly one
+   seed for one supervised execution. Its seed-parameterized production helper
+   already supports explicit initialization/order seeds at 550-585. Preserve the
+   one-run contract and compose child runs rather than silently taking a head.
+4. `src/JitML/Product/Publisher/Projection.hs:91-92` extracts the cohort head for
+   other current single-run publishers. Merely widening a list would either fail
+   earlier exact loading or run only one member.
+5. `src/JitML/Test/ProductLaneJournal.hs:97-114` retains one completion and one
+   manifest per row. `src/JitML/Test/ModelEvidence/Internal.hs:164-186` derives one
+   raw seed from that completion's budget. Generic `SeedCohort` and coverage
+   predicates exist, but real producer/retained evidence does not cover five.
+6. `src/JitML/Training/Budget.hs:832-857` constructs `CompletedTraining` only when
+   each recorded measurement passes. Therefore taking five eligible checkpoints
+   and calling their median the statistical test would censor failed runs and
+   impose an all-five-pass rule, stronger than the requested median. Do not
+   weaken checkpoint eligibility or fabricate completions for below-bar seeds.
+
+## Minimum credible implementation shape
+
+Compose five existing singleton training executions under a separate validated
+cohort plan. Each child has its own seed, child PlanId, exact original per-seed
+budget, actual counters, selected device, and fresh initialization. Keep the
+graph, sample selection, train/validation/test split, hyperparameters, criterion,
+and within-run model selection fixed. Five runs increase total work to five
+budgets; no individual run receives additional steps/epochs or a seed-specific
+recipe. Sequential execution is sufficient and bounds memory.
+
+One possible prospective seed rule is the pre-existing canonical base seed plus
+the fixed offsets 0 through 4. This is a proposal, not a selected pool. It retains
+the pre-existing base by a uniform rule and introduces no score-based search.
+Whatever rule is selected, bind its version and exact five unique values before
+execution, check platform conversion and every executor's child-seed headroom,
+and use the same declared pool in all lanes. Replacing an inconvenient seed or
+choosing the pool after observing alternative cohort scores is disallowed.
+
+A cohort identity binds row/recipe, criterion version, lane, source, exact pool,
+all five child PlanIds and per-seed budgets. Retain all five finite final
+measurements, including below-bar seeds, with actual learning and budget evidence.
+An absent/failed execution, duplicate, extra seed, wrong lane/recipe/source, or
+non-finite measurement fails coverage; it cannot be dropped and the median
+recomputed over survivors. Existing pure coverage and median logic can be reused.
+Introduce an appropriate completed-run/cohort evidence boundary for finite
+below-bar outcomes without minting inference-eligible `CompletedTraining` for them.
+All individual admitted artifacts retain their existing bar and Store guards.
+
+The least invasive headline-test route is mandatory real statistical cohort
+execution in the canonical SL/RL validation surface, with authenticated/source-
+bound retained receipts where required. Singleton publication may remain honestly
+singleton if this separate gate is mandatory for the statistical claim. To make
+ProductRow publication itself certify five-seed convergence, additionally version
+the authenticated scenario/lane schema, retain the child identities and evidence,
+update issuer/reader/model-convergence grading, and bind catalogue/report/browser
+claims to that cohort proof. One scalar manifest cannot silently stand for five
+independent runs. Either route needs meaningful coverage/anti-substitution tests
+and fresh actual CPU, CUDA and Apple training evidence; neither has been chosen.
+
+## Existing Phase 285 ownership and forward-only scheduling
+
+`DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md:45-56` already
+owns typed per-model completed evidence, exact seed coverage, finite per-seed
+measurements, and independent criteria. Its partial-validation discussion at
+81-96 admits the singleton/no-retained-curve/no-retained-evaluation-set limit.
+Remaining Work at 104-112 explicitly says retaining the curve, evaluation set and
+per-seed cohort needs new journal fields and all three lane journal re-issues.
+It leaves a graded-evidence-versus-schema scope decision unresolved. This note
+does not silently resolve that decision or expand the currently implemented proof.
+
+Phase 278's current Remaining Work at 864-870 asks to resolve criterion/seed-
+evidence scope prospectively. Phase 278 can perform that POLICY work now without
+a forward dependency: specify the fixed pool, exact compact recipe/criterion,
+per-seed budget, statistic hierarchy, producer/evidence boundary, future owner
+and acceptance tests before any five-seed validation. Phase 285 then executes and
+validates its already-owned cohort-retention work after prerequisites close. Its
+future evidence cannot be used as a prerequisite for Phase 278: standards M's
+strict forward DAG permits explicit ownership transfer, not a backward blocker.
+
+This separation has limits:
+
+- Policy agreement is not five actual training runs and cannot make the README
+  statistical target or ProductRow cohort claim already satisfied.
+- Existing Phase 278 gates/obligations and independent-anchor evidence remain
+  binding. A policy note cannot clear its ExternalContext, waive a gate, transfer
+  lane/full-unit ownership, repin stale journals, or close Phase 278 by itself.
+- If the chosen Phase 278 acceptance criterion itself requires a measured five-
+  seed cohort before it is accepted, the corresponding training/evidence must be
+  owned and validated in Phase 278, or explicitly transferred in reviewed plan
+  bookkeeping while preserving the global target and later closure requirements.
+  Do not retain such a requirement in 278 while depending on 285 to supply it.
+- If the desired product meaning is that every row is statistically certified
+  before eligibility, leaving singleton publication unchanged requires an explicit
+  scope decision and truthful intermediate wording; it is not automatically
+  supplied by Phase 285's existing non-empty-cohort deliverable.
+
+Recommendation: settle the prospective pool/statistic/ownership contract first,
+preserve five as the statistical cardinality and all stronger current bars, and
+separate individual-artifact eligibility from complete cohort evidence. Make any
+ownership decision concrete and reviewable before expensive lane re-issues. No
+implementation or phase closure is justified merely by this review.

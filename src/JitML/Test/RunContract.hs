@@ -43,7 +43,6 @@ import JitML.Plan.Plan
   , quantityValue
   )
 import JitML.Product.Convergence qualified as ProductConvergence
-import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Proto.Rl qualified as Rl
 import JitML.Proto.Training qualified as Training
@@ -928,8 +927,7 @@ productScenarioReportTests =
               -- Minted from the artifact the scenario executed through, not
               -- composed from the row's declared substrate and claim.
               deviceCell =
-                DeviceWitness.renderDeviceExecutionWitness
-                  (Report.completedProductScenarioDeviceWitness evidence)
+                Report.renderCompletedProductScenarioExecutionProvenance evidence
           -- An issuance agrees with itself, so any reported drift below is a
           -- real difference rather than an artifact of the comparator.
           Report.productLaneAttestationFragmentDrift issued issued @?= []

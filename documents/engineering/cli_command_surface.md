@@ -209,11 +209,13 @@ jitml cluster down
 
 Bring the cluster down.
 
-Preserves stateful data while stopping the local cluster.
+Verifies and preserves stateful data before stopping the exact local cluster.
 
 Usage:
-  jitml cluster down
+  jitml cluster down [--substrate <substrate>]
 
+Options:
+  --substrate <substrate>  Exact lifecycle target; must match a retained publication when present.
 
 
 Examples:
@@ -250,10 +252,12 @@ Destructively reset cluster state.
 Removes local cluster state after an explicit confirmation flag.
 
 Usage:
-  jitml cluster reset --yes
+  jitml cluster reset --yes [--substrate <substrate>] [--full]
 
 Options:
-  --yes  Confirm destructive reset.
+  --yes                    Confirm destructive reset.
+  --substrate <substrate>  Exact lifecycle target; must match a retained publication when present.
+  --full                   Also remove .build; Linux additionally runs Compose cleanup.
 
 
 Examples:

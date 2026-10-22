@@ -43,6 +43,8 @@ module JitML.RL.AlphaZero.PolicyValueNet
   , runNetworkSelfPlay
   , networkPolicyValue
   , mctsVisitDistribution
+  , applySearchPath
+  , visitDistributionFromTree
   , mctsVisitDistributionWithDevice
   , PolicyValueTrainingSample (..)
   , policyValueTrainingSamplesSha256
@@ -61,6 +63,12 @@ module JitML.RL.AlphaZero.PolicyValueNet
   , GenerationResult (..)
   , arenaWinRateAgainstUniform
   , arenaWinRateAgainstUniformFrom
+  , alphaZeroEvaluationContract
+  , ArenaEpisodeResult (..)
+  , ArenaEvaluationResult (..)
+  , arenaEvaluationAgainstUniformOnDeviceFrom
+  , arenaWinRateAgainstUniformOnDevice
+  , arenaWinRateAgainstUniformOnDeviceFrom
 
     -- * Re-exports for tests
   , pvPolicy
@@ -84,12 +92,14 @@ import Data.Text.Encoding qualified as Text.Encoding
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
 import Data.Word (Word8)
+import Foreign.C.Types (CInt)
 import System.Random qualified as Random
 
 import JitML.Env.Env (Env)
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState
+  , MlpForward (..)
   , MlpGradient (..)
   , MlpParams (..)
   , MlpShape (..)
@@ -116,6 +126,7 @@ import JitML.Numerics.MlpOneDnn (oneDnnMlpDevice)
 import JitML.RL.AlphaZero
   ( GameOutcome (..)
   , GameState (..)
+  , alphaZeroEvaluationContract
   , applyMove
   , connect4BoardAfter
   , gameOutcome
@@ -295,31 +306,109 @@ networkPriorOracleWithDevice
   -> [Int]
   -> IO (Either Text NodeEval)
 networkPriorOracleWithDevice device net rootState moves =
-  let state = applySearchPath rootState moves
-   in case gameOutcome state of
-        GameInProgress -> do
-          fwdResult <- mlpdForward device (pvnParams net) (encodeGameState net state)
-          pure $
-            case fwdResult of
-              Left err -> Left err
-              Right fwd ->
-                let out = policyValueFromForward (pvnActionCount net) fwd
-                 in Right
+  case validateDevicePolicyValueNet net of
+    Left err -> pure (Left err)
+    Right () ->
+      let state = applySearchPath rootState moves
+       in case gameOutcome state of
+            GameInProgress -> do
+              let observation = encodeGameState net state
+                  allowed = legalMoves state
+              case validateDeviceOracleObservation net observation allowed of
+                Left err -> pure (Left err)
+                Right () -> do
+                  fwdResult <- mlpdForward device (pvnParams net) observation
+                  pure $ do
+                    fwd <- fwdResult
+                    validateDeviceOracleOutput net (forwardOutput fwd)
+                    let out = policyValueFromForward (pvnActionCount net) fwd
+                        priors = maskedPriors state (pvPolicy out)
+                    validateDeviceMaskedPriors net allowed priors (pvValue out)
+                    Right
                       NodeEval
-                        { evalPriors = maskedPriors state (pvPolicy out)
+                        { evalPriors = priors
                         , evalValue = pvValue out
                         , evalTerminal = False
                         , evalPlayerToMove = Just (gameCurrentPlayer state)
                         }
-        _ ->
-          pure $
-            Right
-              NodeEval
-                { evalPriors = []
-                , evalValue = terminalValueForToMove state
-                , evalTerminal = True
-                , evalPlayerToMove = Just (gameCurrentPlayer state)
-                }
+            _ ->
+              pure $
+                Right
+                  NodeEval
+                    { evalPriors = []
+                    , evalValue = terminalValueForToMove state
+                    , evalTerminal = True
+                    , evalPlayerToMove = Just (gameCurrentPlayer state)
+                    }
+
+-- Validate declared dimensions, not a replacement architecture. In particular,
+-- canonical Connect4 currently declares 8 inputs and encodeGameState truncates its
+-- 43-value board encoding; existing 43-input diagnostic networks remain supported.
+-- Buffer products are checked as Integer before the device's Float32/CInt ABI.
+validateDevicePolicyValueNet :: PolicyValueNet -> Either Text ()
+validateDevicePolicyValueNet net
+  | pvnActionCount net <= 0
+      || pvnObservationSize net <= 0
+      || mlpInputs shape <= 0
+      || mlpHidden shape <= 0
+      || mlpOutputs shape <= 0
+      || any
+        ((> toInteger (maxBound :: CInt)) . toInteger)
+        [mlpInputs shape, mlpHidden shape, mlpOutputs shape]
+      || mlpInputs shape /= pvnObservationSize net
+      || toInteger (mlpOutputs shape) /= toInteger (pvnActionCount net) + 1 =
+      Left "AlphaZero device oracle network dimensions are malformed"
+  | toInteger (VU.length (paramW1 params)) /= toInteger (mlpHidden shape) * toInteger (mlpInputs shape)
+      || VU.length (paramB1 params) /= mlpHidden shape
+      || toInteger (VU.length (paramW2 params)) /= toInteger (mlpOutputs shape) * toInteger (mlpHidden shape)
+      || VU.length (paramB2 params) /= mlpOutputs shape
+      || not (all arenaFiniteVector [paramW1 params, paramB1 params, paramW2 params, paramB2 params]) =
+      Left "AlphaZero device oracle parameters are malformed or overflow the Float32 ABI"
+  | otherwise = Right ()
+ where
+  params = pvnParams net
+  shape = paramShape params
+
+validateDeviceOracleObservation :: PolicyValueNet -> Vector Double -> [Int] -> Either Text ()
+validateDeviceOracleObservation net observation allowed
+  | VU.length observation /= pvnObservationSize net || not (arenaFiniteVector observation) =
+      Left "AlphaZero device oracle observation is malformed or overflows the Float32 ABI"
+  | null allowed || any (\action -> action < 0 || action >= pvnActionCount net) allowed =
+      Left "AlphaZero device oracle has no valid nonempty legal-action domain"
+  | otherwise = Right ()
+
+validateDeviceOracleOutput :: PolicyValueNet -> Vector Double -> Either Text ()
+validateDeviceOracleOutput net output
+  | VU.length output /= pvnActionCount net + 1 || not (arenaFiniteVector output) =
+      Left "AlphaZero device oracle output has the wrong shape or is not finite Float32"
+  | otherwise = Right ()
+
+validateDeviceMaskedPriors :: PolicyValueNet -> [Int] -> [Double] -> Double -> Either Text ()
+validateDeviceMaskedPriors net allowed priors value
+  | length priors /= pvnActionCount net
+      || not (all arenaFinite priors)
+      || any (< 0) priors
+      || not (arenaFinite value)
+      || sum priors <= 0
+      || not (arenaFinite (sum priors))
+      || any
+        (\(action, probability) -> action `notElem` allowed && probability /= 0)
+        (zip [0 :: Int ..] priors) =
+      Left "AlphaZero device oracle produced invalid masked priors or value"
+  | otherwise = Right ()
+
+arenaFinite :: Double -> Bool
+arenaFinite value = not (isNaN value || isInfinite value)
+
+-- Conversion rounding and subnormal underflow are allowed; overflow/NaN are
+-- rejected before dispatch or before a missing value head can default to 0.
+arenaFiniteVector :: Vector Double -> Bool
+arenaFiniteVector =
+  VU.all
+    ( \value ->
+        arenaFinite value
+          && let encoded = realToFrac value :: Float in not (isNaN encoded || isInfinite encoded)
+    )
 
 -- | Sprint 9.10 — the per-position oracle the production AlphaZero self-play
 -- loop threads through
@@ -910,3 +999,117 @@ arenaWinRateAgainstUniformFrom initialState net games maxPlies seed0 =
    in if games == 0
         then 0.0
         else (fromIntegral w + 0.5 * fromIntegral d) / fromIntegral games
+
+-- | Raw observed game results; these values do not establish qualification or
+-- provider authority. Outcome is from actual game rules, with explicit horizon
+-- draws, and every played decision remains in the final state's transcript.
+data ArenaEpisodeResult = ArenaEpisodeResult
+  { arenaEpisodeIndex :: !Int
+  , arenaEpisodeOutcome :: !GameOutcome
+  , arenaEpisodeFinalState :: !GameState
+  , arenaEpisodeDecisionCount :: !Int
+  , arenaEpisodeHorizonTruncated :: !Bool
+  }
+  deriving stock (Eq, Show)
+
+data ArenaEvaluationResult = ArenaEvaluationResult
+  { arenaEvaluationOutcomes :: ![ArenaEpisodeResult]
+  , arenaEvaluationScore :: !Double
+  }
+  deriving stock (Eq, Show)
+
+arenaWinRateAgainstUniformOnDevice
+  :: MlpDevice -> PolicyValueNet -> Int -> Int -> Int -> IO (Either Text Double)
+arenaWinRateAgainstUniformOnDevice = arenaWinRateAgainstUniformOnDeviceFrom initialConnect4
+
+arenaWinRateAgainstUniformOnDeviceFrom
+  :: GameState -> MlpDevice -> PolicyValueNet -> Int -> Int -> Int -> IO (Either Text Double)
+arenaWinRateAgainstUniformOnDeviceFrom initialState device net games maxPlies seed0 =
+  fmap
+    (fmap arenaEvaluationScore)
+    (arenaEvaluationAgainstUniformOnDeviceFrom initialState device net games maxPlies seed0)
+
+-- | Every network leaf uses the exact supplied device. The old pure arena is
+-- deliberately independent and unchanged, providing a compatibility oracle.
+-- This preserves sequential RNG coupling between games; it is not the future
+-- policy-independent comparison tape or a five-training-run cohort.
+arenaEvaluationAgainstUniformOnDeviceFrom
+  :: GameState
+  -> MlpDevice
+  -> PolicyValueNet
+  -> Int
+  -> Int
+  -> Int
+  -> IO (Either Text ArenaEvaluationResult)
+arenaEvaluationAgainstUniformOnDeviceFrom initialState device net games maxPlies seed0 =
+  case validateDevicePolicyValueNet net of
+    Left err -> pure (Left err)
+    Right ()
+      | games <= 0 || maxPlies <= 0 ->
+          pure (Left "AlphaZero device arena requires positive game and move counts")
+      | (toInteger games - 1) * 1009 > toInteger (maxBound :: Int)
+          || (toInteger maxPlies - 1) * 7919 > toInteger (maxBound :: Int)
+          || toInteger seed0 + (toInteger games - 1) * 1009 + (toInteger maxPlies - 1) * 7919
+            > toInteger (maxBound :: Int) ->
+          pure (Left "AlphaZero device arena search seed arithmetic overflows Int")
+      | otherwise -> go 0 (Random.mkStdGen seed0) (0 :: Int) (0 :: Int) []
+ where
+  arenaSims = fromInteger (max 48 (min 192 (2 * toInteger (pvnActionCount net))))
+  finish g state plies truncated outcome gen =
+    pure (Right (ArenaEpisodeResult g outcome state plies truncated, gen))
+  playOne g rawState gen plies =
+    let state = normaliseForcedPass rawState
+     in if plies >= maxPlies
+          then finish g state plies True GameDraw gen
+          else case gameOutcome state of
+            GameWon winner -> finish g state plies False (GameWon winner) gen
+            GameDraw -> finish g state plies False GameDraw gen
+            GameInProgress -> do
+              let allowed = legalMoves state
+              if null allowed || any (\action -> action < 0 || action >= pvnActionCount net) allowed
+                then pure (Left "AlphaZero device arena has no valid nonempty legal-action domain")
+                else do
+                  let netToMove = gameCurrentPlayer state == 1
+                      (u, gen') = Random.uniformR (0.0 :: Double, 1.0) gen
+                  chosen <-
+                    if netToMove
+                      then do
+                        distribution <-
+                          mctsVisitDistributionWithDevice device net arenaSims state (seed0 + g * 1009 + plies * 7919)
+                        pure $ do
+                          probabilities <- distribution
+                          validateDeviceMaskedPriors net allowed (VU.toList probabilities) 0.0
+                          let action = sampleCategorical probabilities u
+                          if action `elem` allowed
+                            then Right action
+                            else Left "AlphaZero device arena sampled an illegal network action"
+                      else
+                        let legalIndex = (floor (u * fromIntegral (length allowed)) :: Int) `mod` max 1 (length allowed)
+                         in pure (Right (allowed !! legalIndex))
+                  case chosen of
+                    Left err -> pure (Left err)
+                    Right action -> do
+                      let nextState = applyMove action state
+                      case gameOutcome nextState of
+                        GameWon winner -> finish g nextState (plies + 1) False (GameWon winner) gen'
+                        GameDraw -> finish g nextState (plies + 1) False GameDraw gen'
+                        GameInProgress -> playOne g nextState gen' (plies + 1)
+  go !g !gen !wins !drawn !episodes
+    | g >= games =
+        pure
+          ( Right
+              ( ArenaEvaluationResult
+                  (reverse episodes)
+                  ((fromIntegral wins + 0.5 * fromIntegral drawn) / fromIntegral games)
+              )
+          )
+    | otherwise = do
+        evaluated <- playOne g initialState gen 0
+        case evaluated of
+          Left err -> pure (Left err)
+          Right (episode, gen') ->
+            case arenaEpisodeOutcome episode of
+              GameWon 1 -> go (g + 1) gen' (wins + 1) drawn (episode : episodes)
+              GameWon _ -> go (g + 1) gen' wins drawn (episode : episodes)
+              GameDraw -> go (g + 1) gen' wins (drawn + 1) (episode : episodes)
+              GameInProgress -> pure (Left "AlphaZero device arena returned an unfinished game outcome")

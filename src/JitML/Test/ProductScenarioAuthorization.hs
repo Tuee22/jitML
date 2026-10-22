@@ -21,6 +21,8 @@ module JitML.Test.ProductScenarioAuthorization
   , generateProductScenarioJournalKey
   , parseProductScenarioJournalKey
   , productScenarioJournalEvidenceMaterial
+  , productScenarioJournalEvidenceMaterialWithQualification
+  , productScenarioJournalEvidenceMaterialWithNativeQualification
   , renderProductScenarioJournalKey
   , signProductScenarioJournal
   )
@@ -337,3 +339,154 @@ pairs :: [value] -> [[value]]
 pairs [] = []
 pairs (first : second : remaining) = [first, second] : pairs remaining
 pairs remaining = [remaining]
+
+-- | Bind the detached qualification alongside every semantic row consumed by
+-- Report. The original helper remains for legacy negative-control callers; it
+-- cannot authenticate the new row because this extra field is mandatory.
+productScenarioJournalEvidenceMaterialWithQualification
+  :: Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> FilePath
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Bool
+  -> Word64
+  -> Word64
+  -> Word64
+  -> Text
+productScenarioJournalEvidenceMaterialWithQualification
+  qualification
+  rowId
+  runId
+  planId
+  substrate
+  executablePath
+  executableSha256
+  invocationDigest
+  experimentHash
+  manifestSha256
+  command
+  contractSha256
+  checkpointScopeSha256
+  executionJournalReceipt
+  executionJournalSha256
+  inferenceManifestSha256
+  preconditionRejected
+  preconditionSequence
+  inferenceSequence
+  completionSequence =
+    Text.concat
+      [ materialField "domain" "jitml-product-scenario-authenticated-row-v2"
+      , materialField "row_id" rowId
+      , materialField "run_id" runId
+      , materialField "plan_id" planId
+      , materialField "substrate" substrate
+      , materialField "executable_path" (Text.pack executablePath)
+      , materialField "executable_sha256" executableSha256
+      , materialField "invocation_digest" invocationDigest
+      , materialField "experiment_hash" experimentHash
+      , materialField "manifest_sha256" manifestSha256
+      , materialField "command" command
+      , materialField "contract_sha256" contractSha256
+      , materialField "checkpoint_scope_sha256" checkpointScopeSha256
+      , materialField "execution_journal_receipt" executionJournalReceipt
+      , materialField "execution_journal_sha256" executionJournalSha256
+      , materialField "inference_manifest_sha256" inferenceManifestSha256
+      , materialField "precondition_rejected" (showText preconditionRejected)
+      , materialField "precondition_sequence" (showText preconditionSequence)
+      , materialField "inference_sequence" (showText inferenceSequence)
+      , materialField "completion_sequence" (showText completionSequence)
+      , materialField "supervised_qualification_receipt" qualification
+      ]
+
+-- | Native rows authenticate the exact bounded rendered receipt in addition
+-- to every existing semantic row field. Empty native input preserves the old
+-- supervised/tuning material byte-for-byte. This is authentication DATA only;
+-- no receipt, owned execution, retention or qualification is constructed.
+productScenarioJournalEvidenceMaterialWithNativeQualification
+  :: Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> FilePath
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Text
+  -> Bool
+  -> Word64
+  -> Word64
+  -> Word64
+  -> Text
+productScenarioJournalEvidenceMaterialWithNativeQualification
+  nativeReceipt
+  qualification
+  rowId
+  runId
+  planId
+  substrate
+  executablePath
+  executableSha256
+  invocationDigest
+  experimentHash
+  manifestSha256
+  command
+  contractSha256
+  checkpointScopeSha256
+  executionJournalReceipt
+  executionJournalSha256
+  inferenceManifestSha256
+  preconditionRejected
+  preconditionSequence
+  inferenceSequence
+  completionSequence =
+    if Text.null nativeReceipt
+      then previous
+      else
+        Text.concat
+          [ materialField "domain" "jitml-product-scenario-native-authenticated-row-v1"
+          , materialField "previous_semantic_row" previous
+          , materialField "native_qualification_receipt" nativeReceipt
+          ]
+   where
+    previous =
+      productScenarioJournalEvidenceMaterialWithQualification
+        qualification
+        rowId
+        runId
+        planId
+        substrate
+        executablePath
+        executableSha256
+        invocationDigest
+        experimentHash
+        manifestSha256
+        command
+        contractSha256
+        checkpointScopeSha256
+        executionJournalReceipt
+        executionJournalSha256
+        inferenceManifestSha256
+        preconditionRejected
+        preconditionSequence
+        inferenceSequence
+        completionSequence

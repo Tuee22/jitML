@@ -192,8 +192,14 @@ clusterCommand =
     , leaf
         "down"
         "Bring the cluster down."
-        "Preserves stateful data while stopping the local cluster."
-        []
+        "Verifies and preserves stateful data before stopping the exact local cluster."
+        [ value
+            "substrate"
+            Nothing
+            "substrate"
+            False
+            "Exact lifecycle target; must match a retained publication when present."
+        ]
         [Example "jitml cluster down" "Stop the local cluster."]
     , leaf
         "status"
@@ -205,7 +211,15 @@ clusterCommand =
         "reset"
         "Destructively reset cluster state."
         "Removes local cluster state after an explicit confirmation flag."
-        [flag "yes" Nothing True "Confirm destructive reset."]
+        [ flag "yes" Nothing True "Confirm destructive reset."
+        , value
+            "substrate"
+            Nothing
+            "substrate"
+            False
+            "Exact lifecycle target; must match a retained publication when present."
+        , flag "full" Nothing False "Also remove .build; Linux additionally runs Compose cleanup."
+        ]
         [Example "jitml cluster reset --yes" "Reset all local cluster state."]
     ]
 

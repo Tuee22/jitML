@@ -38,23 +38,54 @@ module JitML.RL.Algorithms.DqnTrainer
   , trainDqnOnDevice
   , trainDqnOnDeviceWithEnvironment
   , evaluateDqnPolicyWithEnvironment
+  , dqnEvaluationContract
+  , DqnTrainObservation
+  , refineDqnTrainObservation
+  , trainDqnOnCartpoleRaw
+  , trainDqnOnDeviceWithEnvironmentRaw
+  , PreparedDqn
+  , DqnPreparedSnapshot
+  , preparedDqnSnapshot
+  , continuePreparedDqnRaw
+  , prepareDqnOnCartpole
+  , prepareDqnOnDeviceWithEnvironment
+  , dqnPreparedConfig
+  , dqnPreparedInitialParams
+  , dqnPreparedOnlineParams
+  , dqnPreparedTargetParams
+  , dqnPreparedAdam
+  , dqnPreparedGenerator
+  , dqnPreparedReplay
+  , dqnPreparedStep
+  , dqnPreparedState
+  , dqnPreparedEpisodeLength
+  , dqnPreparedEpisodeReturn
+  , dqnPreparedRecentReturns
+  , dqnPreparedStatistics
+  , dqnPreparedEnvironmentName
+  , dqnPreparedObservationWidth
+  , dqnPreparedActionCount
+  , dqnPreparedFrame
   )
 where
 
 import Data.List qualified
+import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector qualified as VB
 import Data.Vector.Unboxed (Vector)
 import Data.Vector.Unboxed qualified as VU
+import Foreign.C.Types (CInt)
 import System.Random qualified as Random
 
 import JitML.Env.Env (Env)
+import JitML.Execution.SingleUse qualified as SingleUse
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState (..)
   , MlpGradient (..)
-  , MlpParams
+  , MlpParams (..)
   , MlpShape (..)
   , adamInit
   , adamStep
@@ -72,7 +103,8 @@ import JitML.RL.Algorithms.Common qualified as Common
 import JitML.RL.Algorithms.DqnLoss qualified as DqnLoss
 import JitML.RL.RewardShaping qualified as RewardShaping
 import JitML.RL.Simulator
-  ( SimStep (..)
+  ( CartPoleState
+  , SimStep (..)
   , SimulatedEnvironment (..)
   , SomeSimulatedEnvironment (..)
   , cartPoleEnvironment
@@ -147,6 +179,7 @@ data DqnIterationStat = DqnIterationStat
 
 data DqnTrainResult = DqnTrainResult
   { dqnResultStats :: ![DqnIterationStat]
+  , dqnResultInitialParams :: !MlpParams
   , dqnResultFinalParams :: !MlpParams
   , dqnResultMeasuredCounters :: !Common.MeasuredTrainerCounters
   -- ^ Actual environment transitions plus Adam applications executed against
@@ -155,30 +188,177 @@ data DqnTrainResult = DqnTrainResult
   }
   deriving stock (Eq, Show)
 
+-- | Uncensored numerical return; no producer/device/learning authority.
+type DqnTrainObservation = Common.RawTrainerResult MlpParams DqnIterationStat DqnTrainConfig
+
+refineDqnTrainObservation :: DqnTrainObservation -> Either Text DqnTrainResult
+refineDqnTrainObservation observed = do
+  counters <- Common.refineObservedTrainerCounters (Common.rawTrainerCounters observed)
+  pure
+    DqnTrainResult
+      { dqnResultStats = Common.rawTrainerStats observed
+      , dqnResultInitialParams = Common.rawTrainerInitialParams observed
+      , dqnResultFinalParams = Common.rawTrainerFinalParams observed
+      , dqnResultMeasuredCounters = counters
+      , dqnResultConfig = Common.rawTrainerConfig observed
+      }
+
 trainDqnOnCartpole :: DqnTrainConfig -> IO DqnTrainResult
 trainDqnOnCartpole config = do
+  observed <- trainDqnOnCartpoleRaw config
+  either (fail . Text.unpack) pure (refineDqnTrainObservation observed)
+
+-- | Captured numerical state only. No producer, device, durable or completion authority.
+-- Fields stay lazy so old wrappers do not acquire new forcing/exception order.
+data DqnPreparedSnapshot state = DqnPreparedSnapshot
+  { internalDqnConfig :: DqnTrainConfig
+  , internalDqnInitialParams :: MlpParams
+  , internalDqnOnlineParams :: MlpParams
+  , internalDqnTargetParams :: MlpParams
+  , internalDqnAdam :: AdamState
+  , internalDqnGenerator :: Random.StdGen
+  , internalDqnReplay :: [Transition]
+  , internalDqnStep :: Int
+  , internalDqnState :: state
+  , internalDqnEpisodeLength :: Int
+  , internalDqnEpisodeReturn :: Double
+  , internalDqnRecentReturns :: [Double]
+  , internalDqnStatistics :: [DqnIterationStat]
+  , internalDqnEnvironmentName :: Text
+  , internalDqnObservationWidth :: Int
+  , internalDqnActionCount :: Int
+  , internalDqnFrame :: Vector Double
+  }
+  deriving stock (Eq, Show)
+
+-- Constructor and continuation are private; no parsed snapshot can reconstruct one.
+data PreparedDqn state
+  = PreparedDqn (DqnPreparedSnapshot state) SingleUse.SingleUse (IO (Either Text DqnTrainObservation))
+
+preparedDqnSnapshot :: PreparedDqn state -> DqnPreparedSnapshot state
+preparedDqnSnapshot (PreparedDqn snapshot _ _) = snapshot
+
+continuePreparedDqnRaw :: PreparedDqn state -> IO (Either Text DqnTrainObservation)
+continuePreparedDqnRaw (PreparedDqn _ guard action) = do
+  consumed <- SingleUse.tryConsumeSingleUse guard
+  if consumed then action else pure (Left "prepared Dqn continuation has already been consumed")
+
+dqnPreparedConfig :: DqnPreparedSnapshot state -> DqnTrainConfig
+dqnPreparedConfig = internalDqnConfig
+
+dqnPreparedInitialParams :: DqnPreparedSnapshot state -> MlpParams
+dqnPreparedInitialParams = internalDqnInitialParams
+
+dqnPreparedOnlineParams :: DqnPreparedSnapshot state -> MlpParams
+dqnPreparedOnlineParams = internalDqnOnlineParams
+
+dqnPreparedTargetParams :: DqnPreparedSnapshot state -> MlpParams
+dqnPreparedTargetParams = internalDqnTargetParams
+
+dqnPreparedAdam :: DqnPreparedSnapshot state -> AdamState
+dqnPreparedAdam = internalDqnAdam
+
+dqnPreparedGenerator :: DqnPreparedSnapshot state -> Random.StdGen
+dqnPreparedGenerator = internalDqnGenerator
+
+dqnPreparedReplay :: DqnPreparedSnapshot state -> [Transition]
+dqnPreparedReplay = internalDqnReplay
+
+dqnPreparedStep :: DqnPreparedSnapshot state -> Int
+dqnPreparedStep = internalDqnStep
+
+dqnPreparedState :: DqnPreparedSnapshot state -> state
+dqnPreparedState = internalDqnState
+
+dqnPreparedEpisodeLength :: DqnPreparedSnapshot state -> Int
+dqnPreparedEpisodeLength = internalDqnEpisodeLength
+
+dqnPreparedEpisodeReturn :: DqnPreparedSnapshot state -> Double
+dqnPreparedEpisodeReturn = internalDqnEpisodeReturn
+
+dqnPreparedRecentReturns :: DqnPreparedSnapshot state -> [Double]
+dqnPreparedRecentReturns = internalDqnRecentReturns
+
+dqnPreparedStatistics :: DqnPreparedSnapshot state -> [DqnIterationStat]
+dqnPreparedStatistics = internalDqnStatistics
+
+dqnPreparedEnvironmentName :: DqnPreparedSnapshot state -> Text
+dqnPreparedEnvironmentName = internalDqnEnvironmentName
+
+dqnPreparedObservationWidth :: DqnPreparedSnapshot state -> Int
+dqnPreparedObservationWidth = internalDqnObservationWidth
+
+dqnPreparedActionCount :: DqnPreparedSnapshot state -> Int
+dqnPreparedActionCount = internalDqnActionCount
+
+dqnPreparedFrame :: DqnPreparedSnapshot state -> Vector Double
+dqnPreparedFrame = internalDqnFrame
+
+trainDqnOnCartpoleRaw :: DqnTrainConfig -> IO DqnTrainObservation
+trainDqnOnCartpoleRaw config = do
+  prepared <- prepareDqnOnCartpole config
+  result <- continuePreparedDqnRaw prepared
+  either (fail . Text.unpack) pure result
+
+prepareDqnOnCartpole :: DqnTrainConfig -> IO (PreparedDqn CartPoleState)
+prepareDqnOnCartpole config = do
   let shape = dqnMlpShape config
       initialParams = initialDqnParams config
-  -- Replay buffer carried as a list (ring-buffer semantics via take + cons).
-  loop
-    pureReferenceMlpDevice
-    cartPoleEnvironment
-    config
-    (\online target adam batch -> pure (dqnUpdate config online target adam batch))
-    initialParams
-    initialParams
-    (adamInit shape)
-    (Random.mkStdGen (dqnSeed config + 1))
-    []
-    0
-    (envInitial cartPoleEnvironment)
-    0
-    0.0
-    [] -- per-episode return list
-    [] -- iteration stats
+      initialOnline = initialParams
+      initialTarget = initialParams
+      initialAdam = adamInit shape
+      initialGenerator = Random.mkStdGen (dqnSeed config + 1)
+      initialReplay = []
+      initialStep = 0
+      initialState = envInitial cartPoleEnvironment
+      initialEpisodeLength = 0
+      initialEpisodeReturn = 0.0
+      initialRecentReturns = []
+      initialStatistics = []
+  guard <- SingleUse.newSingleUse
+  let snapshot =
+        DqnPreparedSnapshot
+          config
+          initialParams
+          initialOnline
+          initialTarget
+          initialAdam
+          initialGenerator
+          initialReplay
+          initialStep
+          initialState
+          initialEpisodeLength
+          initialEpisodeReturn
+          initialRecentReturns
+          initialStatistics
+          (envName cartPoleEnvironment)
+          (envObservationSize cartPoleEnvironment)
+          (envActionCount cartPoleEnvironment)
+          (obsVector cartPoleEnvironment initialState)
+      action =
+        Right
+          <$> loop
+            initialParams
+            pureReferenceMlpDevice
+            cartPoleEnvironment
+            config
+            (\online target adam batch -> pure (dqnUpdate config online target adam batch))
+            initialOnline
+            initialTarget
+            initialAdam
+            initialGenerator
+            initialReplay
+            initialStep
+            initialState
+            initialEpisodeLength
+            initialEpisodeReturn
+            initialRecentReturns
+            initialStatistics
+  pure (PreparedDqn snapshot guard action)
 
 loop
-  :: MlpDevice
+  :: MlpParams
+  -> MlpDevice
   -> SimulatedEnvironment state
   -> DqnTrainConfig
   -> (MlpParams -> MlpParams -> AdamState -> [Transition] -> IO (MlpParams, AdamState))
@@ -194,10 +374,11 @@ loop
   -> Double -- current episode return
   -> [Double] -- recent episode returns
   -> [DqnIterationStat]
-  -> IO DqnTrainResult
-loop device environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats = do
+  -> IO DqnTrainObservation
+loop initialSnapshot device environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats = do
   result <-
     loopEither
+      initialSnapshot
       device
       environment
       config
@@ -216,7 +397,8 @@ loop device environment config update online target adam gen buffer step state e
   either (fail . Text.unpack) pure result
 
 loopEither
-  :: MlpDevice
+  :: MlpParams
+  -> MlpDevice
   -> SimulatedEnvironment state
   -> DqnTrainConfig
   -> (MlpParams -> MlpParams -> AdamState -> [Transition] -> IO (Either Text (MlpParams, AdamState)))
@@ -232,20 +414,21 @@ loopEither
   -> Double -- current episode return
   -> [Double] -- recent episode returns
   -> [DqnIterationStat]
-  -> IO (Either Text DqnTrainResult)
-loopEither device environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
+  -> IO (Either Text DqnTrainObservation)
+loopEither initialSnapshot device environment config update online target adam gen buffer step state episodeLen episodeReturn episodes stats
   | step >= dqnNumSteps config =
       pure $ do
         counters <-
-          Common.mkMeasuredTrainerCounters
+          Common.mkObservedTrainerCounters
             (toInteger step)
             (toInteger (adamStep_ adam))
         pure
-          DqnTrainResult
-            { dqnResultStats = reverse stats
-            , dqnResultFinalParams = online
-            , dqnResultMeasuredCounters = counters
-            , dqnResultConfig = config
+          Common.RawTrainerResult
+            { Common.rawTrainerInitialParams = initialSnapshot
+            , Common.rawTrainerFinalParams = online
+            , Common.rawTrainerStats = reverse stats
+            , Common.rawTrainerCounters = counters
+            , Common.rawTrainerConfig = config
             }
   | otherwise = do
       let epsilon = currentEpsilon config step
@@ -350,6 +533,7 @@ loopEither device environment config update online target adam gen buffer step s
                               : stats
                       else stats
               loopEither
+                initialSnapshot
                 device
                 environment
                 config
@@ -409,16 +593,6 @@ argmax xs = snd (foldr1 step (zip xs [0 ..]))
   step (v1, i1) (v2, i2)
     | v1 >= v2 = (v1, i1)
     | otherwise = (v2, i2)
-
-maskedArgmax :: Maybe [Bool] -> [Double] -> Int
-maskedArgmax Nothing values = argmax values
-maskedArgmax (Just mask) values =
-  argmax
-    [ if ix < length mask && not (mask !! ix)
-        then -1.0e12
-        else value
-    | (ix, value) <- zip [0 ..] values
-    ]
 
 -- | DQN gradient update on a single batch.
 dqnUpdate
@@ -563,24 +737,70 @@ trainDqnOnDeviceWithEnvironment device (SomeSimulatedEnvironment environment) =
 trainDqnOnDeviceWithSimulatedEnvironment
   :: MlpDevice -> SimulatedEnvironment state -> DqnTrainConfig -> IO (Either Text DqnTrainResult)
 trainDqnOnDeviceWithSimulatedEnvironment device environment config = do
+  observed <- trainDqnOnDeviceWithSimulatedEnvironmentRaw device environment config
+  pure (observed >>= refineDqnTrainObservation)
+
+trainDqnOnDeviceWithSimulatedEnvironmentRaw
+  :: MlpDevice -> SimulatedEnvironment state -> DqnTrainConfig -> IO (Either Text DqnTrainObservation)
+trainDqnOnDeviceWithSimulatedEnvironmentRaw device environment config = do
+  prepared <- prepareDqnOnDeviceWithEnvironment device environment config
+  continuePreparedDqnRaw prepared
+
+prepareDqnOnDeviceWithEnvironment
+  :: MlpDevice -> SimulatedEnvironment state -> DqnTrainConfig -> IO (PreparedDqn state)
+prepareDqnOnDeviceWithEnvironment device environment config = do
   let shape = dqnMlpShape config
       initialParams = initialDqnParams config
-  loopEither
-    device
-    environment
-    config
-    (dqnUpdateDevice device config)
-    initialParams
-    initialParams
-    (adamInit shape)
-    (Random.mkStdGen (dqnSeed config + 1))
-    []
-    0
-    (envInitial environment)
-    0
-    0.0
-    []
-    []
+      initialOnline = initialParams
+      initialTarget = initialParams
+      initialAdam = adamInit shape
+      initialGenerator = Random.mkStdGen (dqnSeed config + 1)
+      initialReplay = []
+      initialStep = 0
+      initialState = envInitial environment
+      initialEpisodeLength = 0
+      initialEpisodeReturn = 0.0
+      initialRecentReturns = []
+      initialStatistics = []
+  guard <- SingleUse.newSingleUse
+  let snapshot =
+        DqnPreparedSnapshot
+          config
+          initialParams
+          initialOnline
+          initialTarget
+          initialAdam
+          initialGenerator
+          initialReplay
+          initialStep
+          initialState
+          initialEpisodeLength
+          initialEpisodeReturn
+          initialRecentReturns
+          initialStatistics
+          (envName environment)
+          (envObservationSize environment)
+          (envActionCount environment)
+          (obsVector environment initialState)
+      action =
+        loopEither
+          initialParams
+          device
+          environment
+          config
+          (dqnUpdateDevice device config)
+          initialOnline
+          initialTarget
+          initialAdam
+          initialGenerator
+          initialReplay
+          initialStep
+          initialState
+          initialEpisodeLength
+          initialEpisodeReturn
+          initialRecentReturns
+          initialStatistics
+  pure (PreparedDqn snapshot guard action)
 
 dqnMlpShape :: DqnTrainConfig -> MlpShape
 dqnMlpShape config =
@@ -601,8 +821,12 @@ evaluateDqnPolicyWithEnvironment
   -> MlpParams
   -> Int
   -> IO (Either Text [Common.EvaluationEpisodeResult])
-evaluateDqnPolicyWithEnvironment device (SomeSimulatedEnvironment environment) config params episodeCount =
-  collect (max 1 episodeCount) []
+evaluateDqnPolicyWithEnvironment device (SomeSimulatedEnvironment environment) config params episodeCount
+  | episodeCount <= 0 || not (dqnEvaluationConfiguration environment config) =
+      pure (Left "DQN device evaluation configuration does not match the environment")
+  | not (dqnEvaluationParams config params) =
+      pure (Left "DQN device evaluation parameters are malformed or overflow the Float32 ABI")
+  | otherwise = collect episodeCount []
  where
   collect remaining episodes
     | remaining <= 0 = pure (Right (reverse episodes))
@@ -623,21 +847,93 @@ evaluateEpisode device environment config params = go (envInitial environment) 0
   go state episodeLen episodeReturn
     | episodeLen >= dqnMaxEpisodeSteps config =
         pure (Right (Common.EvaluationEpisodeResult episodeReturn episodeLen False))
+    | VU.length observation /= dqnObsSize config || not (dqnEvaluationVector observation) =
+        pure (Left "DQN device evaluation observation is malformed or overflows the Float32 ABI")
+    | Just mask <- actionMask
+    , length mask /= dqnActionCount config || not (or mask) =
+        pure (Left "DQN device evaluation action mask is malformed or has no legal action")
     | otherwise = do
-        let obs = obsVector environment state
-        forwardResult <- mlpdForward device params obs
+        forwardResult <- mlpdForward device params observation
         case forwardResult of
           Left err ->
             pure (Left ("dqn device forward kernel failed during evaluation: " <> err))
-          Right forward -> do
-            let qValues = VU.toList (forwardOutput forward)
-                action = maskedArgmax (envActionMask environment <*> Just state) qValues
-                stepResult = envStep environment state action
-                nextReturn = episodeReturn + simStepReward stepResult
-                nextLen = episodeLen + 1
-            if simStepDone stepResult
-              then pure (Right (Common.EvaluationEpisodeResult nextReturn nextLen True))
-              else go (simStepState stepResult) nextLen nextReturn
+          Right forward
+            | VU.length (forwardOutput forward) /= dqnActionCount config
+                || not (dqnEvaluationVector (forwardOutput forward)) ->
+                pure (Left "DQN device evaluation output has the wrong shape or is not finite Float32")
+            | otherwise ->
+                case dqnEvaluationAction actionMask (forwardOutput forward) of
+                  Left err -> pure (Left err)
+                  Right action -> do
+                    let stepResult = envStep environment state action
+                        nextReturn = episodeReturn + simStepReward stepResult
+                        nextLen = episodeLen + 1
+                    if not (dqnEvaluationFinite (simStepReward stepResult) && dqnEvaluationFinite nextReturn)
+                      then pure (Left "DQN device evaluation produced a non-finite reward")
+                      else
+                        if simStepDone stepResult
+                          then pure (Right (Common.EvaluationEpisodeResult nextReturn nextLen True))
+                          else go (simStepState stepResult) nextLen nextReturn
+   where
+    observation = obsVector environment state
+    actionMask = envActionMask environment <*> Just state
+
+-- | Final-policy semantics only. Training, initialization, optimizer and RNG
+-- retain their original bytes. Current ProductRow plans include this token.
+dqnEvaluationContract :: Text
+dqnEvaluationContract = "dqn-selected-device-checked-legal-final-evaluation-v1"
+
+dqnEvaluationConfiguration :: SimulatedEnvironment state -> DqnTrainConfig -> Bool
+dqnEvaluationConfiguration environment config =
+  dqnMaxEpisodeSteps config > 0
+    && all (\dimension -> dimension > 0 && toInteger dimension <= abiLimit) dimensions
+    && all (<= abiLimit) [inputs * hidden, outputs * hidden]
+    && envObservationSize environment == dqnObsSize config
+    && envActionCount environment == dqnActionCount config
+ where
+  dimensions = [dqnObsSize config, dqnHiddenUnits config, dqnActionCount config]
+  inputs = toInteger (dqnObsSize config)
+  hidden = toInteger (dqnHiddenUnits config)
+  outputs = toInteger (dqnActionCount config)
+  abiLimit = toInteger (maxBound :: CInt)
+
+dqnEvaluationParams :: DqnTrainConfig -> MlpParams -> Bool
+dqnEvaluationParams config params =
+  paramShape params == dqnMlpShape config
+    && toInteger (VU.length (paramW1 params))
+      == toInteger (dqnHiddenUnits config) * toInteger (dqnObsSize config)
+    && VU.length (paramB1 params) == dqnHiddenUnits config
+    && toInteger (VU.length (paramW2 params))
+      == toInteger (dqnActionCount config) * toInteger (dqnHiddenUnits config)
+    && VU.length (paramB2 params) == dqnActionCount config
+    && all dqnEvaluationVector [paramW1 params, paramB1 params, paramW2 params, paramB2 params]
+
+dqnEvaluationFinite :: Double -> Bool
+dqnEvaluationFinite value = not (isNaN value || isInfinite value)
+
+-- Conversion rounding/underflow are permitted. A finite Double which would
+-- become an infinite Float is not a valid selected-device input/output.
+dqnEvaluationVector :: Vector Double -> Bool
+dqnEvaluationVector =
+  VU.all
+    ( \value ->
+        dqnEvaluationFinite value
+          && let encoded = realToFrac value :: Float in not (isNaN encoded || isInfinite encoded)
+    )
+
+-- Legal actions are an eligible set, never finite replacement logits. This
+-- preserves the leftmost tie even when every legal value is below -1e12.
+dqnEvaluationAction :: Maybe [Bool] -> Vector Double -> Either Text Int
+dqnEvaluationAction mask values =
+  case eligible of
+    [] -> Left "DQN device evaluation action mask has no legal action"
+    first : rest -> Right (fst (Data.List.foldl' prefer first rest))
+ where
+  eligible = [(index, value) | ((index, value), legal) <- zip (zip [0 ..] (VU.toList values)) flags, legal]
+  flags = fromMaybe (replicate (VU.length values) True) mask
+  prefer current@(_, currentValue) candidate@(_, candidateValue)
+    | candidateValue > currentValue = candidate
+    | otherwise = current
 
 -- | Minibatch DQN gradient update through batched device primitives:
 -- batched forward of the online net at the batch states (Q(s,·)) and the
@@ -686,3 +982,8 @@ dqnUpdateDevice device config online target adam batch = do
     (Left err, _, _) -> pure (Left ("dqn device forward kernel failed mid-run (online batch): " <> err))
     (_, Left err, _) -> pure (Left ("dqn device forward kernel failed mid-run (target batch): " <> err))
     (_, _, Left err) -> pure (Left ("dqn device forward kernel failed mid-run (double-dqn online-next batch): " <> err))
+
+trainDqnOnDeviceWithEnvironmentRaw
+  :: MlpDevice -> SomeSimulatedEnvironment -> DqnTrainConfig -> IO (Either Text DqnTrainObservation)
+trainDqnOnDeviceWithEnvironmentRaw device (SomeSimulatedEnvironment environment) =
+  trainDqnOnDeviceWithSimulatedEnvironmentRaw device environment

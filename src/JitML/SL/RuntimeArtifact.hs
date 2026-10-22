@@ -89,6 +89,7 @@ module JitML.SL.RuntimeArtifact
   , applyRuntimeInputTransform
   , applyRuntimeOutputTransform
   , executeSupervisedGraphRuntime
+  , executeSupervisedRuntime
   )
 where
 
@@ -738,15 +739,23 @@ executeSupervisedGraphRuntime
   -> LayerGraph.LayerGraph
   -> Vector Double
   -> Either Text (Vector Double)
-executeSupervisedGraphRuntime payload graph rawInput = do
+executeSupervisedGraphRuntime payload = executeSupervisedRuntime (payloadRuntime payload)
+
+-- | The common serving computation, also used for a named initial-model
+-- comparison. A comparison is not an admitted checkpoint and carries no
+-- completion claim; it still uses exactly these transforms and graph executor.
+executeSupervisedRuntime
+  :: SupervisedRuntime
+  -> LayerGraph.LayerGraph
+  -> Vector Double
+  -> Either Text (Vector Double)
+executeSupervisedRuntime runtime graph rawInput = do
   input <- applyRuntimeInputTransform (supervisedRuntimeInputTransform runtime) rawInput
   tape <- LayerGraph.runLayerGraph graph input
   applyRuntimeOutputTransform
     (supervisedRuntimeTask runtime)
     (supervisedRuntimeOutputTransform runtime)
     (LayerGraph.layerTapeOutput tape)
- where
-  runtime = payloadRuntime payload
 
 -- Validation helpers ----------------------------------------------------------
 

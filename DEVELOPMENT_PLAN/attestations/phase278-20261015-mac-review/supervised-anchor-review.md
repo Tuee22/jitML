@@ -218,7 +218,9 @@ partial files are not verified evidence.
 The current Mac exposes Apple M1 Max Metal and a Linux/aarch64 Docker VM. The
 VM advertises only `runc` runtimes, has no NVIDIA device nodes or kernel driver,
 and `docker run --gpus all` exits **125** because no GPU-capable device driver
-can be selected; see [host-probes.json](host-probes.json). This is a negative
+can be selected; the raw host probes are retained locally under ignored
+`.build/commit-hygiene-20261018/`, as described in the [audit summary](README.md).
+This is a negative
 capability diagnostic, not a failed jitML substrate test. The CPU and Apple
 lanes were not validated in this session. Native/container build attempts were
 interrupted with exit **130**; the documentation validator did not start. No

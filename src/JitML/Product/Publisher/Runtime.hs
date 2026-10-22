@@ -22,6 +22,8 @@ import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Product.ServedMetric qualified as ServedMetric
+import JitML.Product.SupervisedCohortPlan qualified as SupervisedCohort
+import JitML.Product.SupervisedQualification qualified as SupervisedQualification
 import JitML.RL.Algorithms.Common qualified as AlgorithmCommon
 import JitML.RL.Framework qualified as Framework
 import JitML.RL.ProductBudget qualified as ProductBudget
@@ -35,14 +37,11 @@ import JitML.Tune.Catalog qualified as Tune
 
 data ProductPublisherRuntime = ProductPublisherRuntime
   { publisherRunSupervisedTraining
-      :: Substrate
-      -> SL.CanonicalProblem
-      -> Int
-      -> Int
-      -> Int
-      -> Int
-      -> Double
+      :: SupervisedCohort.SupervisedSeedPlan
       -> App (Either Text SupervisedPublishRun)
+  , publisherSupervisedQualificationProducer
+      :: Maybe TrainingBudget.ProductScenarioInvocation
+      -> App (Either Text SupervisedQualification.RawQualificationProducer)
   , publisherRunRlTraining
       :: Substrate
       -> MlpDevice
@@ -132,6 +131,11 @@ data ProductPublisherRuntime = ProductPublisherRuntime
                CheckpointStore.AdmittedCompletedCheckpoint
            )
   , publisherWriteTextArtifact :: Text -> Text -> Text -> App (Text, Text)
+  , publisherWriteBinaryArtifact
+      :: Text
+      -> Text
+      -> LazyByteString.ByteString
+      -> App (Text, Text)
   , publisherLoadTuningDataset
       :: Tune.TuningExecutionSpec
       -> App (Either Text TuningPublishDataset)
@@ -155,6 +159,7 @@ data SupervisedPublishRun = SupervisedPublishRun
   , supervisedPublishOptimizerUpdatesExecuted :: !Word64
   , supervisedPublishRuntimeProgram :: !RuntimeArtifact.RawSupervisedRuntime
   , supervisedPublishLayerGraphMetadata :: !(Maybe LayerGraphMetadata)
+  , supervisedPublishInitialLayerGraphMetadata :: !LayerGraphMetadata
   , supervisedPublishInitialJmw1Bytes :: !LazyByteString.ByteString
   , supervisedPublishFinalJmw1Bytes :: !LazyByteString.ByteString
   , supervisedPublishVerifiedDatasetShaAtRead :: !Text

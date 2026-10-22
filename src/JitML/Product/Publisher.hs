@@ -8,12 +8,17 @@ module JitML.Product.Publisher
   , TuningPublishDataset (..)
   , productTuneTrialArtifact
   , reuseProductPublishResult
+  , productPublishEligible
+  , validateProductPublishBatch
+  , trainAndPublishNativeProductRow
   , runTrainAndPublishProductRows
   , runTrainAndPublishProductRowsForInvocation
+  , runTrainAndPublishProductRowsForInvocationWithSource
   , selectInternalProductRows
   , snapshotScopedPointer
   , validateAdmittedProductCheckpoint
   , validateProductCompletedTrainingPlanId
+  , trainSupervisedCohort
   , supervisedPublishMetricRows
   , validateSupervisedPublishUpdateCount
   , validateSupervisedServedMetricExampleCount
@@ -28,11 +33,14 @@ import JitML.Product.Publisher.Audit
   , snapshotScopedPointer
   , validateAdmittedProductCheckpoint
   , validateProductCompletedTrainingPlanId
+  , validateProductPublishBatch
   )
-import JitML.Product.Publisher.Common (reuseProductPublishResult)
+import JitML.Product.Publisher.Common (productPublishEligible, reuseProductPublishResult)
+import JitML.Product.Publisher.Native (trainAndPublishNativeProductRow)
 import JitML.Product.Publisher.Orchestrator
   ( runTrainAndPublishProductRows
   , runTrainAndPublishProductRowsForInvocation
+  , runTrainAndPublishProductRowsForInvocationWithSource
   , selectInternalProductRows
   )
 import JitML.Product.Publisher.Runtime
@@ -43,6 +51,7 @@ import JitML.Product.Publisher.Runtime
   )
 import JitML.Product.Publisher.Supervised
   ( supervisedPublishMetricRows
+  , trainSupervisedCohort
   , validateSupervisedPublishUpdateCount
   , validateSupervisedServedMetricExampleCount
   , verifyAdmittedSupervisedServedMetric

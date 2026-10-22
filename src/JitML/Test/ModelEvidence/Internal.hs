@@ -41,9 +41,12 @@ import JitML.Product.Convergence
 import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.ExternalBars qualified as ExternalBars
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.Product.QualificationObjects (readProductLaneQualificationObjects)
+import JitML.Product.ValidationRecord (sha256Hex)
 import JitML.Substrate (Substrate, renderSubstrate)
-import JitML.Test.ProductAggregation (ProductLaneInput (..), productLaneInputs)
+import JitML.Test.ProductAggregation (ProductLaneInput (..))
 import JitML.Test.ProductLaneJournal qualified as Lane
+import JitML.Test.RegisteredLaneEvidence qualified as Registered
 import JitML.Test.Report qualified as Report
 import JitML.Training.Budget qualified as Budget
 
@@ -321,6 +324,7 @@ data ModelEvidenceLoadError
   | LaneProjectionRejected !Substrate !(NonEmpty ProductMatrix.ProductMatrixError)
   | LaneJournalRejected !Substrate !FilePath !Text !(NonEmpty Lane.ProductLaneJournalError)
   | LaneEvidenceRejected !Substrate !(NonEmpty ModelEvidenceError)
+  | LaneRegistrationRejected !Substrate !Registered.RegisteredLaneError
   deriving stock (Eq, Show)
 
 -- ---------------------------------------------------------------------------
@@ -710,9 +714,17 @@ identityFailuresFor projection identity =
           <> expectPlan BindingInvocationPlan (riiPlanId invocation)
           <> expectLane BindingInvocationLane (riiSubstrate invocation)
   deviceFailures =
-    case rciDeviceSubstrate completion of
-      Nothing -> [BindingMissing BindingDeviceWitnessLane]
-      Just lane -> expectLane BindingDeviceWitnessLane lane
+    case ProductMatrix.productProjectionRowClass projection of
+      -- Recorded host ARS has no MLP witness. The safe production path has
+      -- already required its actual portable native FILE audit in Lane.
+      -- The unsafe Raw DATA seam still confers no native qualification.
+      ProductMatrix.RlAlgorithmEnvironment "ARS" _ ->
+        case rciDeviceSubstrate completion of
+          Nothing -> []
+          Just lane -> [BindingMismatch BindingDeviceWitnessLane "host-no-mlp" (renderSubstrate lane)]
+      _ -> case rciDeviceSubstrate completion of
+        Nothing -> [BindingMissing BindingDeviceWitnessLane]
+        Just lane -> expectLane BindingDeviceWitnessLane lane
 
 isCanonicalSha256 :: Text -> Bool
 isCanonicalSha256 value =
@@ -1183,11 +1195,17 @@ data LaneEvidence = LaneEvidence
   , laneEvidenceSet :: !ModelEvidenceSet
   }
 
--- | Read the lane's registered, pinned journal ('productLaneInputs') and admit
--- it against the current projection with 'Lane.admitProductLaneJournal'. A
--- missing, altered, non-canonical, or stale journal is a typed error.
+-- | Current production reads a separately governed generation and performs
+-- the full current55-row portable admission and original review-chain binding.
+-- Historical literals and caller-pinned mutation seams cannot satisfy this path.
 loadLaneJournal :: Substrate -> IO (Either ModelEvidenceLoadError LoadedLane)
-loadLaneJournal = loadLaneJournalIn productLaneInputs ProductMatrix.allProductRows
+loadLaneJournal lane = do
+  actual <- Registered.loadRegisteredLaneEvidence lane
+  pure $
+    case actual of
+      Left err -> Left (LaneRegistrationRejected lane err)
+      Right loaded ->
+        Right (LoadedLane (Registered.registeredLaneBatch loaded) (Registered.registeredLaneJournal loaded))
 
 -- | 'loadLaneJournal' over an explicit registry of pinned journal inputs and an
 -- explicit ProductRow registry. Production reads through 'loadLaneJournal' with
@@ -1209,17 +1227,35 @@ loadLaneJournalIn inputs rows substrate =
       let path = productLaneInputPath input
           pinned = productLaneInputSha256 input
       read' <- tryIO (ByteString.readFile path)
-      pure $
-        case read' of
-          Left exception ->
-            Left (LaneJournalUnreadable path (Text.pack (show exception)))
-          Right bytes ->
-            case ProductMatrix.projectProductRows substrate rows of
-              Failure errors -> Left (LaneProjectionRejected substrate errors)
-              Success batch ->
-                case Lane.admitProductLaneJournal pinned batch bytes of
-                  Left errors -> Left (LaneJournalRejected substrate path pinned errors)
-                  Right journal -> Right (LoadedLane batch journal)
+      case read' of
+        Left exception ->
+          pure (Left (LaneJournalUnreadable path (Text.pack (show exception))))
+        Right bytes ->
+          case ProductMatrix.projectProductRows substrate rows of
+            Failure errors -> pure (Left (LaneProjectionRejected substrate errors))
+            Success _batch
+              | sha256Hex bytes /= pinned ->
+                  pure
+                    ( Left
+                        ( LaneJournalRejected
+                            substrate
+                            path
+                            pinned
+                            (Lane.ProductLaneJournalDigestMismatch pinned (sha256Hex bytes) :| [])
+                        )
+                    )
+            Success batch -> do
+              qualifications <- readProductLaneQualificationObjects path bytes
+              case qualifications of
+                Left (Lane.ProductLaneJournalIOFailure objectPath detail) -> pure (Left (LaneJournalUnreadable objectPath detail))
+                Left err -> pure (Left (LaneJournalRejected substrate path pinned (err :| [])))
+                Right objects -> do
+                  actual <- Lane.admitProductLaneJournalWithNativeBundles path objects pinned batch bytes
+                  pure
+                    ( case actual of
+                        Left errors -> Left (LaneJournalRejected substrate path pinned errors)
+                        Right journal -> Right (LoadedLane batch journal)
+                    )
 
 -- | Mint evidence for every row of an admitted lane journal through the typed
 -- join.
@@ -1252,6 +1288,11 @@ renderModelEvidenceLoadError err =
   case err of
     LaneJournalNotRegistered lane ->
       "no lane journal is registered for " <> renderSubstrate lane
+    LaneRegistrationRejected lane detail ->
+      "current "
+        <> renderSubstrate lane
+        <> " registration/admission rejected: "
+        <> Text.pack (show detail)
     LaneJournalUnreadable path detail ->
       "lane journal " <> Text.pack path <> " is unreadable: " <> detail
     LaneProjectionRejected lane errors ->
@@ -1297,6 +1338,7 @@ renderModelEvidenceLoadHeadline err =
         <> renderModelEvidenceError (NonEmpty.head errors)
         <> ")"
     LaneJournalNotRegistered _ -> renderModelEvidenceLoadError err
+    LaneRegistrationRejected _ _ -> renderModelEvidenceLoadError err
     LaneJournalUnreadable _ _ -> renderModelEvidenceLoadError err
     LaneProjectionRejected _ _ -> renderModelEvidenceLoadError err
 

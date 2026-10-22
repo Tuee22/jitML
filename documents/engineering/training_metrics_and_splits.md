@@ -47,7 +47,7 @@ boundary rather than letting the target read as implemented.
   meaningful: some committed cohorts carry slack wide enough that the resulting
   bar is not a real assertion against its environment.
 
-The second point is owned by
+The independent literal-provenance and meaningfulness obligation is owned by
 [Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md),
 which is where the current status and the closing work are tracked.
 
@@ -56,10 +56,188 @@ Per-model completed-run evidence has its own stated boundary. The
 ([Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md))
 grades opaque evidence minted only from the retained, pinned lane journals, so
 it is exactly as current as those journals and fails closed on a stale one. The
-journals retain no per-iteration learning curve, no per-episode evaluation set,
-and no served-artifact inference measurement, and every current ProductRow plans
-a singleton seed cohort; see
+model-evidence projection uses scalar row summaries, with no per-iteration
+learning curve, per-episode evaluation set or general served-artifact inference
+measurement exposed by that facade. Current native qualification separately
+requires the complete original evaluation graphs and raw parent capture in its
+attached, physically checked closure. Each completed artifact
+records its own execution seed; compact SL additionally requires the separate
+replayable five-run qualification described below. See
 [Per-Model Completed-Run Evidence](#per-model-completed-run-evidence).
+
+On-policy final reward evaluation uses the same selected `MlpDevice` as training.
+Time-limit truncation retains the actual pre-reset successor value under the
+current rollout parameters, through that device. True termination has zero
+bootstrap; either reset stops GAE recursion. Additional value forwards do not
+count as environment transitions. Separate producer-owned evaluation and rollout
+recipe versions bind the affected canonical ProductRow identities. These
+correctness requirements do not establish convergence or replace the independent
+criterion, training-seed and fresh-journal obligations tracked in Phase `278`.
+
+The [native learning qualification below](#target-native-rl-learning-qualification)
+is the selected target for the 43 native RL/HER/AlphaZero rows. Numerical
+comparison, prepared-state and fixed-case evaluation DATA APIs remain separate
+from the implemented canonical producer and owned-parent path. That path binds
+the five prescribed child outcomes, whole allocation, original source/process
+and invocation, prelaunch criterion review, actual Store admission and eleven
+exact evaluation replays before authenticated source-journal qualification.
+Attempt records are retained in the selected execution workspace; persistent
+acquisition must preserve that workspace and every failure rather than rely on
+the CLI's system-temporary command scope. Implemented APIs and controls are not
+current qualifying execution or fresh registered lane journals. A singleton
+completion alone cannot attest the target; genuine qualification remains open
+in Phase `278`.
+
+### Current final-policy runtime scope
+
+Selected-device final scoring routes on-policy, DQN, QR-DQN, continuous, HER
+and AlphaZero network-backed arenas through their selected neural device.
+Reported device failures reject evaluation without selecting another engine.
+On-policy, DQN, QR-DQN, continuous, HER and AlphaZero evaluators apply their
+explicit family-specific shape, finite-value and input-representation checks.
+The adopted DQN guards and producer-owned final-evaluation recipe have focused
+controls and exact compiled proof: nine DQN ProductRow PlanIds change across
+the three lanes, preserving the other156 plans and all165 report contracts.
+This identity proof is not current DQN training or qualification evidence.
+Declared starts, horizons, counts and action domains remain fixed. DQN and
+QR-DQN select over actual legal indices, avoiding finite mask sentinels.
+Native dynamics and explicit pure reference evaluators remain separate from the
+selected neural scoring path.
+
+`TrainerObservation` retains actual family/configuration, initial/final vectors,
+uncensored statistics, counters and complete returned evaluation data. Its
+budget-complete refinement checks data/work consistency and permits observed
+zero updates; it grants no learning, source authentication or eligibility.
+The existing strict completion adapter retains its positive-counter and
+learned-state requirements. The 514-input native producer checkpoint implements
+durable prepared initial/raw capture, independent references, assessment and
+replay boundaries. Its actual ARS/cartpole seeds **42..46** each complete the **800,000** budget with **50** updates, with initial median **8** and final median **500**, ten matching
+in-memory replays and **48** physical objects read back. This diagnostic does not
+supply Store-loaded replay, authenticated parent/publication, current journals
+or other native rows; complete qualification remains owned by Phase `278`.
+
+ARS remains non-MLP host linear search. The canonical producer and owned parent
+record and check its actual host origin, complete trace, source/process and
+invocation without querying an MLP witness. Generic ARS host publication uses a
+separate compiled-plan/namespace branch that binds its full plan, budget,
+trajectory and initial/final weights; it cannot relabel a generic run as a
+canonical ProductRow. These implemented paths do not supply current five-run
+qualification, fresh journals or actual owned live CLI/daemon evidence; those
+remain obligations of
+[Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work).
+
+## Additional held-out learning-signal policy
+
+Supervised ProductRow eligibility requires a label-only learning-signal check
+in addition to the existing convergence bar and served-versus-reported metric
+comparison. `JitML.Product.LearningSignal` defines the policy; the publisher
+applies it to outputs recomputed once through Store-admitted serving bytes.
+This does not establish a published architecture's convergence floor. The
+current v2 policy participates in the compact qualification below; the earlier
+v1 guard remains historical evidence for its actual scope. Phase `278` owns
+final validation and fresh real-lane qualification evidence.
+
+For classification, let `n` be the exact held-out example count, `C` the
+canonical row's class count, and `m` the largest label count in that set. The
+number of correct served predictions must be at least `max(m + 1, q)`, where
+`q` is the smallest integer with `Pr[Binomial(n, 1/C) >= q] <= 1/5000`.
+Integer arithmetic evaluates the exact binomial tail. If even perfect accuracy
+cannot meet the rule, the set is rejected. The majority term rejects every
+constant classifier, including one selected with knowledge of those labels;
+the chance term rejects a prescribed uniform-random-prediction null at the
+frozen per-comparison level. For 1,000 examples, the current chance counts are
+136, 24 and 16 for 10, 100 and 200 semantic classes. The earlier v1 values
+135, 23 and 15 used alpha `1/3000` and do not satisfy this current policy.
+The product exposes no automatic familywise probability guarantee; the precise
+conditional, prospectively allocated calculation appears below.
+The baseline definitions are described by the
+[DummyClassifier reference](https://scikit-learn.org/stable/modules/generated/sklearn.dummy.DummyClassifier.html),
+and exact binomial-tail inversion by
+[NIST](https://itl.nist.gov/div898/handbook/prc/section2/prc241.htm).
+
+For regression, the actual served predictions must have a strictly smaller
+sum of squared errors than the held-out mean predictor, equivalent to
+[strictly positive held-out R²](https://scikit-learn.org/stable/modules/generated/sklearn.metrics.r2_score.html).
+The comparison uses exact rational representations of the finite binary64
+targets and predictions, so rounding the reported RMSE cannot turn equality
+into success. Zero held-out variance, invalid scales, empty sets, and non-finite
+values fail. The positive target scale cancels from this comparison; it still
+converts the independent provenance metric to standardized RMSE.
+
+Neither provenance tolerance can loosen these predicates: classification uses
+the integer served correct count, and regression uses the served prediction
+vector. Canonical output width and evidence kind must agree. The supervised
+scenario contract digest includes a versioned learning-signal policy token;
+previous journals cannot claim this check merely because their old scalar
+metric passes a bar. Non-supervised row contracts retain their existing digests.
+
+This is ProductRow publication/report eligibility, rather than a new universal
+Store admission rule. The check runs after completed-checkpoint persistence and
+Store admission; a rejected row's objects remain in Store. General weighted
+inference can still admit an otherwise valid current completed artifact without
+replaying held-out learning-signal checks. The authenticated product browser
+catalogue separately requires all 55 current row/contract identities and live
+Store admission after issuance from complete scenario evidence, so an old catalogue or rejected publication
+cannot become a current eligible ProductRow by that route.
+
+## Compact qualification
+
+The user's 2026-10-16 compact-recipe decision retains the exact graphs, data
+selections and per-run budgets. The independently reviewed contract in
+[README → Threshold methodology](../../README.md#threshold-methodology)
+reconciles the former unqualified literature-target claim explicitly. The
+versioned implementation uses opaque policy/cohort/qualification/publication
+boundaries; Phase `278` still owns final validation and real five-run evidence.
+Earlier v1 guard or singleton artifacts do not meet the new contract.
+
+Every row uses actual training seeds canonical base plus `0..4`, ordered and
+fixed before qualifying execution. The original base seed remains served.
+At least three runs jointly pass exact paired initialization improvement and
+the reference control. Classification uses integer correct counts, strict
+majority and exact uniform-binomial alpha `1/5000`; regression uses exact
+binary64-rational `SSE_final < SSE_initial` and `SSE_final < SST`. The all-five
+median additionally clears the exact unchanged historical floor. All finite
+below-floor/non-improving runs remain in that median. Missing, incomplete,
+non-finite, substituted or wrong-budget children fail; none is replaced.
+
+The served seed independently passes its own floor, paired criterion, budget,
+device, completion, Store admission and final served-byte replay. Its metric is
+not the cohort median. Initial/final graph descriptors and fitted transforms
+are identical, with actual before-update parameter snapshots. Separate raw
+outcomes preserve all five runs; below-floor members are never forged
+`CompletedTraining` values. A separately authenticated replayable cohort object
+binds exact child plans, data/split identities, source/invocation, actual
+counters and initial/final artifacts. Hashes alone do not prove execution.
+
+The selected-device check uses the [execution-family backend
+identities](checkpoint_format.md#compact-supervised-qualification): the typed
+projection chooses classification's layer-graph identity or regression's MLP
+identity before the recorded witness is compared exactly.
+
+The classification probability bound is limited to at most thirty planned
+all-five uniform-per-example-null cohorts: `P(N>=3) <= 5/(3*5000)`, followed by
+the union bound `<=0.01`. This conditional calculation requires prospective
+allocation and exhaustive all-attempt retention, and is not an automatic claim
+of a qualified object or public API. Each seed must satisfy the stated binomial
+null: independent uniform class predictions across its held-out examples;
+uniform marginals alone are insufficient. No cross-seed independence is needed.
+The bound establishes no population confidence, arbitrary-random-network
+rejection or regression confidence. All qualifying attempts remain in an append-only ledger; adaptive
+retries do not inherit the same budget. Historical floors keep their actual
+provenance, including Tiny's measured-calibrated `0.008`; preserving them adds
+restrictions but does not make their origins external. The claim is observed
+compact-model learning on pinned benchmarks, not published-model parity.
+
+Criterion-review selection precedes qualifying training and binds the original
+source, lane, supervised/native scope and all 55 ordered row contracts. The
+selected artifacts retain the independent review decision and finite-claim
+limits; a parser does not establish independence. The actual parent observes and
+retains that selection before launch and checks the same identity afterward.
+Current lane registration requires the authenticated review binding for all 54
+training rows, while preserving full 55-row admission and the tuning row's
+explicitly unrecorded original code source. New journal output pins are selected
+separately after real whole-lane evidence and independent review. These
+mechanisms do not replace the required five actual runs or owned live gates.
 
 ## Invariants
 
@@ -71,14 +249,16 @@ a singleton seed cohort; see
 - **Real losses.** The published training loss is a real cross-entropy (classification) or
   MSE (regression) value computed from the model output — never `1 − accuracy`, and the
   validation loss is a real held-out measurement, not the final training loss.
-- **Measured metrics, externally anchored bars.** The convergence and performance
+- **Measured metrics, independently specified acceptance.** The convergence and performance
   *metrics* are measured from real training runs, never literature-target
   placeholders. The *bar* each metric is graded against is structurally distinct
   from the measurement, and that separation is what forbids a self-referential
-  `threshold = measured` gate. The bar is **externally anchored rather than wholly
-  external**: it is `literatureTarget − slack`, where `literatureTarget` is an
-  external published constant and `slack` is a project-calibrated per-cohort
-  tolerance. `JitML.Product.ExternalBars`
+  `threshold = measured` gate. Compact SL requires the prospective fixed
+  comparison procedure above; its historical extra floors are not claimed
+  published anchors. Native RL adds the fixed paired learning procedure below
+  while retaining every existing target/slack restriction and its independent
+  provenance obligation. The numeric representation `literatureTarget − slack`
+  and positive slack alone establish no origin. `JitML.Product.ExternalBars`
   ([Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md))
   owns the anchoring invariant; the target and slack tables live in
   `JitML.SL.ConvergenceThresholds` and `JitML.RL.ConvergenceThresholds`.
@@ -229,6 +409,19 @@ are absent from the manifest.
 
 ## SL data splits (R4)
 
+Tiny ImageNet training paths are grouped by the canonical `wnids.txt` label
+index, sorted within each class, and interleaved across classes before any
+bounded prefix is taken. Training and selection-validation consume adjacent
+disjoint portions of that single sequence; held-out validation annotations keep
+their original order. With the canonical 8,000 training and 1,600 selection
+examples, every one of the 200 classes contributes 40 and 8 images respectively.
+Unknown training classes and duplicate canonical class identifiers fail before
+prefix selection. JPEG inflation remains bounded. The ProductRow's semantic
+subject binds `tiny-imagenet-training-class-interleaved-v1`, so an earlier
+class-contiguous recipe has a different `PlanId` despite identical example and
+update budgets. This selection policy addresses class coverage; it does not
+establish the row's published convergence anchor.
+
 Supervised learning uses a **three-way** split (`JitML.SL.Dataset` `DataSplit`:
 `TrainSplit | TestSplit | ValidationSplit`, parsed at `App.hs`, consumed by
 `JitML.SL.Classifier` / `JitML.SL.TinyImageNet`):
@@ -266,13 +459,15 @@ closure evidence subsequently closed through Phases `240`–`246`.
 
 ## SL metrics (R3)
 
-- **Convergence** — a cohort converges when the median held-out **test** accuracy
-  over the fixed seed cohort clears its `literatureTarget − slack` bar. The
-  anchoring invariant is owned by `JitML.Product.ExternalBars`
+- **Compact qualification** — all five prescribed fixed-budget training outcomes
+  are retained, at least three jointly satisfy the paired learning criterion,
+  and the full median clears the unchanged historical floor. Index `0`
+  independently qualifies and retains its own served accuracy/RMSE. The exact
+  contract and remaining real-evidence obligations are described above.
+  Numeric bar consistency is owned by `JitML.Product.ExternalBars`
   ([Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md))
-  and the target/slack table by `JitML.SL.ConvergenceThresholds`; the target is an
-  external constant, the slack is project-calibrated, and neither is **derived
-  from, or set equal to, the measured accuracy**. Regression rows use the declared
+  and the historical target/slack table by `JitML.SL.ConvergenceThresholds`;
+  their field names do not establish published provenance. Regression rows use the declared
   regression metric rather than accuracy. Cross-entropy / MSE training loss and
   held-out validation loss are reported per run. The ProductScenario integration
   journal measures each row end-to-end from a real random initialization, and the
@@ -319,8 +514,10 @@ closure evidence subsequently closed through Phases `240`–`246`.
 
 - **Convergence** — a cohort converges when the **real measured-median** episode
   return over `k` seeds clears its per-cohort return threshold. That threshold is
-  `literatureTarget − slack` — an external published target less a
-  project-calibrated slack — anchored by `JitML.Product.ExternalBars`
+  `literatureTarget − slack`, with each target's actual provenance and the
+  project-calibrated slack kept explicit. The numeric representation alone does
+  not establish an external published origin. It is anchored structurally by
+  `JitML.Product.ExternalBars`
   ([Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md))
   and tabulated by `JitML.RL.ConvergenceThresholds`, never derived from the
   measured return. The measured return is a **trained-policy rollout** — the learned policy
@@ -366,8 +563,11 @@ closure evidence subsequently closed through Phases `240`–`246`.
   as their convergence observations.
   Row assertions reject synthetic transitions, missing thresholds, missing
   device evidence, initialized-only checkpoints, and failed convergence.
-- **AlphaZero** — convergence is measured by **arena win-rate** against the prior best
-  network (a deliberate non-return metric), not an episode-return threshold.
+- **AlphaZero** — the current arena measures player 1 against a uniform legal
+  opponent, with half credit for draws, rather than a retained prior-best
+  network. It is a deliberate non-return metric; the exact per-game outcomes,
+  comparison randomness and selected-device scoring remain separate contract
+  obligations, rather than consequences of a passing scalar floor.
 - **Performance** — a non-wall-clock RL sample-efficiency count,
   `environment_transitions`: the physical transitions the trainer counted for
   the completed run, graded against a committed **ceiling** in
@@ -391,8 +591,123 @@ closure evidence subsequently closed through Phases `240`–`246`.
 | DDPG, TD3, SAC, CrossQ, TQC | training: environment transitions; evaluation: keyed episodes with an episode-step horizon | median evaluation return on continuous-control cohorts |
 | ARS | training: physical perturbation-rollout environment transitions; evaluation: keyed episodes with an episode-step horizon | median evaluation return and accepted-direction improvement over the seed cohort |
 | HER | training: goal-conditioned environment transitions; evaluation: keyed episodes with an episode-step horizon | goal success rate and mean achieved-goal distance |
-| AlphaZero Connect 4, Othello, Hex, Gomoku | self-play generations, MCTS simulations per move, and arena games | arena win-rate against the baseline/prior checkpoint plus legal-move rate |
+| AlphaZero Connect 4, Othello, Hex, Gomoku | self-play generations, MCTS simulations per move, and arena games | player-1 draw-adjusted arena score against the uniform legal opponent, plus legal-move rate |
 | Hyperparameter tuning | fixed trial count or fixed scheduler-rung budget | best validation objective at the completed budget plus replayable sampler state |
+
+### Target native RL learning qualification
+
+This target covers 38 RETURN rows, one HER row and four AlphaZero games. It
+retains each actual native algorithm/environment, recipe, action domain,
+training budget, existing quality bar and stronger family requirement. The
+claim is observed learning on these exact pinned tasks and cases. It is not
+published-recipe parity, population generalization, a calibrated probability
+bound or an SL-null calculation transferred to RL.
+
+**Five actual models and fixed serving.** The prescribed training seeds are
+`42,43,44,45,46`, in order. Every model runs its unchanged full training
+allocation. All attempts and returned outcomes remain visible, including finite
+below-floor, zero-update and no-improvement data. Missing, incomplete or
+nonfinite required observations fail qualification; they are not replaced by
+another seed or retrained to a score. Index `0`/seed 42 is fixed for serving
+before scores are known. At least three models must each satisfy their entire
+joint learning predicate. Passing different coordinates on different models
+does not make three joint successes.
+
+The full five-model median of every existing per-model quality statistic must
+clear its unchanged bar, with the existing binary64 operations and exclusions.
+Index `0` independently satisfies its own learning and quality restrictions,
+exact budget/counters, honest execution provenance, completion and actual
+Store admission. Its served metric remains separate from the cohort median;
+neither the best nor median seed replaces it. Episode pooling cannot replace
+the median of the five per-policy statistics.
+
+**Actual initial policies and paired cases.** Each initial observation uses the
+actual numerical state handed to the same single-use continuation that produces
+the final policy. Reconstructing an initializer after training or retaining only
+its hash does not supply this observation. SAC/pendulum keeps its cold actor,
+the preparation over 425 samples and 800 passes (340,000 Adam applications), and
+the effective actor/optimizer used to begin scheduled training. Strict gain is
+measured from that effective initialization. Preparation and its work are
+retained separately; its improvement is not relabelled scheduled learning or
+silently added to the old counters.
+
+RETURN uses the same 20 fresh canonical starts and actual row horizon for both
+policies and references. Fresh resets need not be distinct or independent
+tasks. HER uses one 20-goal sampler-only schedule owned by the row
+with base `42` plus `104729`, shared by all five initial/final comparisons; duplicate
+goals remain. AlphaZero uses the row's fixed nine addressed cases at base `7961`,
+current player `1` role, uniform legal opponent, declared search/horizon/pass rules
+and draw scoring. Game/ply/signed-role addresses keep draws independent of
+previous game length. Child training seeds do not replace these common cases.
+The 20 HER goals are not 20 independent tasks, and an equal sequential RNG seed
+does not itself pair later policy-dependent cases.
+
+**References and exact maximum-only equality.** New improvement comparisons use
+integer counts or exact rational interpretations of the retained finite
+binary64 values, without an epsilon. Existing quality statistics keep their
+original arithmetic and remain additional restrictions.
+
+| Family | Joint per-model learning requirements |
+| --- | --- |
+| RETURN | The exact final median return strictly exceeds the actual initial median and every fixed-reference median, except the certified maximum case below. Discrete references enumerate all complete fixed action preferences and choose the first actual legal action; equivalent unmasked preferences collapse to one constant per action. Continuous references use native `0` and the actual finite low/high endpoints. These are the declared finite families, not all possible controllers. |
+| HER | Final success count strictly exceeds the actual initial count, and exact mean normalized terminal distance is strictly lower than the actual initial distance. The same final policy must also beat both extrema from all 46,656 six-action goal-blind length-six sequences on the identical 20 goals: maximum success and minimum distance, allowing only their exact endpoint ties below. All outcomes and every attaining reference identity remain retained. |
+| AlphaZero | Exact final draw-adjusted score strictly exceeds its actual initial score and separately beats both actual plain legal-uniform and neutral-prior/zero-value MCTS references, allowing only the exact maximum tie below. References use the same cases, opponent and actual game-aware search rules; search alone is not learned-network gain. |
+
+Reference equality passes only when **both the actual reference statistic and
+the final statistic equal an independently proved optimum**. The private mathematical
+RETURN maximum implementation supports only the eight canonical KeyDoor rows, whose
+mathematical certificate is recomputed/replayed through the actual public
+simulator, full native state/time, legal actions, finite reward addition and
+declared horizon. Every finite episode is bounded; no supplied scalar maximum
+creates a certificate. Unsupported RETURN tasks retain strict reference
+comparisons. No historical measured maximum or trajectory becomes a numerical
+golden.
+
+HER's structural optimum is 20 successes and zero normalized distance; the
+actual exhaustive reference extrema must attain the endpoint for its equality
+exception. AlphaZero's structural maximum is score `1`, derived from all nine
+actual keyed win/draw/loss outcomes as `(2*wins + draws)/18`; the actual named
+reference must also score `1`. A rounded display value, mean of a subset or supplied
+score is insufficient. Initial gain remains strict even at an optimum. These
+rules do not create a general non-strict reference comparison. HER retains both
+old goal bars; AlphaZero retains both arena/legal bars and the existing `0.5`
+exclusion at their original served and cohort scopes.
+
+ARS remains actual host-Double linear search with its discrete simulator lookup,
+including lunar-lander. Its accepted-direction requirement concerns at least
+one **actually applied aggregate** theta-before→theta-after step that improves
+the same fixed return evaluation, with the whole actual trace retained and
+checked. Top-b ranking or a favorable sampled perturbation is insufficient.
+All steps, including no-ops/worsening steps, remain; intermediate-policy scoring
+occurs after training and has separate evaluation-work accounting. With the
+complete chain, strict final-over-initial gain implies a positive adjacent
+difference; that observation adds no independent statistical guarantee. ARS
+requires honest host provenance, not an unrelated MLP probe or witness.
+
+**Implementation and evidence boundary.** Source `39547f58…` implementations of
+`NativeReturnLearningPolicy`, `NativeHerLearningPolicy` and
+`NativeArenaLearningPolicy` compare ordinary observations; `NativeReturnCeiling`
+supplies mathematical certificates, and `NativeRlCohortPlan` describes checked
+plans. The concrete acquisition/publication path and owned parent additionally
+bind the five actual training outcomes, whole allocation, policy-specific
+physical data and eleven exact replays before source-journal qualification.
+The portable lane bundle retains the checked recorded closure for separate CPU
+file audit without selecting a device or recomputing the original policy.
+Implementation, compilation and focused controls alone establish no qualifying
+execution. The historical 514-input ARS/cartpole diagnostic supplies five real
+runs and ten in-memory replays; it does not supply the final integrated parent,
+Store-selected replay, authenticated journal or complete lane evidence.
+Scripted callbacks, synthetic DTO mutations, an opaque mathematical calibration
+or a compiled test family do not establish five trained models. Real execution
+still needs the complete checked five-child association, one actual device or
+honest ARS host path, durable claim/start/cold/effective/raw boundaries before
+dependent work, complete reference/attempt retention, bounded canonical codec
+and replay, authenticated source/process/invocation bindings, and exact admitted
+index-zero policy/head/search replay. Generic CLI completion is not this
+qualification. No new criterion identity token, plan change or eligibility
+follows from this prose or a data-only API. The
+[Phase 278 criterion review](../../DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/rl-criterion-review/README.md)
+owns the source/evidence boundary and pending acquisition work.
 
 ## Per-Model Completed-Run Evidence
 
@@ -451,12 +766,23 @@ digest of the completion the values were read from. Any difference is a typed
 duplicate, an extra seed, or an empty cohort is a typed seed-coverage failure,
 and every measurement must be finite. The cohort statistic of each criterion is
 the median across seeds (the mean of the two middle values for an even cohort).
-Every ProductRow plans a singleton cohort today, so for real rows the statistic
-is the single value. The k > 1 path is exercised end to end against a real
-three-seed plan cohort resolved through the plan contract: per-seed refinement
-(`refineSeedCohort`: coverage, finiteness, channel) and cohort grading, with each
-defect naming its seed. It is not exercised through a ProductRow, because
-expanding a cohort would change every `PlanId` and invalidate the pinned journals.
+The served artifact's completion remains a singleton execution. Compact SL
+does not widen that one-run plan to five seeds: its detached qualification
+retains five separately resolved child plans, their actual outcomes and the
+all-five statistic. The existing per-completed-artifact model-evidence facade
+still reads the singleton completion; it cannot claim that its scalar is the
+separate qualification median. Pure multi-seed controls exercise the generic
+cohort predicate, but supply no actual training executions. Phase `278` owns
+real five-run SL qualification and current lane admission; Phase `285` later
+consumes and extends per-model evidence without becoming its prerequisite.
+Traditional RL still has singleton served completions. Its twenty final
+evaluation episodes are not the selected native target's five actual training
+models. The [native qualification](#target-native-rl-learning-qualification)
+retains all five prescribed child outcomes separately from that served
+completion. Mathematical comparison APIs do not acquire or authenticate those
+runs. Phase `278` owns the complete acquisition, provenance, replay and admission
+work; the SL choice supplies none of it. No seed, cohort or failed outcome is
+changed to fit an observed score.
 
 **Independent criterion.** `JitML.Product.ExternalBars.externalCriteriaFor`
 re-derives each row's criterion directly from the canonical tables (SL cohort
@@ -480,8 +806,9 @@ payload declares its channel and a payload offered in the wrong slot, such as a
 transition counter that numerically clears the reward bar, is a typed
 `RowChannelSubstituted`. `LearningCurve` (strictly ordered iteration summaries)
 and `EvaluationSet` (the exact keyed final cohort) remain the per-iteration and
-per-episode forms of the two channels; the lane journals retain only their
-scalar summaries.
+per-episode forms of the two channels. The model-evidence facade consumes their
+scalar row summaries; attached native qualification graphs remain separately
+checked evidence and do not extend that facade's measurement surface.
 
 **Deterministic performance bounds.** Bounds live in
 `JitML.Product.ExternalBars` as `PerformanceBound` (`AtLeast` | `AtMost`) values
@@ -524,18 +851,20 @@ manifest identity of the journal row it was built from (`assertReceiptBinding`,
 one identity at a time): it detects a receipt attached to another row, plan,
 experiment, or manifest, not a differently measured artifact.
 
-**What the lane journals cannot carry.** A lane journal retains the refined
-`CompletedTraining` of each row: observed units, optimizer-update count,
-initial and final weight hashes, dataset digest, the passed cohort measurements,
-and the invocation, digest, and device-witness bindings. It retains no
-per-iteration learning curve, no per-episode evaluation set, no checkpoint bytes,
-and no inference measurement of the served artifact. Consequently the stanza
-grades only what those records prove: it cannot compute steps-to-threshold,
-re-derive a median from episodes, recompute a served metric, or execute
-inference, and it runs no rerun. Same-seed determinism assertions remain where
-they were, in `jitml-sl-canonicals`, `jitml-rl-canonicals`, and
-`jitml-backends`. Capturing those quantities would need new journal fields,
-which re-issues every lane journal.
+**Limits of the model-evidence projection.** Its lane-row view retains the
+refined `CompletedTraining`: observed units, optimizer-update count, initial and
+final weight hashes, dataset digest, passed cohort measurements, and invocation,
+digest and applicable device-witness bindings. This scalar view exposes no
+per-iteration learning curve, per-episode evaluation set, checkpoint bytes or
+served-artifact inference measurement. Current native qualification additionally
+requires complete original evaluation graphs, raw parent capture and the closed
+checkpoint payloads; authenticated lane admission physically checks those
+attached objects. Their retention does not make the model-evidence stanza run
+inference, compute steps-to-threshold, re-derive an episode median or recompute a
+served metric. Same-seed determinism assertions remain in
+`jitml-sl-canonicals`, `jitml-rl-canonicals`, and `jitml-backends`. Additional
+measurements in this facade require explicit typed projections and bindings;
+they cannot be inferred from its scalar summaries.
 
 ## Status
 

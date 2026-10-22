@@ -54,6 +54,7 @@ import JitML.Product.StatusEvidence
   ( Closure
   , EvidenceIndex
   , Obligation (..)
+  , Phase278Context (..)
   , PhaseEntry (..)
   , SprintEntry (..)
   , SprintId
@@ -394,8 +395,9 @@ productStatusCatalogue =
       "Negative-Control Suite"
       "DEVELOPMENT_PLAN/phase-277-negative-control-suite.md"
       "Closure Evidence"
-  , -- Validation: jitml-unit on linux-cpu (docs check and check-code are computed). The lane
-    -- journals, aggregate, and independently reviewed supervised anchors remain owned gaps.
+  , -- CPU/Apple lane qualification and local/live validation close on a Mac.
+    -- CUDA belongs to 279; the unchanged full cross-lane suites and join to 280.
+    -- External contexts remain until their actual evidence replaces them.
     evidencedPhase
       278
       "External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance"
@@ -403,35 +405,47 @@ productStatusCatalogue =
       Started
       []
       ( LaneJournal LinuxCPU
-          :| [ LaneJournal LinuxCUDA
-             , LaneJournal AppleSilicon
-             , Aggregate
-             , GateTranscript JitmlUnit LinuxCPU
+          :| [ LaneJournal AppleSilicon
+             , GateTranscript JitmlNegativeControls LinuxCPU
              , GateTranscript JitmlBackends LinuxCPU
-             , ExternalContext "Apple Silicon execution context"
-             , ExternalContext "Independent supervised convergence-anchor review"
-             , ExternalContext "Live generic RL CLI and daemon validation"
+             , GateTranscript JitmlBackends AppleSilicon
+             , GateTranscript JitmlDaemonLifecycle LinuxCPU
+             , Phase278Prerequisite AppleExecutionContext
+             , Phase278Prerequisite SupervisedCriterionContext
+             , Phase278Prerequisite NativeCriterionContext
+             , Phase278Prerequisite GenericRlLiveContext
              ]
       )
-  , legacyPhase
+  , -- The behavioral detector and real CUDA lane close on one NVIDIA host.
+    -- Local controls run without requiring the later three-lane aggregate.
+    evidencedPhase
       279
       "Measured/Declared Type Split & Behavioral Scaffold Lint"
       "DEVELOPMENT_PLAN/phase-279-measured-declared-type-split-behavioral-scaffold-lint.md"
-      "Closure Evidence"
-  , -- Validation: negative-controls and unit on linux-cpu; the pending-control list must
-    -- hold nothing owned by this phase.
+      Started
+      ["278.1"]
+      ( LaneJournal LinuxCUDA
+          :| [ GateTranscript JitmlBackends LinuxCUDA
+             , GateTranscript JitmlNegativeControls LinuxCPU
+             , ExternalContext "Behavioral output-dependence detector and positive/negative validation"
+             ]
+      )
+  , -- The three earlier lanes feed CPU aggregation and unchanged full suites.
+    -- The pending-control list must hold nothing owned by this phase.
     evidencedPhase
       280
       "RunContract Negative Controls - Request and Event Fixtures"
       "DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-request-and-event-fixtures.md"
       Started
-      ["278.1"]
+      ["279.1"]
       ( NoPendingControls 280
-          :| [ GateTranscript JitmlNegativeControls LinuxCPU
+          :| [ Aggregate
+             , GateTranscript JitmlNegativeControls LinuxCPU
              , GateTranscript JitmlUnit LinuxCPU
+             , GateTranscript JitmlIntegration LinuxCPU
              ]
       )
-  , -- Same shape as 280, for the journal fixtures and reducer properties.
+  , -- Journal fixtures and reducer properties retain both complete CPU gates.
     evidencedPhase
       281
       "RunContract Negative Controls - Journal Fixtures and Reducer Properties"
@@ -578,7 +592,6 @@ frozenLegacyAttested =
   , "275.1"
   , "276.1"
   , "277.1"
-  , "279.1"
   , "283.1"
   , "284.1"
   , "286.1"

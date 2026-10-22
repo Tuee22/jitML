@@ -24,6 +24,8 @@ module JitML.Test.JournalFixtures
   , dropRowField
   , foreignAdmittedManifestSha
   , laneJournalBytes
+  , laneJournalQualificationObjects
+  , qualificationRowAuthorizationMatches
   , plantedForeignManifestSha
   , modifyFirstRow
   , readJournalValue
@@ -64,10 +66,11 @@ import Test.Tasty.HUnit (assertFailure)
 
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
-import JitML.Plan.Plan (RunKind (..), RunKindWitness (..), Validation (..))
+import JitML.Plan.Plan (RunKind (..), RunKindWitness (..), Validation (..), planIdText)
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.Product.SupervisedQualificationReceipt qualified as QualificationReceipt
 import JitML.SL.Canonicals qualified as SL
-import JitML.Substrate (Substrate (..))
+import JitML.Substrate (Substrate (..), renderSubstrate)
 import JitML.Test.ContractFixtures
 import JitML.Test.ProductLaneJournal qualified as ProductLaneJournal
 import JitML.Test.ProductScenarioAuthorization qualified as Authorization
@@ -172,6 +175,9 @@ readScenarioJournal scenario =
 -- | The canonical bytes of the scenario's portable lane journal.
 laneJournalBytes :: JournalScenario -> ByteString
 laneJournalBytes = ProductLaneJournal.issuedProductLaneJournalBytes . jsLaneJournal
+
+laneJournalQualificationObjects :: JournalScenario -> [(Text, ByteString)]
+laneJournalQualificationObjects = ProductLaneJournal.issuedProductLaneJournalQualificationObjects . jsLaneJournal
 
 -- | Admit a second supervised row (@mnist-deep-mlp@) into the scenario's
 -- checkpoint root and return its Store-admitted manifest identity.  The
@@ -388,6 +394,8 @@ rowFieldSchema =
   , ("precondition_rejected", "precondition_rejected", BoolField)
   , ("precondition_sequence", "precondition_sequence", WordField)
   , ("inference_sequence", "inference_sequence", WordField)
+  , ("supervised_qualification_receipt", "supervised_qualification_receipt", TextField)
+  , ("native_qualification_receipt", "native_qualification_receipt", TextField)
   , ("completion_sequence", "completion_sequence", WordField)
   ]
 
@@ -443,3 +451,57 @@ sha256Hex bytes =
     case showHex byte "" of
       [low] -> ['0', low]
       pair -> pair
+
+-- | Observe the existing private row-authorization boundary without exporting
+-- its capability, constructor or material API to unit/negative test modules.
+-- The caller supplies an independently changed canonical reference; this helper
+-- authenticates the actual fixture's original current-v2 material, then reports
+-- whether that capability matches the original and changed complete row.
+qualificationRowAuthorizationMatches :: JournalScenario -> Text -> IO (Bool, Bool)
+qualificationRowAuthorizationMatches scenario changedReference = do
+  evidence <- case Report.completedProductScenarioReportEntries (jsReport scenario) of
+    [entry] -> pure entry
+    _ -> assertFailure "row-authorization fixture requires one actual report entry"
+  publication <-
+    maybe
+      (assertFailure "row-authorization fixture has no qualification")
+      pure
+      (Report.completedProductScenarioQualification evidence)
+  let originalReference = QualificationReceipt.renderSupervisedQualificationPublication publication
+      original = qualificationRowMaterial evidence originalReference
+      changed = qualificationRowMaterial evidence changedReference
+      aggregate = "explicit synthetic row-authorization control"
+      tag = Authorization.signProductScenarioJournal (jsKey scenario) aggregate
+  authenticated <-
+    expectRight
+      (Authorization.authenticateProductScenarioJournal (jsKey scenario) (jsRunId scenario) aggregate tag)
+  row <-
+    expectRight (Authorization.authenticateProductScenarioJournalRow authenticated aggregate original)
+  pure
+    ( Authorization.authenticatedProductScenarioJournalRowMaterialMatches row original
+    , Authorization.authenticatedProductScenarioJournalRowMaterialMatches row changed
+    )
+
+qualificationRowMaterial :: Report.CompletedProductScenarioEvidence -> Text -> Text
+qualificationRowMaterial evidence reference =
+  Authorization.productScenarioJournalEvidenceMaterialWithQualification
+    reference
+    (Report.completedProductScenarioRowId evidence)
+    (Report.completedProductScenarioRunId evidence)
+    (planIdText (Report.completedProductScenarioPlanId evidence))
+    (renderSubstrate (Report.completedProductScenarioLane evidence))
+    (Report.completedProductScenarioExecutablePath evidence)
+    (Report.completedProductScenarioExecutableSha256 evidence)
+    (Report.completedProductScenarioInvocationDigest evidence)
+    (Report.completedProductScenarioExperimentHash evidence)
+    (Report.completedProductScenarioManifestSha evidence)
+    (Report.completedProductScenarioCommand evidence)
+    (Report.completedProductScenarioContractDigest evidence)
+    (Report.completedProductScenarioCheckpointScopeDigest evidence)
+    (Report.completedProductScenarioJournalReceipt evidence)
+    (Report.completedProductScenarioJournalDigest evidence)
+    (Report.completedProductScenarioInferenceManifestSha evidence)
+    (Report.completedProductScenarioPreconditionRejected evidence)
+    (Report.completedProductScenarioPreconditionSequence evidence)
+    (Report.completedProductScenarioInferenceSequence evidence)
+    (Report.completedProductScenarioCompletionSequence evidence)

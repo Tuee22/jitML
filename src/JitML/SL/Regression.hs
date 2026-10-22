@@ -111,6 +111,9 @@ data TrainedRegressor = TrainedRegressor
 data RegressionRunMetrics = RegressionRunMetrics
   { regressionTrainMse :: !Double
   , regressionOptimizerUpdatesExecuted :: !Word64
+  , regressionInitialParams :: !MlpParams
+  -- ^ The actual immutable params0 passed to the first training state. Consumers
+  -- must use this snapshot rather than calling the initializer again.
   }
   deriving stock (Eq, Show)
 
@@ -412,6 +415,7 @@ trainRegressorWithDevice device config dataset
                   , RegressionRunMetrics
                       { regressionTrainMse = mse
                       , regressionOptimizerUpdatesExecuted = updatesExecuted
+                      , regressionInitialParams = params0
                       }
                   )
               )

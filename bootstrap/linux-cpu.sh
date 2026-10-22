@@ -68,13 +68,18 @@ main() {
       run_linux_compose_jitml test all --linux-cpu "$@"
       ;;
     down)
+      [ "$#" -eq 0 ] || die 64 "down takes no additional arguments"
+      build_linux_image
       kind_down "$substrate"
       ;;
     purge)
       full=false
-      if [ "${1:-}" = "--full" ]; then
+      if [ "$#" -eq 1 ] && [ "$1" = "--full" ]; then
         full=true
+      elif [ "$#" -ne 0 ]; then
+        die 64 "purge accepts only --full"
       fi
+      build_linux_image
       purge_linux_state "$substrate" "$full"
       ;;
     *)

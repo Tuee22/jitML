@@ -32,6 +32,7 @@ module JitML.SL.Architecture
   , layerCountForFamily
   , advanceExactArchitectureTraining
   , exactArchitectureInitialWeights
+  , exactArchitectureInitialLayerGraphMetadata
   , exactArchitectureTrainedWeights
   , exactArchitectureUpdatesExecuted
   , initialiseExactArchitectureTraining
@@ -70,6 +71,10 @@ import Data.Word (Word64)
 import JitML.Engines.Rng qualified as Rng
 import JitML.Numerics.LayerGraph qualified as LayerGraph
 import JitML.Numerics.LayerGraphDevice qualified as LayerGraphDevice
+import JitML.Numerics.LayerGraphMetadata
+  ( LayerGraphMetadata
+  , layerGraphMetadataFromGraph
+  )
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState
@@ -149,6 +154,9 @@ data ExactArchitectureTraining = ExactArchitectureTraining
   , exactTrainingUpdates :: !Int
   , exactTrainingExamplesProcessed :: !Int
   , exactTrainingInitialWeights :: ![Double]
+  , exactTrainingInitialLayerGraphMetadata :: !LayerGraphMetadata
+  -- ^ Static serving descriptor captured from the same immutable graph0 as the
+  -- initial weights, before the first update. Resuming never reconstructs it.
   }
 
 data ArchitectureSpec = ArchitectureSpec
@@ -198,6 +206,11 @@ data SlRunMetrics = SlRunMetrics
   -- ^ Flat parameter vector from the real initialized layers before the first
   --   optimizer step. Checkpoint witnesses use this to prove movement from the
   --   actual random initialization rather than an all-zero placeholder.
+  , slmInitialLayerGraphMetadata :: !LayerGraphMetadata
+  -- ^ Descriptor of the actual graph0 paired with slmInitialWeights, captured
+  -- before optimizer work. The exact modes, operators, geometry and tensor names
+  -- are retained: serving currently uses the same graph descriptor, without an
+  -- additional training-to-inference projection.
   , slmDeviceWitness :: !(Maybe DeviceWitness.DeviceExecutionWitness)
   -- ^ The execution witness minted from the artifact this run trained through,
   --   recorded only after the training loop returned successfully. 'Nothing'
@@ -1826,6 +1839,7 @@ trainArchitectureWithDeviceSelectedWithEpochOrder epochOrder device spec config 
           -- lowest held-out validation cross-entropy — the same model-selection
           -- and update/example accounting the [LayerState] loop used.
           let initialWeights = VU.toList (LayerGraph.graphParameterVector graph0)
+              initialGraphMetadata = layerGraphMetadataFromGraph graph0
           folded <-
             foldM
               ( \acc epoch -> case acc of
@@ -1877,6 +1891,7 @@ trainArchitectureWithDeviceSelectedWithEpochOrder epochOrder device spec config 
                       , slmExamplesProcessed = length trainSet * epochs
                       , slmOptimizerUpdatesExecuted = updatesExecuted
                       , slmInitialWeights = initialWeights
+                      , slmInitialLayerGraphMetadata = initialGraphMetadata
                       , slmDeviceWitness = witness
                       }
                   )
@@ -1945,6 +1960,7 @@ initialiseExactArchitectureTraining spec config optimizer dropout trainSet valid
                 , exactTrainingUpdates = 0
                 , exactTrainingExamplesProcessed = 0
                 , exactTrainingInitialWeights = VU.toList (LayerGraph.graphParameterVector graph0)
+                , exactTrainingInitialLayerGraphMetadata = layerGraphMetadataFromGraph graph0
                 }
           )
           (statesE >>= initialClassifierGraph spec)
@@ -2047,6 +2063,7 @@ exactArchitectureMetrics device training = do
           , slmOptimizerUpdatesExecuted = updatesExecuted
           , slmDeviceWitness = witness
           , slmInitialWeights = exactTrainingInitialWeights training
+          , slmInitialLayerGraphMetadata = exactTrainingInitialLayerGraphMetadata training
           }
       )
 
@@ -2065,6 +2082,11 @@ exactArchitectureUpdatesExecuted = exactTrainingUpdates
 
 exactArchitectureInitialWeights :: ExactArchitectureTraining -> [Double]
 exactArchitectureInitialWeights = exactTrainingInitialWeights
+
+-- | Observe the immutable descriptor captured at initialization; the resumable
+-- state and its constructor remain opaque.
+exactArchitectureInitialLayerGraphMetadata :: ExactArchitectureTraining -> LayerGraphMetadata
+exactArchitectureInitialLayerGraphMetadata = exactTrainingInitialLayerGraphMetadata
 
 exactArchitectureTrainedWeights :: ExactArchitectureTraining -> [Double]
 exactArchitectureTrainedWeights =

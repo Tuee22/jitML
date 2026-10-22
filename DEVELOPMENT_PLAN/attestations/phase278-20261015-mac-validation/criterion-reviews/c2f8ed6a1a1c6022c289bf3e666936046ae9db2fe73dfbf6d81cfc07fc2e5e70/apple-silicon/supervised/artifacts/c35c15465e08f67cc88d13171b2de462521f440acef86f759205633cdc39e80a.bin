@@ -1,0 +1,54 @@
+{
+  "source": {
+    "algorithm": 1,
+    "sha256": "57cf61d1cf6149f353d852e21d8c663418d40e0ecc415e30d54dbdf5ef57ae16"
+  },
+  "checks": [
+    {
+      "paths": [
+        "src/JitML/Product/Matrix.hs",
+        "src/JitML/Product/SupervisedCohortPlan.hs"
+      ],
+      "finding": "Canonical projection equality owns graph/lane/descriptor and per-run work. mkSupervisedCohortPlan traverses exactly offsets0..4; singleton child seed is explicit, index0 keeps canonical plan and other children have distinct namespaces. Checked seed headroom prevents wrapping."
+    },
+    {
+      "paths": [
+        "src/JitML/SL/TrainingExecution.hs",
+        "src/JitML/SL/Architecture.hs",
+        "src/JitML/SL/Regression.hs"
+      ],
+      "finding": "Child workload budget and sole seed become execution parameters and clfSeed/regSeed. Every epoch/minibatch executes, real counters are returned, classifier captures graph0 before optimizer updates, regression returns its actual params0. Classifier uses validation-only snapshot selection; final comparison data are bound separately."
+    },
+    {
+      "paths": [
+        "src/JitML/Product/Publisher/Supervised.hs"
+      ],
+      "finding": "go executes every prescribed child; raw returned bytes and outcomes are retained before later grading. Finite failures do not trigger another seed. Index0 remains primary. Raw qualification is distinct from CompletedTraining; final publication requires qualifySupervisedCohort and binding to admitted index0."
+    },
+    {
+      "paths": [
+        "src/JitML/Product/SupervisedQualification.hs",
+        "src/JitML/SL/InitialComparison.hs"
+      ],
+      "finding": "Exactly five ordered outcomes must match child seed/PlanId/transport/attempt, common dataset/evaluation/runtime/graph, expected and observed work, device lane/backend. Initial/final runtime and static descriptor equality bind transforms and nonparameter state. Canonical finite JMW1 pair is replayed on common exact inputs; comparisons use actual captured initialization, not a reconstructed initializer."
+    },
+    {
+      "paths": [
+        "src/JitML/Product/SupervisedQualificationPolicy.hs",
+        "src/JitML/Product/LearningSignal.hs"
+      ],
+      "finding": "All five observations remain. Joint count is signal AND own-seed strict improvement, at least3; sorted full-five primary-metric median clears unchanged binary64 floor; served0 independently receives signal/improvement/floor checks. Floor and joint count are separate requirements; three identical seeds or a best-seed result cannot replace the prescribed five."
+    },
+    {
+      "paths": [
+        "src/JitML/Numerics/MlpDeviceSelect.hs",
+        "src/JitML/Numerics/MlpMetal.hs",
+        "src/JitML/Numerics/MlpDevice.hs",
+        "src/JitML/Engines/MetalBridge.hs"
+      ],
+      "finding": "AppleSilicon selects metalMlpDevice, backend mlp-metal and FixedBridgeLaunch. Device operations route to generated Metal source and the fixed host bridge, which compiles via OS makeLibrary and dispatches GPU work; actual witness is required after successful training. This source route is separate from accuracy and cannot establish hardware execution in this review."
+    }
+  ],
+  "authority_limit": "Source code consumption is inspected prospectively. Pure/refined raw data or a digest-consistent witness alone cannot authenticate a producer. Actual pinned executable/source, real device artifacts, exact budgets, all five pairs, Store final replay and authenticated journal/registration must still establish each real result. No current loaded executable, gate, benchmark, serving admission or training run is certified.",
+  "fresh_review_basis": "Re-read the current fixed-child policy, pre-update initialization capture and Apple selection seams; independently rehashed every115 provider row. The sole PV resource delta is outside those67 files and its effects are assessed explicitly. Source15c observations below remain byte-supported; no execution is inferred."
+}

@@ -1,0 +1,65 @@
+{
+  "scope": "Unimplemented revision2 contract/design; v1 originals byte-preserved; exact arithmetic selfchecks not product validation",
+  "files": [
+    {
+      "path": "contract.md",
+      "bytes": 14519,
+      "sha256": "9667039af1d4bdb216898c4988a190c731588edae8f84a2e1c91ebb07de57c94"
+    },
+    {
+      "path": "implementation-design.md",
+      "bytes": 19108,
+      "sha256": "d9a1f657d4a356ac3d480c9148af0a1c0fa3aad7bd9b05a313f36e9117e46974"
+    },
+    {
+      "path": "prior-original/analyze-rule.py",
+      "bytes": 3390,
+      "sha256": "bbdf5c1fa5b147c40a311477f4e902e24b58d00a3d14ad87cb90e336a6bba608"
+    },
+    {
+      "path": "prior-original/arithmetic-and-inputs.json",
+      "bytes": 3442,
+      "sha256": "f338ae001faf335431641cc44e69a7a4b0a88b0656d8485a593990207d12c124"
+    },
+    {
+      "path": "prior-original/primary-sources.json",
+      "bytes": 2153,
+      "sha256": "2c8dacc1f78a75e3b10ee0e007584e2a3079f99b531bae553d2109cedd00f08e"
+    },
+    {
+      "path": "prior-original/proposal.md",
+      "bytes": 18485,
+      "sha256": "6886b07e25cdddded41702f2b15ceabb29788b42d1fd19108ef5f603fad1c2f9"
+    },
+    {
+      "path": "prior-preservation.json",
+      "bytes": 1039,
+      "sha256": "ab7b29ffaf167a381dcb44a9aa5f719c9af308dc074ea26ce80e335c0672f44b"
+    },
+    {
+      "path": "review-decisions.json",
+      "bytes": 2046,
+      "sha256": "8b79f165126c03cf4e53657014a642ce66271e97dac0a0dbc8e92a793e9b83ef"
+    },
+    {
+      "path": "verification-receipt.json",
+      "bytes": 583,
+      "sha256": "f16dd18120713c6d02ff38cf4517f3d7b35500bf93916a33c44d7c532d409f1d"
+    },
+    {
+      "path": "verification-stderr.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "verification-stdout.json",
+      "bytes": 8837,
+      "sha256": "4e9fb06b768b7701f957f802d624ce46bda1e6d7ec3c44ca2b3cacdba7af2c1c"
+    },
+    {
+      "path": "verify-proposal.py",
+      "bytes": 6629,
+      "sha256": "7486ab98aea90a5694a792fa7978d66a6e91656fe6e202b99af806517cfdf19b"
+    }
+  ]
+}

@@ -43,6 +43,10 @@ data VecEnvTransition state = VecEnvTransition
   , vecTransitionObservation :: !(Vector Double)
   , vecTransitionNextObservation :: !(Vector Double)
   , vecTransitionReward :: !Double
+  , -- True environment termination stops value bootstrapping. A time limit
+    -- resets the episode but still has a real pre-reset successor value.
+    vecTransitionTerminated :: !Bool
+  , vecTransitionTruncated :: !Bool
   , vecTransitionDone :: !Bool
   , vecTransitionEpisodeReturnBefore :: !Double
   , vecTransitionEpisodeLengthBefore :: !Int
@@ -98,7 +102,9 @@ stepSlots environment maxEpisodeSteps gen ((index, slot, action) : rest) =
       nextObs = observationFor environment nextState
       nextReturn = vecSlotEpisodeReturn slot + simStepReward stepped
       nextLength = vecSlotEpisodeLength slot + 1
-      done = simStepDone stepped || nextLength >= max 1 maxEpisodeSteps
+      terminated = simStepDone stepped
+      truncated = not terminated && nextLength >= max 1 maxEpisodeSteps
+      done = terminated || truncated
       (slot', completedReturn, completedLength, gen') =
         if done
           then
@@ -113,6 +119,8 @@ stepSlots environment maxEpisodeSteps gen ((index, slot, action) : rest) =
           , vecTransitionObservation = obs0
           , vecTransitionNextObservation = nextObs
           , vecTransitionReward = simStepReward stepped
+          , vecTransitionTerminated = terminated
+          , vecTransitionTruncated = truncated
           , vecTransitionDone = done
           , vecTransitionEpisodeReturnBefore = vecSlotEpisodeReturn slot
           , vecTransitionEpisodeLengthBefore = vecSlotEpisodeLength slot

@@ -32,6 +32,7 @@ module JitML.Training.Budget
   , completedTrainingBudget
   , completedTrainingDatasetShaAtRead
   , completedTrainingDeviceWitness
+  , completedTrainingExecutionProvenance
   , completedTrainingEvidence
   , completedTrainingFinalWeightHash
   , completedTrainingInitialWeightHash
@@ -110,17 +111,21 @@ import JitML.Plan.Plan
   , planIdText
   , refinePlanIdText
   )
+import JitML.Product.ArsHostReference (ArsHostReference)
 import JitML.Product.DeviceWitness (DeviceExecutionWitness)
 import JitML.Product.Evidence
   ( TrainingEvidence
   , attachDeviceExecutionWitness
+  , attachRecordedArsHostReference
   , evidenceDatasetShaAtRead
   , evidenceDeviceWitness
+  , evidenceExecutionProvenance
   , evidenceFinalWeightHash
   , evidenceInitialWeightHash
   , evidenceUpdateCount
   , mkTrainingEvidence
   )
+import JitML.Product.ExecutionProvenance (ExecutionProvenance (..))
 import JitML.RL.ProductBudget qualified as RlPlan
 import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
 
@@ -825,6 +830,13 @@ completedTrainingDeviceWitness
 completedTrainingDeviceWitness =
   evidenceDeviceWitness . completedTrainingEvidence
 
+-- | Recorded data only; this accessor does not mint producer/Store authority.
+completedTrainingExecutionProvenance
+  :: CompletedTraining
+  -> Either Text (Maybe (ExecutionProvenance ArsHostReference))
+completedTrainingExecutionProvenance =
+  evidenceExecutionProvenance . completedTrainingEvidence
+
 completedTraining
   :: PlanId
   -> TrainingBudget
@@ -1063,9 +1075,9 @@ validateBudget budget observedKind observedUnits observedUnit = do
       )
 
 -- | Re-run every observation check the evidence smart constructor enforces, and
--- carry the bound device execution witness across.  A stored witness that no
--- longer refines fails the revalidation rather than silently dropping to an
--- unwitnessed completion.
+-- preserve the recorded execution kind. Malformed neural data fails as before;
+-- a host reference remains host data rather than being erased or relabelled.
+-- This refinement grants neither actual origin nor checkpoint admission.
 revalidateEvidence :: TrainingEvidence -> Either Text TrainingEvidence
 revalidateEvidence evidence = do
   base <-
@@ -1074,8 +1086,11 @@ revalidateEvidence evidence = do
       (evidenceFinalWeightHash evidence)
       (evidenceUpdateCount evidence)
       (evidenceDatasetShaAtRead evidence)
-  witness <- evidenceDeviceWitness evidence
-  maybe (Right base) (`attachDeviceExecutionWitness` base) witness
+  recorded <- evidenceExecutionProvenance evidence
+  case recorded of
+    Nothing -> Right base
+    Just (NeuralDeviceExecution witness) -> attachDeviceExecutionWitness witness base
+    Just (ArsHostLinearExecution reference) -> attachRecordedArsHostReference reference base
 
 ensureFinite :: Text -> Double -> Either Text ()
 ensureFinite label value

@@ -42,6 +42,8 @@ module JitML.RL.Algorithms.PpoTrainer
   , productPpoEpochsPerUpdateFor
   , productPpoHiddenUnits
   , productPpoVectorEnvCount
+  , onPolicyEvaluationContract
+  , onPolicyRolloutContract
 
     -- * Result
   , PpoTrainResult (..)
@@ -61,23 +63,57 @@ module JitML.RL.Algorithms.PpoTrainer
   , trainOnPolicyOnDeviceWithEnvironment
   , collectRollout
   , evaluateOnPolicyWithEnvironment
+  , evaluateOnPolicyOnDeviceWithEnvironment
   , ppoUpdate
   , ppoUpdateDevice
   , rolloutSummary
 
     -- * Internal pieces (re-exported for tests)
   , RolloutStep (..)
+  , RolloutBoundary (..)
+  , rsDone
   , Rollout (..)
+  , VectorizedRollout (..)
+  , computeAdvantages
+  , collectRolloutInEnvironment
+  , collectRolloutVectorizedOnDevice
   , trpoFisherVectorProduct
+  , trpoFisherVectorProductDevice
+  , trpoFisherNumericalContract
   , trpoCriticStep
   , conjugateGradientSolveDevice
   , trpoLineSearchUpdate
   , trpoLineSearchUpdateDevice
   , trpoValueHeadOnlyGradient
+  , PpoTrainObservation
+  , refinePpoTrainObservation
+  , trainOnPolicyOnDeviceWithEnvironmentRaw
+  , trainPpoOnCartpoleRaw
+  , PreparedPpo
+  , PpoPreparedSnapshot
+  , preparedPpoSnapshot
+  , continuePreparedPpoRaw
+  , preparePpoInEnvironment
+  , preparePpoOnDeviceWithEnvironment
+  , ppoPreparedConfig
+  , ppoPreparedInitialParams
+  , ppoPreparedAdam
+  , ppoPreparedGenerator
+  , ppoPreparedSingleState
+  , ppoPreparedVectorSlots
+  , ppoPreparedFrames
+  , ppoPreparedCountEntries
+  , ppoPreparedStatistics
+  , ppoPreparedActorSteps
+  , ppoPreparedTransitions
+  , ppoPreparedEnvironmentName
+  , ppoPreparedObservationWidth
+  , ppoPreparedActionCount
   )
 where
 
 import Control.Monad (foldM)
+import Data.Either.Combinators (mapLeft)
 import Data.IORef qualified as IORef
 import Data.List qualified
 import Data.Maybe (fromMaybe)
@@ -88,6 +124,7 @@ import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
 
 import JitML.Env.Env (Env)
+import JitML.Execution.SingleUse qualified as SingleUse
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState (..)
@@ -103,6 +140,7 @@ import JitML.Numerics.Mlp
   , mlpInit
   , policyValueBackwardWith
   , policyValueForwardWith
+  , policyValueFromForwardWith
   , sampleCategorical
   , softmax
   )
@@ -192,6 +230,17 @@ productPpoHiddenUnits = 256
 productPpoVectorEnvCount :: Int
 productPpoVectorEnvCount = 16
 
+-- | The producer-owned final-policy scoring recipe. ProductRow identities bind
+-- this independently of training, so a host-reference score cannot be reused as
+-- a selected-device evaluation of the same learned parameters.
+onPolicyEvaluationContract :: Text
+onPolicyEvaluationContract = "on-policy-greedy-selected-device-v1"
+
+-- | Distinguish true terminals from time-limit resets in GAE. A truncated
+-- successor is valued before reset through the current policy's backend.
+onPolicyRolloutContract :: Text
+onPolicyRolloutContract = "on-policy-gae-time-limit-bootstrap-v1"
+
 -- | Product update passes for each on-policy contract and environment. A2C
 -- applies its actor-critic update once per rollout; TRPO owns one
 -- natural-gradient actor step and separate critic passes. On KeyDoorGrid,
@@ -257,6 +306,12 @@ defaultPpoTrainConfig =
     , ppoRecurrentStateSize = 16
     }
 
+data RolloutBoundary
+  = RolloutContinues
+  | RolloutTerminated
+  | RolloutTruncated !Double
+  deriving stock (Eq, Show)
+
 -- | One step inside a PPO rollout. Carries everything backward needs.
 data RolloutStep = RolloutStep
   { rsObs :: !(Vector Double)
@@ -264,12 +319,20 @@ data RolloutStep = RolloutStep
   , rsLogProb :: !Double
   , rsValue :: !Double
   , rsReward :: !Double
-  , rsDone :: !Bool
+  , rsBoundary :: !RolloutBoundary
   , rsPolicy :: !(Vector Double)
   , rsActionMask :: !(Maybe [Bool])
   , rsRecurrentState :: !(Vector Double)
   }
   deriving stock (Eq, Show)
+
+-- | Episode/reset boundary, retained for observers. Both kinds stop GAE's
+-- recurrence; only a true terminal removes the successor value bootstrap.
+rsDone :: RolloutStep -> Bool
+rsDone step = case rsBoundary step of
+  RolloutContinues -> False
+  RolloutTerminated -> True
+  RolloutTruncated _ -> True
 
 data Rollout = Rollout
   { rolloutSteps :: ![RolloutStep]
@@ -297,6 +360,7 @@ data PpoIterationStat = PpoIterationStat
 
 data PpoTrainResult = PpoTrainResult
   { resultIterations :: ![PpoIterationStat]
+  , resultInitialParams :: !MlpParams
   , resultFinalParams :: !MlpParams
   , resultMeasuredCounters :: !Common.MeasuredTrainerCounters
   -- ^ Actual environment transitions plus optimizer applications that changed
@@ -307,6 +371,21 @@ data PpoTrainResult = PpoTrainResult
   , resultConfig :: !PpoTrainConfig
   }
   deriving stock (Eq, Show)
+
+-- | Uncensored numerical return; no producer/device/learning authority.
+type PpoTrainObservation = Common.RawTrainerResult MlpParams PpoIterationStat PpoTrainConfig
+
+refinePpoTrainObservation :: PpoTrainObservation -> Either Text PpoTrainResult
+refinePpoTrainObservation observed = do
+  counters <- Common.refineObservedTrainerCounters (Common.rawTrainerCounters observed)
+  pure
+    PpoTrainResult
+      { resultIterations = Common.rawTrainerStats observed
+      , resultInitialParams = Common.rawTrainerInitialParams observed
+      , resultFinalParams = Common.rawTrainerFinalParams observed
+      , resultMeasuredCounters = counters
+      , resultConfig = Common.rawTrainerConfig observed
+      }
 
 -- | Roll out @rolloutSteps@ environment steps under the current policy.
 collectRollout
@@ -329,6 +408,78 @@ evaluateOnPolicyWithEnvironment
   -> [Common.EvaluationEpisodeResult]
 evaluateOnPolicyWithEnvironment (SomeSimulatedEnvironment environment) config params episodeCount =
   replicate (max 1 episodeCount) (evaluateEpisode environment config params)
+
+-- | Score the frozen policy through the same selected device that trained it.
+-- Environment dynamics and policy-head arithmetic retain their existing host
+-- semantics; only the network forward crosses the injected device seam. A
+-- failed episode discards the partial cohort rather than yielding completion.
+evaluateOnPolicyOnDeviceWithEnvironment
+  :: MlpDevice
+  -> SomeSimulatedEnvironment
+  -> PpoTrainConfig
+  -> MlpParams
+  -> Int
+  -> IO (Either Text [Common.EvaluationEpisodeResult])
+evaluateOnPolicyOnDeviceWithEnvironment device (SomeSimulatedEnvironment environment) config params episodeCount
+  | episodeCount <= 0 || ppoMaxEpisodeSteps config <= 0 =
+      pure (Left "on-policy device evaluation requires positive episode count and horizon")
+  | ppoActionCount config <= 0
+      || ppoActionCount config == maxBound
+      || ppoObsSize config <= 0
+      || ppoHiddenUnits config <= 0
+      || envActionCount environment /= ppoActionCount config
+      || envObservationSize environment /= ppoObsSize config =
+      pure (Left "on-policy device evaluation configuration does not match the environment")
+  | not (validMlpParamsForConfig config params)
+      || toInteger (VU.length (paramW1 params))
+        /= toInteger (ppoHiddenUnits config) * toInteger (ppoObsSize config)
+      || toInteger (VU.length (paramW2 params))
+        /= toInteger (ppoHiddenUnits config) * (toInteger (ppoActionCount config) + 1)
+      || not (all finiteFloat32Input [paramW1 params, paramB1 params, paramW2 params, paramB2 params]) =
+      pure (Left "on-policy device evaluation parameters are malformed or not finite Float32 inputs")
+  | otherwise = collect episodeCount []
+ where
+  collect remaining episodes
+    | remaining <= 0 = pure (Right (reverse episodes))
+    | otherwise = do
+        evaluated <- go (envInitial environment) 0 0.0
+        case evaluated of
+          Left err -> pure (Left err)
+          Right episode -> collect (remaining - 1) (episode : episodes)
+  go !state !episodeLen !episodeReturn
+    | episodeLen >= ppoMaxEpisodeSteps config =
+        pure (Right (Common.EvaluationEpisodeResult episodeReturn episodeLen False))
+    | VU.length observation /= ppoObsSize config || not (finiteFloat32Input observation) =
+        pure (Left "on-policy device evaluation observation is malformed or not a finite Float32 input")
+    | Just mask <- actionMask
+    , length mask /= ppoActionCount config || not (or mask) =
+        pure (Left "on-policy device evaluation action mask is malformed or has no legal action")
+    | otherwise = do
+        forwarded <- mlpdForward device params observation
+        case forwarded of
+          Left err -> pure (Left ("on-policy device forward kernel failed during evaluation: " <> err))
+          Right forward ->
+            case validateDeviceOutputBatch "on-policy device evaluation" params 1 [forwardOutput forward] of
+              Left err -> pure (Left err)
+              Right () -> do
+                let policy = pvPolicy (policyValueFromForwardWith LinearValueHead (ppoActionCount config) forward)
+                    probabilities = maskedPolicyFor config actionMask policy
+                if not (validCategoricalVector (ppoActionCount config) probabilities)
+                  then pure (Left "on-policy device evaluation produced an invalid categorical policy")
+                  else do
+                    let action = argmax (VU.toList probabilities)
+                        transition = envStep environment state action
+                        nextReturn = episodeReturn + simStepReward transition
+                        nextLen = episodeLen + 1
+                    if not (finiteDouble (simStepReward transition) && finiteDouble nextReturn)
+                      then pure (Left "on-policy device evaluation produced a non-finite reward")
+                      else
+                        if simStepDone transition
+                          then pure (Right (Common.EvaluationEpisodeResult nextReturn nextLen True))
+                          else go (simStepState transition) nextLen nextReturn
+   where
+    observation = obsVectorFor environment state
+    actionMask = actionMaskFor environment config state
 
 evaluateEpisode
   :: SimulatedEnvironment state
@@ -367,9 +518,12 @@ collectRolloutInEnvironment countTable environment config params startState gen0
   let go !state !gen !episodeReturn !episodeLen !stepsLeft
         | stepsLeft <= 0 = do
             value <-
-              let obs = obsVectorFor environment state
-                  fwd = policyValueForwardWith LinearValueHead params (ppoActionCount config) obs
-               in pure (pvValue fwd)
+              if episodeLen == 0
+                then pure 0.0
+                else
+                  let obs = obsVectorFor environment state
+                      fwd = policyValueForwardWith LinearValueHead params (ppoActionCount config) obs
+                   in pure (pvValue fwd)
             pure (state, gen, value)
         | otherwise = do
             let obs = obsVectorFor environment state
@@ -386,6 +540,12 @@ collectRolloutInEnvironment countTable environment config params startState gen0
                 stepResult = envStep environment state action
                 nextObs = obsVectorFor environment (simStepState stepResult)
                 done = simStepDone stepResult || episodeLen + 1 >= ppoMaxEpisodeSteps config
+                boundary
+                  | simStepDone stepResult = RolloutTerminated
+                  | done =
+                      RolloutTruncated
+                        (pvValue (policyValueForwardWith LinearValueHead params (ppoActionCount config) nextObs))
+                  | otherwise = RolloutContinues
             -- Count-based novelty bonus for reaching the successor state (a
             -- direct reward, not a potential, so it survives the on-policy value
             -- baseline). No-op for every env except mountain-car.
@@ -409,7 +569,7 @@ collectRolloutInEnvironment countTable environment config params startState gen0
                             obs
                             nextObs
                           + countBonus
-                    , rsDone = done
+                    , rsBoundary = boundary
                     , rsPolicy = probs
                     , rsActionMask = actionMask
                     , rsRecurrentState = recurrentState
@@ -495,7 +655,10 @@ computeAdvantages config rollout =
       lam = ppoLambda config
       finalValue = rolloutFinalValue rollout
       backward (advantage, lastValue) step =
-        let nextValue = if rsDone step then 0.0 else lastValue
+        let nextValue = case rsBoundary step of
+              RolloutContinues -> lastValue
+              RolloutTerminated -> 0.0
+              RolloutTruncated successorValue -> successorValue
             delta = rsReward step + gamma * nextValue - rsValue step
             newAdvantage = delta + gamma * lam * (if rsDone step then 0.0 else advantage)
          in ((newAdvantage, rsValue step), newAdvantage)
@@ -930,6 +1093,9 @@ finiteDouble value = not (isNaN value) && not (isInfinite value)
 finiteVector :: Vector Double -> Bool
 finiteVector = VU.all finiteDouble
 
+finiteFloat32Input :: Vector Double -> Bool
+finiteFloat32Input = VU.all (\value -> finiteDouble value && not (isInfinite (realToFrac value :: Float)))
+
 validCategoricalVector :: Int -> Vector Double -> Bool
 validCategoricalVector actionCount policy =
   actionCount > 0
@@ -1225,9 +1391,22 @@ trpoFisherVectorProduct config batch params direction =
               (VU.take actionCount fisherOutput)
               0.0
 
--- | Device-backed categorical Fisher-vector product. Directional logits are
--- obtained by symmetric finite differences through the selected backend, then
--- the backend's batched gradient computes @J' C J v@. No update-critical
+-- | Product-plan identity for the device Fisher numerical recipe. A checkpoint
+-- produced with the former magnitude-dependent Float32 perturbation must not be
+-- reused for this normalized-direction recipe.
+trpoFisherNumericalContract :: Text
+trpoFisherNumericalContract =
+  "trpo-fisher-unit-direction-central-difference-1e-3-host-rescale-v1"
+
+-- | Device-backed categorical Fisher-vector product. The caller must already
+-- have admitted the rollout policies against the current parameters through the
+-- selected device, as 'trpoLineSearchUpdateDevice' does before conjugate gradient.
+-- This function validates their categorical structure, not that admission.
+--
+-- Finite differences use a unit direction and a fixed perturbation: perturbing
+-- directly along a tiny CG direction would round back to the same Float32
+-- parameters. The backend computes @J' C J unitDirection@; its host-side result
+-- is rescaled to the original direction before adding damping. No update-critical
 -- forward/backward operation falls back to the pure-Haskell MLP.
 trpoFisherVectorProductDevice
   :: MlpDevice
@@ -1237,15 +1416,22 @@ trpoFisherVectorProductDevice
   -> MlpGradient
   -> IO (Either Text MlpGradient)
 trpoFisherVectorProductDevice device config batch params direction
+  | not (validTrpoConfig config) =
+      pure (Left "TRPO device Fisher configuration is not finite and valid")
+  | not (validMlpParamsForConfig config params) =
+      pure (Left "TRPO device Fisher parameters do not match the configuration")
   | not (validTrpoFisherBatch config batch) =
       pure (Left "TRPO device Fisher received an empty or malformed rollout batch")
   | not (validGradientFor params direction) =
       pure (Left "TRPO device Fisher direction is malformed or non-finite")
+  | directionMaximum == 0.0 = pure (Right (zeroLikeGradient direction))
+  | not (finiteDouble directionNorm) =
+      pure (Left "TRPO device Fisher direction norm is not representable")
   | otherwise = do
-      let directionNorm = sqrt (max 0.0 (gradientDot direction direction))
-          epsilon = 1.0e-3 / max 1.0 directionNorm
-          plusParams = applyGradientStep (-epsilon) direction params
-          minusParams = applyGradientStep epsilon direction params
+      let epsilon = 1.0e-3
+          unitDirection = scaleGradient (1.0 / scaledNorm) scaledDirection
+          plusParams = applyGradientStep (-epsilon) unitDirection params
+          minusParams = applyGradientStep epsilon unitDirection params
           observations = [rsObs step | (step, _, _) <- batch]
       plusResult <- mlpdForwardBatch device plusParams observations
       minusResult <- mlpdForwardBatch device minusParams observations
@@ -1275,12 +1461,31 @@ trpoFisherVectorProductDevice device config batch params direction
                       else
                         let productGradient =
                               addGradient
-                                (scaleGradient (1.0 / fromIntegral (length batch)) summed)
+                                ( scaleGradient
+                                    directionNorm
+                                    (scaleGradient (1.0 / fromIntegral (length batch)) summed)
+                                )
                                 (scaleGradient (ppoTrpoCgDamping config) direction)
                          in if validGradientFor params productGradient
                               then Right productGradient
                               else Left "TRPO device Fisher product is non-finite"
  where
+  directionMaximum =
+    maximum
+      ( fmap
+          (VU.foldl' (\largest value -> max largest (abs value)) 0.0)
+          [gradW1 direction, gradB1 direction, gradW2 direction, gradB2 direction]
+      )
+  -- Component-wise division avoids overflowing the reciprocal for subnormals.
+  scaledDirection =
+    MlpGradient
+      { gradW1 = VU.map (/ directionMaximum) (gradW1 direction)
+      , gradB1 = VU.map (/ directionMaximum) (gradB1 direction)
+      , gradW2 = VU.map (/ directionMaximum) (gradW2 direction)
+      , gradB2 = VU.map (/ directionMaximum) (gradB2 direction)
+      }
+  scaledNorm = sqrt (gradientDot scaledDirection scaledDirection)
+  directionNorm = directionMaximum * scaledNorm
   actionCount = ppoActionCount config
   fisherUpstream epsilon ((step, _, _), plusOutput, minusOutput)
     | VU.length plusOutput /= actionCount + 1 || VU.length minusOutput /= actionCount + 1 =
@@ -1630,59 +1835,167 @@ trainPpoOnCartpole =
 
 trainPpoInEnvironment :: SimulatedEnvironment state -> PpoTrainConfig -> IO PpoTrainResult
 trainPpoInEnvironment environment config = do
+  observed <- trainPpoInEnvironmentRaw environment config
+  either (fail . Text.unpack) pure (refinePpoTrainObservation observed)
+
+-- | Actual captured initial state, without producer/durable/device authority.
+-- Keep fields lazy: legacy zero-iteration wrappers must not force unused state.
+data PpoPreparedSnapshot state = PpoPreparedSnapshot
+  { internalPpoConfig :: PpoTrainConfig
+  , internalPpoInitialParams :: MlpParams
+  , internalPpoAdam :: AdamState
+  , internalPpoGenerator :: Random.StdGen
+  , internalPpoSingleState :: Maybe state
+  , internalPpoVectorSlots :: [(state, Double, Int)]
+  , internalPpoFrames :: [Vector Double]
+  , internalPpoCountEntries :: [((Int, Int), Int)]
+  , internalPpoStatistics :: [PpoIterationStat]
+  , internalPpoActorSteps :: Int
+  , internalPpoTransitions :: Integer
+  , internalPpoEnvironmentName :: Text
+  , internalPpoObservationWidth :: Int
+  , internalPpoActionCount :: Int
+  }
+  deriving stock (Eq, Show)
+
+data PreparedPpo state
+  = PreparedPpo (PpoPreparedSnapshot state) SingleUse.SingleUse (IO (Either Text PpoTrainObservation))
+
+preparedPpoSnapshot :: PreparedPpo state -> PpoPreparedSnapshot state
+preparedPpoSnapshot (PreparedPpo snapshot _ _) = snapshot
+
+continuePreparedPpoRaw :: PreparedPpo state -> IO (Either Text PpoTrainObservation)
+continuePreparedPpoRaw (PreparedPpo _ guard action) = do
+  consumed <- SingleUse.tryConsumeSingleUse guard
+  if consumed then action else pure (Left "prepared Ppo continuation has already been consumed")
+
+ppoPreparedConfig :: PpoPreparedSnapshot state -> PpoTrainConfig
+ppoPreparedConfig = internalPpoConfig
+
+ppoPreparedInitialParams :: PpoPreparedSnapshot state -> MlpParams
+ppoPreparedInitialParams = internalPpoInitialParams
+
+ppoPreparedAdam :: PpoPreparedSnapshot state -> AdamState
+ppoPreparedAdam = internalPpoAdam
+
+ppoPreparedGenerator :: PpoPreparedSnapshot state -> Random.StdGen
+ppoPreparedGenerator = internalPpoGenerator
+
+ppoPreparedSingleState :: PpoPreparedSnapshot state -> Maybe state
+ppoPreparedSingleState = internalPpoSingleState
+
+ppoPreparedVectorSlots :: PpoPreparedSnapshot state -> [(state, Double, Int)]
+ppoPreparedVectorSlots = internalPpoVectorSlots
+
+ppoPreparedFrames :: PpoPreparedSnapshot state -> [Vector Double]
+ppoPreparedFrames = internalPpoFrames
+
+ppoPreparedCountEntries :: PpoPreparedSnapshot state -> [((Int, Int), Int)]
+ppoPreparedCountEntries = internalPpoCountEntries
+
+ppoPreparedStatistics :: PpoPreparedSnapshot state -> [PpoIterationStat]
+ppoPreparedStatistics = internalPpoStatistics
+
+ppoPreparedActorSteps :: PpoPreparedSnapshot state -> Int
+ppoPreparedActorSteps = internalPpoActorSteps
+
+ppoPreparedTransitions :: PpoPreparedSnapshot state -> Integer
+ppoPreparedTransitions = internalPpoTransitions
+
+ppoPreparedEnvironmentName :: PpoPreparedSnapshot state -> Text
+ppoPreparedEnvironmentName = internalPpoEnvironmentName
+
+ppoPreparedObservationWidth :: PpoPreparedSnapshot state -> Int
+ppoPreparedObservationWidth = internalPpoObservationWidth
+
+ppoPreparedActionCount :: PpoPreparedSnapshot state -> Int
+ppoPreparedActionCount = internalPpoActionCount
+
+trainPpoInEnvironmentRaw :: SimulatedEnvironment state -> PpoTrainConfig -> IO PpoTrainObservation
+trainPpoInEnvironmentRaw environment config = do
+  prepared <- preparePpoInEnvironment environment config
+  result <- continuePreparedPpoRaw prepared
+  either (fail . Text.unpack) pure result
+
+preparePpoInEnvironment
+  :: SimulatedEnvironment state -> PpoTrainConfig -> IO (PreparedPpo state)
+preparePpoInEnvironment environment config = do
   let shape = ppoMlpShape config
       initialParams = initialPpoParams config
       initialAdam = adamInit shape
+      initialState = envInitial environment
+      initialGen = Random.mkStdGen (ppoSeed config + 1)
   -- One visitation table for the whole run, mutated across rollouts.
   countTable <- CountExploration.newCountTable
-  (_, _, _, finalAdam, stats, finalParams, trpoActorSteps, measuredTransitions) <-
-    foldM
-      ( \(state, gen, params, adam, stats, _, actorSteps, transitions) iteration -> do
-          (rollout, nextState, nextGen) <-
-            collectRolloutInEnvironment countTable environment config params state gen
-          let (advs, targets) = computeAdvantages config rollout
-              normAdvs = standardise advs
-              triples = zip3 (rolloutSteps rollout) normAdvs targets
-              (paramsAfter, adamAfter) = ppoUpdate config params adam triples
-              actorStepsAfter =
-                actorSteps
-                  + if trpoActorParametersChanged config params paramsAfter then 1 else 0
-              transitionsAfter = transitions + toInteger (length (rolloutSteps rollout))
-              episodeReturns = rolloutEpisodes rollout
-              stat = rolloutSummary iteration episodeReturns
-          pure
-            ( nextState
-            , nextGen
-            , paramsAfter
-            , adamAfter
-            , stats <> [stat]
-            , paramsAfter
-            , actorStepsAfter
-            , transitionsAfter
+  initialCountEntries <- CountExploration.countTableEntries countTable
+  guard <- SingleUse.newSingleUse
+  let snapshot =
+        PpoPreparedSnapshot
+          config
+          initialParams
+          initialAdam
+          initialGen
+          (Just initialState)
+          []
+          [obsVectorFor environment initialState]
+          initialCountEntries
+          []
+          0
+          0
+          (envName environment)
+          (envObservationSize environment)
+          (envActionCount environment)
+      action = fmap Right $ do
+        (_, _, _, finalAdam, stats, finalParams, trpoActorSteps, measuredTransitions) <-
+          foldM
+            ( \(state, gen, params, adam, stats, _, actorSteps, transitions) iteration -> do
+                (rollout, nextState, nextGen) <-
+                  collectRolloutInEnvironment countTable environment config params state gen
+                let (advs, targets) = computeAdvantages config rollout
+                    normAdvs = standardise advs
+                    triples = zip3 (rolloutSteps rollout) normAdvs targets
+                    (paramsAfter, adamAfter) = ppoUpdate config params adam triples
+                    actorStepsAfter =
+                      actorSteps
+                        + if trpoActorParametersChanged config params paramsAfter then 1 else 0
+                    transitionsAfter = transitions + toInteger (length (rolloutSteps rollout))
+                    episodeReturns = rolloutEpisodes rollout
+                    stat = rolloutSummary iteration episodeReturns
+                pure
+                  ( nextState
+                  , nextGen
+                  , paramsAfter
+                  , adamAfter
+                  , stats <> [stat]
+                  , paramsAfter
+                  , actorStepsAfter
+                  , transitionsAfter
+                  )
             )
-      )
-      ( envInitial environment
-      , Random.mkStdGen (ppoSeed config + 1)
-      , initialParams
-      , initialAdam
-      , [] :: [PpoIterationStat]
-      , initialParams
-      , 0 :: Int
-      , 0 :: Integer
-      )
-      [0 .. ppoNumIterations config - 1]
-  counters <-
-    either (fail . Text.unpack) pure $
-      Common.mkMeasuredTrainerCounters
-        measuredTransitions
-        (toInteger (adamStep_ finalAdam + trpoActorSteps))
-  pure
-    PpoTrainResult
-      { resultIterations = stats
-      , resultFinalParams = finalParams
-      , resultMeasuredCounters = counters
-      , resultConfig = config
-      }
+            ( initialState
+            , initialGen
+            , initialParams
+            , initialAdam
+            , [] :: [PpoIterationStat]
+            , initialParams
+            , 0 :: Int
+            , 0 :: Integer
+            )
+            [0 .. ppoNumIterations config - 1]
+        counters <-
+          either (fail . Text.unpack) pure $
+            Common.mkObservedTrainerCounters
+              measuredTransitions
+              (toInteger (adamStep_ finalAdam + trpoActorSteps))
+        pure
+          Common.RawTrainerResult
+            { Common.rawTrainerInitialParams = initialParams
+            , Common.rawTrainerFinalParams = finalParams
+            , Common.rawTrainerStats = stats
+            , Common.rawTrainerCounters = counters
+            , Common.rawTrainerConfig = config
+            }
+  pure (PreparedPpo snapshot guard action)
 
 -- | Sprint 13.8 — train any on-policy variant on cartpole with the
 -- network forward + backward running on the GPU through the batched CUDA
@@ -1747,6 +2060,18 @@ trainPpoOnDevice device =
 trainPpoOnDeviceWithEnvironment
   :: MlpDevice -> SimulatedEnvironment state -> PpoTrainConfig -> IO (Either Text PpoTrainResult)
 trainPpoOnDeviceWithEnvironment device environment config = do
+  observed <- trainPpoOnDeviceWithEnvironmentRaw device environment config
+  pure (observed >>= refinePpoTrainObservation)
+
+trainPpoOnDeviceWithEnvironmentRaw
+  :: MlpDevice -> SimulatedEnvironment state -> PpoTrainConfig -> IO (Either Text PpoTrainObservation)
+trainPpoOnDeviceWithEnvironmentRaw device environment config = do
+  prepared <- preparePpoOnDeviceWithEnvironment device environment config
+  continuePreparedPpoRaw prepared
+
+preparePpoOnDeviceWithEnvironment
+  :: MlpDevice -> SimulatedEnvironment state -> PpoTrainConfig -> IO (PreparedPpo state)
+preparePpoOnDeviceWithEnvironment device environment config = do
   let shape = ppoMlpShape config
       initialParams = initialPpoParams config
       initialAdam = adamInit shape
@@ -1757,34 +2082,57 @@ trainPpoOnDeviceWithEnvironment device environment config = do
           (Random.mkStdGen (ppoSeed config + 1))
   -- One visitation table for the whole run, mutated across rollouts.
   countTable <- CountExploration.newCountTable
-  result <-
-    foldM
-      (step countTable)
-      ( Right
-          ( initialVecEnv
-          , initialGen
-          , initialParams
-          , initialAdam
-          , [] :: [PpoIterationStat]
-          , initialParams
-          , 0 :: Int
-          , 0 :: Integer
-          )
-      )
-      [0 .. ppoNumIterations config - 1]
-  pure $ do
-    (_, _, _, finalAdam, stats, finalParams, trpoActorSteps, measuredTransitions) <- result
-    counters <-
-      Common.mkMeasuredTrainerCounters
-        measuredTransitions
-        (toInteger (adamStep_ finalAdam + trpoActorSteps))
-    pure
-      PpoTrainResult
-        { resultIterations = stats
-        , resultFinalParams = finalParams
-        , resultMeasuredCounters = counters
-        , resultConfig = config
-        }
+  initialCountEntries <- CountExploration.countTableEntries countTable
+  guard <- SingleUse.newSingleUse
+  let snapshot =
+        PpoPreparedSnapshot
+          config
+          initialParams
+          initialAdam
+          initialGen
+          Nothing
+          [ (VecEnv.vecSlotState slot, VecEnv.vecSlotEpisodeReturn slot, VecEnv.vecSlotEpisodeLength slot)
+          | slot <- VecEnv.vecEnvSlots initialVecEnv
+          ]
+          (VecEnv.vecEnvObservations initialVecEnv)
+          initialCountEntries
+          []
+          0
+          0
+          (envName environment)
+          (envObservationSize environment)
+          (envActionCount environment)
+      action = do
+        result <-
+          foldM
+            (step countTable)
+            ( Right
+                ( initialVecEnv
+                , initialGen
+                , initialParams
+                , initialAdam
+                , [] :: [PpoIterationStat]
+                , initialParams
+                , 0 :: Int
+                , 0 :: Integer
+                )
+            )
+            [0 .. ppoNumIterations config - 1]
+        pure $ do
+          (_, _, _, finalAdam, stats, finalParams, trpoActorSteps, measuredTransitions) <- result
+          counters <-
+            Common.mkObservedTrainerCounters
+              measuredTransitions
+              (toInteger (adamStep_ finalAdam + trpoActorSteps))
+          pure
+            Common.RawTrainerResult
+              { Common.rawTrainerInitialParams = initialParams
+              , Common.rawTrainerFinalParams = finalParams
+              , Common.rawTrainerStats = stats
+              , Common.rawTrainerCounters = counters
+              , Common.rawTrainerConfig = config
+              }
+  pure (PreparedPpo snapshot guard action)
  where
   step _ (Left e) _ = pure (Left e)
   step countTable (Right (vecEnv, gen, params, adam, stats, _, actorSteps, transitions)) iteration = do
@@ -1858,7 +2206,7 @@ collectRolloutVectorizedOnDevice device countTable environment config params vec
   emptyGroups = replicate (VecEnv.vecEnvSize vecEnv0) []
   go stepIndex vecEnv gen groups completedEpisodes
     | stepIndex >= vectorSteps = do
-        finalValuesE <- finalValuesFor vecEnv
+        finalValuesE <- finalValuesFor vecEnv groups
         pure $
           fmap
             ( \finalValues ->
@@ -1880,35 +2228,91 @@ collectRolloutVectorizedOnDevice device countTable environment config params vec
         forwardResult <- mlpdForwardBatch device params observations
         case forwardResult of
           Left err -> pure (Left err)
-          Right outs -> do
-            let policies = fmap (softmax . VU.take actionCount) outs
-                values = fmap (`VU.unsafeIndex` actionCount) outs
-                maskedPolicies = zipWith (maskedPolicyFor config) masks policies
-                (actions, logProbs, genAfterActions) = sampleActions maskedPolicies gen
-                (vecEnv', transitions, genAfterStep) =
-                  VecEnv.vecEnvStep (ppoMaxEpisodeSteps config) vecEnv actions genAfterActions
-            indexedSteps <-
-              traverse
-                (uncurry5 transitionToRolloutStep)
-                (zip5 transitions actions logProbs values maskedPolicies masks)
-            let groups' = foldl appendStep groups indexedSteps
-                completedEpisodes' =
-                  foldl
-                    ( \acc transition ->
-                        case VecEnv.vecTransitionCompletedReturn transition of
-                          Nothing -> acc
-                          Just reward -> reward : acc
-                    )
-                    completedEpisodes
-                    transitions
-            go (stepIndex + 1) vecEnv' genAfterStep groups' completedEpisodes'
-  finalValuesFor vecEnv = do
-    forwardResult <- mlpdForwardBatch device params (VecEnv.vecEnvObservations vecEnv)
-    pure $
-      fmap
-        (fmap (`VU.unsafeIndex` actionCount))
-        forwardResult
-  transitionToRolloutStep transition action logProb value probs mask = do
+          Right outs ->
+            case validateDeviceOutputBatch "on-policy rollout" params (length observations) outs of
+              Left err -> pure (Left err)
+              Right () -> do
+                let policies = fmap (softmax . VU.take actionCount) outs
+                    values = fmap (`VU.unsafeIndex` actionCount) outs
+                    maskedPolicies = zipWith (maskedPolicyFor config) masks policies
+                    (actions, logProbs, genAfterActions) = sampleActions maskedPolicies gen
+                    (vecEnv', transitions, genAfterStep) =
+                      VecEnv.vecEnvStep (ppoMaxEpisodeSteps config) vecEnv actions genAfterActions
+                boundariesE <- transitionBoundaries transitions
+                case boundariesE of
+                  Left err -> pure (Left err)
+                  Right boundaries -> do
+                    indexedSteps <-
+                      traverse
+                        (\(boundary, sample) -> uncurry5 (transitionToRolloutStep boundary) sample)
+                        (zip boundaries (zip5 transitions actions logProbs values maskedPolicies masks))
+                    let groups' = foldl appendStep groups indexedSteps
+                        completedEpisodes' =
+                          foldl
+                            ( \acc transition ->
+                                case VecEnv.vecTransitionCompletedReturn transition of
+                                  Nothing -> acc
+                                  Just reward -> reward : acc
+                            )
+                            completedEpisodes
+                            transitions
+                    go (stepIndex + 1) vecEnv' genAfterStep groups' completedEpisodes'
+  -- The reset slot is the next episode, never a time-limit bootstrap. Ended
+  -- groups already carry either terminal zero or their pre-reset successor V.
+  finalValuesFor vecEnv groups = do
+    let active =
+          [ (index, observation)
+          | (index, steps, observation) <- zip3 [0 :: Int ..] groups (VecEnv.vecEnvObservations vecEnv)
+          , case steps of
+              latest : _ -> not (rsDone latest)
+              [] -> True
+          ]
+    valuesE <- forwardValues "on-policy final bootstrap" (fmap snd active)
+    pure $ do
+      values <- valuesE
+      let indexed = zip (fmap fst active) values
+      traverse
+        ( \(index, steps) -> case steps of
+            latest : _ | rsDone latest -> Right 0.0
+            _ ->
+              maybe (Left "on-policy final bootstrap is missing a continuing value") Right (lookup index indexed)
+        )
+        (zip [0 ..] groups)
+  transitionBoundaries transitions = do
+    let truncated = filter VecEnv.vecTransitionTruncated transitions
+    valuesE <-
+      forwardValues "on-policy truncation bootstrap" (fmap VecEnv.vecTransitionNextObservation truncated)
+    pure $ do
+      values <- valuesE
+      let indexed = zip (fmap VecEnv.vecTransitionIndex truncated) values
+      traverse
+        ( \transition ->
+            if VecEnv.vecTransitionTerminated transition
+              then Right RolloutTerminated
+              else
+                if VecEnv.vecTransitionTruncated transition
+                  then
+                    maybe
+                      (Left "on-policy truncation bootstrap is missing a successor value")
+                      (Right . RolloutTruncated)
+                      (lookup (VecEnv.vecTransitionIndex transition) indexed)
+                  else Right RolloutContinues
+        )
+        transitions
+  forwardValues label observations
+    | null observations = pure (Right [])
+    | not (validMlpParamsForConfig config params)
+        || any
+          (\observation -> VU.length observation /= ppoObsSize config || not (finiteFloat32Input observation))
+          observations =
+        pure (Left (label <> " received malformed or non-finite inputs"))
+    | otherwise = do
+        forwarded <- mlpdForwardBatch device params observations
+        pure $ do
+          outputs <- mapLeft ((label <> " device forward failed: ") <>) forwarded
+          validateDeviceOutputBatch label params (length observations) outputs
+          Right (fmap (VU.! actionCount) outputs)
+  transitionToRolloutStep boundary transition action logProb value probs mask = do
     countBonus <-
       CountExploration.countExplorationBonus
         countTable
@@ -1939,7 +2343,7 @@ collectRolloutVectorizedOnDevice device countTable environment config params vec
           , rsLogProb = logProb
           , rsValue = value
           , rsReward = reward
-          , rsDone = VecEnv.vecTransitionDone transition
+          , rsBoundary = boundary
           , rsPolicy = probs
           , rsActionMask = mask
           , rsRecurrentState = recurrentState
@@ -2225,3 +2629,15 @@ argmax xs = snd (foldr1 stepMax (zip xs [0 ..]))
   stepMax (v1, i1) (v2, i2)
     | v1 >= v2 = (v1, i1)
     | otherwise = (v2, i2)
+
+trainPpoOnCartpoleRaw :: PpoTrainConfig -> IO PpoTrainObservation
+trainPpoOnCartpoleRaw = trainPpoInEnvironmentRaw cartPoleEnvironment
+
+trainOnPolicyOnDeviceWithEnvironmentRaw
+  :: MlpDevice
+  -> SomeSimulatedEnvironment
+  -> OnPolicyVariant
+  -> PpoTrainConfig
+  -> IO (Either Text PpoTrainObservation)
+trainOnPolicyOnDeviceWithEnvironmentRaw device (SomeSimulatedEnvironment environment) variant config =
+  trainPpoOnDeviceWithEnvironmentRaw device environment config {ppoVariant = variant}

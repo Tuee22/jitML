@@ -468,12 +468,20 @@ needed for later exact admission. That audit opened the chain
 `261 → 268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`. Phase `261`
 has since re-closed after retaining and admitting the exact typed CPU journal;
 Phases `268`, `273`, and `276` have since closed. The current chain is
-`278 → 280 → 281 → 282 → 285 → 288 → 289`, with each later member Blocked by its
-immediate executable prerequisite. Phase `278` is Active: its tightened bars
-invalidated the retained lane journals, the `linux-cuda` journal has been
-re-issued, the `linux-cpu` journal was re-issued on the Linux host on 2026-09-30
-(pin `438931ad…`), and the `apple-silicon` re-issue needs a Mac session. The Phase `19`–`34` registry is
-**63 Done / 1 Active / 0 Planned / 6 Blocked**, counted from its 70 entries.
+`278 → 279 → 280 → 281 → 282 → 285 → 288 → 289`, with each later member Blocked by
+its immediate executable prerequisite. Phase `278` is Active: its changed
+supervised qualification and numerical recipes require fresh current lane
+journals; earlier CPU/CUDA re-issues retain only their historical source scope.
+The Mac supplies real Metal and container CPU execution, with qualification,
+exact runtime/physical replay still open. The forward allocation retains
+CPU/Apple journals and local/live-daemon/backend/quality gates in `278`, assigns
+CUDA plus its behavioral detector to `279`, and assigns aggregation plus the
+unchanged full CPU unit/integration gates to `280`. All four `278` execution/
+criterion guards and global standing requirements remain; no status is waived.
+Phase `279` remains Blocked for its existing behavioral-detector gap. The Phase
+`19`–`34` registry is **62 Done / 1 Active / 0 Planned / 7 Blocked**, counted from
+its 70 entries. [README.md → Closure Status](README.md#closure-status) owns the
+current executable status.
 Phases `42`, `53`, `69`, `229`, and `262` remain Done. At the dated
 2026-08-12 execution-architecture checkpoint, the audit had returned Phases
 `229`, `233`, `241`, `263`, `264`, `265`, and `270` to Active and moved Phase
@@ -819,6 +827,23 @@ probe, declared target list, hand-maintained status literal, or reconstructed
 pass count cannot substitute for an invocation transcript or completed scenario
 journal. Fail-fast targets remain `NotRun`; unavailable measurements carry a
 reason; failed process evidence retains both output streams.
+
+Raw execution receipts, logs, build products, checkpoints, downloaded archives
+and caches are local artifacts: write them under ignored `.build/` or the
+existing data/cache homes, and exclude them from Docker build contexts. Do not
+grow dated raw-receipt trees under `attestations/`. Curated Markdown summaries,
+structured `attestations/validation/` records, selected criterion/registration
+data, admitted journals' portable qualification objects, and deliberate test
+fixtures remain versioned. Registered generated source
+also remains versioned. Older raw receipt trees are ignored; their retained
+README summaries describe historical scopes and can link to local-only payloads.
+A clean checkout does not contain those payloads, and they cannot establish a
+committed closure obligation. Removing diagnostic payloads changes no phase to
+`Done` and does not replace missing validation.
+The [attestation retention policy](attestations/README.md) records the versioned
+families and their actual code consumers. Ignore new attestation payloads by
+default, with explicit exceptions for these deliberate records and review
+inputs; do not exclude the directory's required data wholesale.
 
 `README.md → Closure Status` stays thin: it names the current status, the
 validation commands and pass counts, and links to the historical audit narrative

@@ -545,8 +545,8 @@ postBodyCompositionTests withJournal =
                   "the journal rows never reached the card"
                   ("product_rows:" `elem` rendered)
                 assertBool
-                  "the RL line lost the journal rows"
-                  (any ("  rl_final_reward: DQN/cartpole:" `Text.isPrefixOf`) rendered)
+                  "the tuning line lost the journal row"
+                  (any ("  tune_best_objective: hyperparameter-tuning:" `Text.isPrefixOf`) rendered)
               Left detail -> assertFailure ("the post-body failed: " <> Text.unpack detail)
           -- An unselected run requests no journal but still owns the edge lines.
           LiveMeasurements.productRowsPostBody ["jitml-unit"] Nothing
@@ -579,11 +579,12 @@ postBodyCompositionTests withJournal =
             Right other ->
               assertFailure ("a journal bound to another run was read: " <> show other)
     , testCase "the browser refinement outcome follows the gate and keeps the evidence it holds" $
-        withJournal $ \source -> do
+        withJournal $ \source -> withJournal $ \independentSource -> do
           let fullReport = sourceReport source
-          -- A report the parent authenticated earlier that differs from the
-          -- re-read one, so which of the two a card carries is observable.
-          authenticated <- oneRowReport fullReport
+              authenticated = sourceReport independentSource
+          -- Two real independent one-tuning invocations retain different
+          -- challenge/scope/manifest receipts; no second canonical tuning row
+          -- or synthetic native qualification is invented.
           assertBool
             "the authenticated and re-read ProductScenario reports must differ"
             (authenticated /= fullReport)
@@ -610,32 +611,6 @@ postBodyCompositionTests withJournal =
               )
               "live report measurement collection failed after browser refinement: journal unreadable"
     ]
-
--- | A ProductScenario report of only the first row of a completed one: a real
--- report that differs from it.
-oneRowReport
-  :: Report.CompletedProductScenarioReport
-  -> IO Report.CompletedProductScenarioReport
-oneRowReport report =
-  case Report.completedProductScenarioReportEntries report of
-    firstEvidence : _rest -> do
-      row <-
-        maybe
-          (assertFailure "the journal's first row is not in the registry")
-          pure
-          ( List.find
-              ((== Report.completedProductScenarioRowId firstEvidence) . ProductMatrix.rowId)
-              ProductMatrix.allProductRows
-          )
-      batch <-
-        case ProductMatrix.projectProductRows Substrate.LinuxCPU [row] of
-          Success projected -> pure projected
-          Failure errors -> assertFailure ("one-row projection failed: " <> show errors)
-      either
-        (assertFailure . ("one-row report was rejected: " <>) . show)
-        pure
-        (Report.projectCompletedProductScenarioReport batch [firstEvidence])
-    [] -> assertFailure "the journal source has no completed row"
 
 -- ---------------------------------------------------------------------------
 -- Cards without product evidence stay exactly what they were

@@ -429,24 +429,26 @@ dropPrefix prefix value
 
 shouldSkipPath :: FilePath -> Bool
 shouldSkipPath path =
-  any
-    (`isPrefixOf` path)
-    [ ".git/"
-    , ".build/"
-    , ".data/"
-    , ".data-preserved"
-    , ".roms/"
-    , "dist-newstyle/"
-    , ".dist-newstyle/"
-    , "gen/"
-    , "node_modules/"
-    , "web/node_modules/"
-    , "web/output/"
-    , "web/dist/"
-    , "web/.spago/"
-    , "playwright-report/"
-    , "test-results/"
-    ]
+  path `elem` [".jitml-pv-lifecycle.lock", ".jitml-pv-lifecycle.claim.lock"]
+    || any
+      (`isPrefixOf` path)
+      [ ".git/"
+      , ".jitml-pv-lifecycle.claim.lock/"
+      , ".build/"
+      , ".data/"
+      , ".data-preserved"
+      , ".roms/"
+      , "dist-newstyle/"
+      , ".dist-newstyle/"
+      , "gen/"
+      , "node_modules/"
+      , "web/node_modules/"
+      , "web/output/"
+      , "web/dist/"
+      , "web/.spago/"
+      , "playwright-report/"
+      , "test-results/"
+      ]
     || "/node_modules/" `isInfixOf` path
     || "/.spago/" `isInfixOf` path
     || "/output/" `isInfixOf` path

@@ -19,7 +19,8 @@
 -- stanza when a constructor has no control or a spec has no committed control.
 module Main where
 
-import Control.Monad (unless)
+import Control.Monad (forM_, unless)
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
@@ -27,6 +28,8 @@ import Data.Maybe (fromMaybe)
 import Data.Text qualified as Text
 import Test.Tasty (TestTree, defaultMain, testGroup, withResource)
 import Test.Tasty.HUnit (assertBool, assertEqual, assertFailure, testCase)
+
+import LocalGateRegistry qualified as Local
 
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Test.NegativeControls
@@ -111,6 +114,10 @@ main =
              , lifecycleGuards
              , harnessSelfTests
              , reducerPropertySubset
+             , localRegistryGuards
+             , testGroup
+                 "Phase 278 local product controls"
+                 (Local.registeredLocalTestTrees committedLocalFamilyTrees)
              ]
       )
 
@@ -742,3 +749,646 @@ wrongReasonControl =
         (== ("an unrelated failure" :: Text.Text))
         (Left "something else entirely" :: Either Text.Text ())
     )
+
+-- | Independent obligation inventory. Do not derive this list from the committed
+-- registry or its constructors: removing a committed family must fail here.
+expectedLocalFamilies :: [Text.Text]
+expectedLocalFamilies =
+  [ "LearningSignal"
+  , "SupervisedQualificationPolicy"
+  , "SupervisedCohortPlan"
+  , "InitialComparison"
+  , "SupervisedQualification"
+  , "QualificationObjects"
+  , "SupervisedCohortExecution"
+  , "SupervisedQualificationReceipt"
+  , "ServedMetricVerification"
+  , "SupervisedCheckpointV2"
+  , "ProductTruthScanner"
+  , "ProductExperimentExactness"
+  , "RegressionStandardization"
+  , "SupervisedTrainingSeed"
+  , "CheckpointV1Admission"
+  , "OnPolicyEvaluation"
+  , "OnPolicyHorizon"
+  , "ProductBarLocalControls"
+  , "TinyArchiveControls"
+  , "TrpoFisherControls"
+  , "ProtocolCodec"
+  , "GenericRlDeviceWitness"
+  , "CheckpointPublication"
+  , "GenericRlPhysicalControls"
+  , "OffPolicyEvaluation"
+  , "TrainerObservation"
+  , "AlphaZeroEvaluation"
+  , "PreparedTrainers"
+  , "DqnEvaluationControls"
+  , "ArsAppliedStep"
+  , "PreparedContinuousAlphaZero"
+  , "ProducerObservation"
+  , "ArsHostRecordedData"
+  , "ArsRecordedEvidence"
+  , "NativeChildAssociation"
+  , "ArsSingletonProducer"
+  , "TrainerConfiguration"
+  , "NativeReturnReferences"
+  , "NativeHerReferences"
+  , "NativeReturnEvaluation"
+  , "NativeHerEvaluation"
+  , "NativeRlCohortPlan"
+  , "PreparedNeuralAttempt"
+  , "NativePreparedNeuralAttempt"
+  , "NativePreparedArsAttempt"
+  , "NativeArenaEvaluation"
+  , "NativePreparedAlphaZeroAttempt"
+  , "NativeRetention"
+  , "NativeReturnCeiling"
+  , "NativeReturnLearningPolicy"
+  , "NativeArenaTape"
+  , "NativeArenaReferences"
+  , "NativeHerLearningPolicy"
+  , "NativeArenaLearningPolicy"
+  , "NativePhaseCodec"
+  , "NativePhaseProjection"
+  , "NativePhaseContext"
+  , "NativePhaseProducer"
+  , "NativePhaseFailure"
+  , "NativeRlProducer"
+  , "NativeReferenceCalibration"
+  , "NativeRlAssessment"
+  , "NativeRetentionReader"
+  , "ArsHostPhysicalAdmission"
+  , "NativeRlStoreLoadedReplay"
+  , "NativePhysicalRead"
+  , "NativeReportExecution"
+  , "NativeCanonicalPublisher"
+  , "NativeRlStoredServing"
+  , "NativeDetachedArtifactRead"
+  , "NativeQualificationReceiptData"
+  , "NativeScenarioReceiptData"
+  , "NativeParentPolicyData"
+  , "NativeParentCompletionData"
+  , "NativeParentEvaluationSummaryData"
+  , "NativeSourceJournalV5"
+  , "NativeParentBindingData"
+  , "NativeParentPhysicalRead"
+  , "NativeParentExecution"
+  , "NativeParentEvaluationReplay"
+  , "NativeProcessSpawn"
+  , "NativeParentAttemptRetention"
+  , "NativeQualificationGc"
+  , "NativeRlExecution"
+  , "NativeRlReplayRetention"
+  , "NativeQualificationPublication"
+  , "NativeQualificationReference"
+  , "NativeReplayObjectData"
+  , "NativeRecordedCheckpointData"
+  , "NativeLaneBundleAdmission"
+  , "NativeLaneBundleData"
+  , "NativeLaneBundleFiles"
+  , "GenericArsHostPublication"
+  , "Phase278ContextResolution"
+  , "LaneRegistration"
+  , "CriterionReviewData"
+  ]
+
+-- | The runner consumes this same actual tree list; an accidental producer RHS
+-- swap is visible to the anchor guard even when names remain unchanged.
+committedLocalFamilyTrees :: [(Text.Text, TestTree)]
+committedLocalFamilyTrees = Local.registeredLocalFamilyTrees Local.committedLocalRegistrations
+
+-- | Deliberately literal and independent of producer dispatch, family labels,
+-- module reflection, and testsNames output. These anchors protect structure,
+-- not the semantic behavior of the test bodies or complete leaf coverage.
+expectedLocalTreeAnchors :: [Local.LocalTreeAnchor]
+expectedLocalTreeAnchors =
+  [ Local.LocalTreeAnchor
+      "LearningSignal"
+      "Additional supervised learning signal"
+      "ten-class exact random boundary is 136 correct of 1000"
+  , Local.LocalTreeAnchor
+      "SupervisedQualificationPolicy"
+      "compact supervised qualification policy"
+      "only ordered indices zero through four exist and preserve the canonical base seed"
+  , Local.LocalTreeAnchor
+      "SupervisedCohortPlan"
+      "supervised five-seed cohort plans"
+      "every canonical row and lane has five singleton children with unchanged per-run budgets"
+  , Local.LocalTreeAnchor
+      "InitialComparison"
+      "actual-initial supervised comparison"
+      "canonical snapshot roundtrips exact descriptor transforms and initial JMW1"
+  , Local.LocalTreeAnchor
+      "SupervisedQualification"
+      "replayable compact supervised qualification"
+      "canonical portable roundtrip replays all five pairs and derives the served metric"
+  , Local.LocalTreeAnchor
+      "QualificationObjects"
+      "portable qualification object IO boundary"
+      "reads exact explicit bytes from the checked sibling SHA filename"
+  , Local.LocalTreeAnchor
+      "SupervisedCohortExecution"
+      "prescribed supervised cohort execution"
+      "executes all five exact ordered singleton plans once and never a sixth"
+  , Local.LocalTreeAnchor
+      "SupervisedQualificationReceipt"
+      "detached supervised qualification receipts"
+      "real Store admission binds the original serving seed and exact detached bytes"
+  , Local.LocalTreeAnchor
+      "ServedMetricVerification"
+      "Served-metric verification (Phase 278)"
+      "the recomputed accuracy is the served fraction"
+  , Local.LocalTreeAnchor
+      "SupervisedCheckpointV2"
+      "SupervisedCheckpointV2"
+      "canonical V2 retains exact addressed outer and body identities"
+  , Local.LocalTreeAnchor
+      "ProductTruthScanner"
+      "ProductTruth bar scanner (Phase 278)"
+      "line, block, nested block, pragma, and haddock comments are dropped"
+  , Local.LocalTreeAnchor
+      "ProductExperimentExactness"
+      "ProductExperimentExactness"
+      "all non-tuning ProductRows load one exact checked-in config"
+  , Local.LocalTreeAnchor
+      "RegressionStandardization"
+      "regression standardization"
+      "fits statistics from the supplied training partition only"
+  , Local.LocalTreeAnchor
+      "SupervisedTrainingSeed"
+      "supervised execution seed"
+      "extracts the exact generic SupervisedPlan seed"
+  , Local.LocalTreeAnchor
+      "CheckpointV1Admission"
+      "canonical ProductRow V1 admission"
+      "TRPO numerical recipe changes all four row identities in each lane"
+  , Local.LocalTreeAnchor
+      "OnPolicyEvaluation"
+      "selected-device on-policy evaluation"
+      "every greedy decision uses the injected device and fixed evaluation start"
+  , Local.LocalTreeAnchor
+      "OnPolicyHorizon"
+      "on-policy time-limit bootstrap"
+      "GAE bootstraps truncation but stops lambda recurrence across the reset"
+  , Local.LocalTreeAnchor
+      "ProductBarLocalControls"
+      "External bar local controls (Phase 278)"
+      "PPO/cartpole with its own reward criterion is admitted"
+  , Local.LocalTreeAnchor
+      "TinyArchiveControls"
+      "Tiny archive local controls"
+      "Tiny ImageNet archive pin and metadata parsers use real file formats (Sprint 8.12)"
+  , Local.LocalTreeAnchor
+      "TrpoFisherControls"
+      "TRPO normalized-direction Fisher controls"
+      "device TRPO Fisher preserves tiny and negative Float32 directions with nonzero curvature"
+  , Local.LocalTreeAnchor
+      "ProtocolCodec"
+      "ProtocolCodec"
+      "Training commands require one exact, well-formed field set"
+  , Local.LocalTreeAnchor
+      "GenericRlDeviceWitness"
+      "generic RL selected-device witness propagation"
+      "successful PPO dispatch binds the same device witness after training and final evaluation"
+  , Local.LocalTreeAnchor
+      "CheckpointPublication"
+      "worker checkpoint publication"
+      "mounted service configuration supplies actual worker coordinates without a host publication"
+  , Local.LocalTreeAnchor
+      "GenericRlPhysicalControls"
+      "generic RL physical proof controls"
+      "current dist path and platform bytes reject installed or foreign executables"
+  , Local.LocalTreeAnchor
+      "OffPolicyEvaluation"
+      "off-policy selected-device final evaluation"
+      "quantile means use every injected decision and exact episode resets"
+  , Local.LocalTreeAnchor
+      "TrainerObservation"
+      "raw RL initial state and uncensored returns"
+      "raw counters retain zero without weakening the existing positive constructor"
+  , Local.LocalTreeAnchor
+      "AlphaZeroEvaluation"
+      "selected-device AlphaZero arena evaluation"
+      "actual canonical eight-input and diagnostic forty-three-input networks use supplied leaf callbacks"
+  , Local.LocalTreeAnchor
+      "PreparedTrainers"
+      "actual prepared trainer continuations"
+      "atomic single-use guard grants exactly one concurrent claim"
+  , Local.LocalTreeAnchor
+      "DqnEvaluationControls"
+      "DQN checked selected-device final evaluation"
+      "every actual frozen-policy decision uses the supplied device and resets exactly"
+  , Local.LocalTreeAnchor
+      "ArsAppliedStep"
+      "raw ARS applied-step trace and exact replay"
+      "actual lower ARS return replays every applied step from actual initial to final"
+  , Local.LocalTreeAnchor
+      "PreparedContinuousAlphaZero"
+      "Prepared continuous and AlphaZero initialization"
+      "continuous cold snapshot owns exact initializer and untouched scheduled state without device IO"
+  , Local.LocalTreeAnchor
+      "ProducerObservation"
+      "actual producer process file and optional source observations"
+      "actual executable FILE identity equals an independent read of getExecutablePath"
+  , Local.LocalTreeAnchor
+      "ArsHostRecordedData"
+      "ARS host recorded provenance data and lossless replay"
+      "actual bounded ARS raw return roundtrips every recorded bit and replays locally"
+  , Local.LocalTreeAnchor
+      "ArsRecordedEvidence"
+      "closed recorded neural and ARS training evidence"
+      "pinned historical neural evidence preserves exact bytes and recorded witness"
+  , Local.LocalTreeAnchor
+      "NativeChildAssociation"
+      "native child complete plan association"
+      "all canonical native singleton transports preserve the whole refined execution plan"
+  , Local.LocalTreeAnchor
+      "ArsSingletonProducer"
+      "actual singleton ARS producer origin"
+      "real public compiled minimum yields an actual host-only lexical origin"
+  , Local.LocalTreeAnchor
+      "TrainerConfiguration"
+      "shared neural trainer configuration"
+      "the thirteen legacy neural selectors retain their exact diagnostic order"
+  , Local.LocalTreeAnchor
+      "NativeReturnReferences"
+      "canonical native return task references"
+      "all thirty eight canonical return rows have exact checked specifications"
+  , Local.LocalTreeAnchor
+      "NativeHerReferences"
+      "paired native HER goals and complete goal-blind references"
+      "canonical specification binds actual six-bit twenty-case schedule and seed headroom"
+  , Local.LocalTreeAnchor
+      "NativeReturnEvaluation"
+      "native learned-policy fixed return evaluation"
+      "all thirty eight exact specs have the correct raw family and fixed context"
+  , Local.LocalTreeAnchor
+      "NativeHerEvaluation"
+      "learned HER policies on exact frozen goals"
+      "all twenty supplied fixed goals and duplicates reach the actual scalar device in order"
+  , Local.LocalTreeAnchor
+      "NativeRlCohortPlan"
+      "canonical native five-child cohort plan data"
+      "all forty three rows in three lanes retain five complete singleton execution plans"
+  , Local.LocalTreeAnchor
+      "PreparedNeuralAttempt"
+      "opaque low prepared neural numerical attempts"
+      "all five actual raw families retain zero updates empty statistics and unchanged weights before evaluation"
+  , Local.LocalTreeAnchor
+      "NativePreparedNeuralAttempt"
+      "native canonical prepared neural phases"
+      "five canonical offline returns preserve initial raw and final phase ordering"
+  , Local.LocalTreeAnchor
+      "NativePreparedArsAttempt"
+      "native canonical prepared host ARS phases"
+      "four actual canonical rows preserve twenty full singleton children in every lane"
+  , Local.LocalTreeAnchor
+      "NativeArenaEvaluation"
+      "native learned addressed arena observations"
+      "actual canonical nine game learned search observations retain exact tape callbacks and work"
+  , Local.LocalTreeAnchor
+      "NativePreparedAlphaZeroAttempt"
+      "native canonical prepared AlphaZero phases"
+      "two canonical offline returns preserve initial raw and final phase ordering"
+  , Local.LocalTreeAnchor
+      "NativeRetention"
+      "native allocation object retention"
+      "fixed allocation address binds every scope field and is independent of claim payload"
+  , Local.LocalTreeAnchor
+      "NativeReturnCeiling"
+      "native return proven maximum comparison"
+      "all eight canonical KeyDoor scopes produce exact current simulator bounds"
+  , Local.LocalTreeAnchor
+      "NativeReturnLearningPolicy"
+      "native return five-member mathematical comparison"
+      "three joint successes retain both finite failed members and the original serving observation"
+  , Local.LocalTreeAnchor
+      "NativeArenaTape"
+      "native addressed arena tape"
+      "independent SHA256 byte-encoding known answers bind addresses and signed sides"
+  , Local.LocalTreeAnchor
+      "NativeArenaReferences"
+      "native addressed game-aware arena references"
+      "all four exact row specifications retain actual arena search budgets and declared shapes"
+  , Local.LocalTreeAnchor
+      "NativeHerLearningPolicy"
+      "native HER five-run learning policy"
+      "complete fixed references and five actual offline evaluation traces pass the mathematical boundary"
+  , Local.LocalTreeAnchor
+      "NativeArenaLearningPolicy"
+      "native paired arena mathematical comparison"
+      "all four actual calibrations retain exact canonical spec tape and two reference inventories"
+  , Local.LocalTreeAnchor
+      "NativePhaseCodec"
+      "bounded canonical native phase DATA codec"
+      "canonical Started phase roundtrips the exact reachable DATA pool"
+  , Local.LocalTreeAnchor
+      "NativePhaseProjection"
+      "bounded public native phase DATA projections"
+      "all five prepared snapshots retain actual initial parameter bits and distinct family kinds"
+  , Local.LocalTreeAnchor
+      "NativePhaseContext"
+      "Native phase canonical context DATA"
+      "complete pool binds all43 rows and215 prescribed children"
+  , Local.LocalTreeAnchor
+      "NativePhaseProducer"
+      "native recorded producer DATA"
+      "all thirteen process fields retain their exact ordinary values"
+  , Local.LocalTreeAnchor
+      "NativePhaseFailure"
+      "complete native phase failure DATA"
+      "all seven family tags remain exact ordinary values"
+  , Local.LocalTreeAnchor
+      "NativeRlProducer"
+      "native producer allocation and pre-execution controls"
+      "wholefive allocation roundtrips exact contexts and recorded nonce identities"
+  , Local.LocalTreeAnchor
+      "NativeReferenceCalibration"
+      "bounded complete native reference calibration DATA"
+      "RETURN capture retains exact whole cohort and every fixed outcome"
+  , Local.LocalTreeAnchor
+      "NativeRlAssessment"
+      "native actual cohort assessment pre-execution"
+      "actual unmaterializable input returns a bounded synchronous refusal"
+  , Local.LocalTreeAnchor
+      "NativeRetentionReader"
+      "native retained envelope DATA controls"
+      "allocation preserves exact scope publication and opaque payload DATA"
+  , Local.LocalTreeAnchor
+      "ArsHostPhysicalAdmission"
+      "ARS physical execution admission"
+      "actual full canonical trace binds recorded data without a neural witness"
+  , Local.LocalTreeAnchor
+      "NativeRlStoreLoadedReplay"
+      "native physical final serving replay DATA and preflight"
+      "exact independently encoded JMW1 tensor passes DATA consistency only"
+  , Local.LocalTreeAnchor
+      "NativePhysicalRead"
+      "native concrete physical read controls"
+      "actual claim is fetched through the same captured session and ordinary decoder"
+  , Local.LocalTreeAnchor
+      "NativeReportExecution"
+      "total product execution admission"
+      "actual neural admission embeds and recovers without changing identity"
+  , Local.LocalTreeAnchor
+      "NativeCanonicalPublisher"
+      "native canonical publication boundaries"
+      "DQN callback eligibility refuses before admitted argument"
+  , Local.LocalTreeAnchor
+      "NativeRlStoredServing"
+      "native completed serving concrete storage DATA and preflight"
+      "exact manifest address and matching completed pointer result pass DATA only"
+  , Local.LocalTreeAnchor
+      "NativeDetachedArtifactRead"
+      "native bounded detached artifact actual physical reads"
+      "closed key builder accepts actual Matrix experiment namespaces as ordinary DATA"
+  , Local.LocalTreeAnchor
+      "NativeQualificationReceiptData"
+      "native qualification bounded metadata DATA"
+      "ordinary direct metadata roundtrips without restoring its opaque payloads"
+  , Local.LocalTreeAnchor
+      "NativeScenarioReceiptData"
+      "native scenario parent receipt DATA"
+      "complete ordinary record roundtrips every retained field without creating a certificate"
+  , Local.LocalTreeAnchor
+      "NativeParentPolicyData"
+      "native parent recorded policy DATA"
+      "complete PPO ordinary evaluation decodes losslessly"
+  , Local.LocalTreeAnchor
+      "NativeParentCompletionData"
+      "native parent completion DATA"
+      "identical ordinary scalar records compare without minting a capability"
+  , Local.LocalTreeAnchor
+      "NativeParentEvaluationSummaryData"
+      "native parent evaluation summary DATA"
+      "actual public fixed evaluator replay DATA binds all eleven host summary positions"
+  , Local.LocalTreeAnchor
+      "NativeSourceJournalV5"
+      "native source journal v5 and binding DATA"
+      "empty native scalar preserves the exact previous nineteen-field v2 semantic transport"
+  , Local.LocalTreeAnchor
+      "NativeParentBindingData"
+      "native parent recorded identity and topology DATA"
+      "matching ordinary identity heads still refuse the fake physical allocation"
+  , Local.LocalTreeAnchor
+      "NativeParentPhysicalRead"
+      "native parent actual physical reader preflight and DATA"
+      "actual poisoned reference refuses before publication configuration or physical reads"
+  , Local.LocalTreeAnchor
+      "NativeParentExecution"
+      "native parent owned execution preflight"
+      "poisoned request refuses before batch Env source FILE or owned launch"
+  , Local.LocalTreeAnchor
+      "NativeParentEvaluationReplay"
+      "native parent actual evaluation preflight"
+      "actual poisoned policy refuses before inspecting Store or selecting a device"
+  , Local.LocalTreeAnchor
+      "NativeProcessSpawn"
+      "native actual subprocess spawn observation"
+      "real shell PID and PPID equal the handle observation and actual parent process"
+  , Local.LocalTreeAnchor
+      "NativeParentAttemptRetention"
+      "native parent attempt filesystem retention"
+      "actual reservation retains exact issued bytes and canonical run row lane slot"
+  , Local.LocalTreeAnchor
+      "NativeQualificationGc"
+      "native qualification GC reachability DATA"
+      "live metadata retains its allocation ordered phases and all eleven replay objects"
+  , Local.LocalTreeAnchor
+      "NativeRlExecution"
+      "native concrete child execution actual preflight"
+      "actual poisoned batch refuses before producer replay storage or publication"
+  , Local.LocalTreeAnchor
+      "NativeRlReplayRetention"
+      "native eleven replay retention actual preflight"
+      "actual poisoned serving input refuses before session physical reads or writes"
+  , Local.LocalTreeAnchor
+      "NativeQualificationPublication"
+      "native child qualification publication actual preflight"
+      "actual poisoned retained input refuses before session metadata or writer actions"
+  , Local.LocalTreeAnchor
+      "NativeQualificationReference"
+      "native detached qualification reference DATA"
+      "closed reference DATA roundtrips canonical bytes without authenticating execution"
+  , Local.LocalTreeAnchor
+      "NativeReplayObjectData"
+      "native evaluation replay object DATA"
+      "actual fixed evaluator projection roundtrips a closed replay object"
+  , Local.LocalTreeAnchor
+      "NativeRecordedCheckpointData"
+      "native recorded checkpoint DATA"
+      "public writer-prepared candidate commit returns the exact ordinary manifest and commit"
+  , Local.LocalTreeAnchor
+      "NativeLaneBundleAdmission"
+      "portable native Lane admission boundary"
+      "current nonnative discovery retains an explicitly empty native field"
+  , Local.LocalTreeAnchor
+      "NativeLaneBundleData"
+      "portable native Lane bundle DATA"
+      "ordinary complete Binding19 receipt and ordered physical inventory roundtrip"
+  , Local.LocalTreeAnchor
+      "NativeLaneBundleFiles"
+      "portable native bundle actual FILE utilities"
+      "fresh nested parents become real nonlink directories"
+  , Local.LocalTreeAnchor
+      "GenericArsHostPublication"
+      "generic ARS actual host publication"
+      "actual public run owns its exact generic experiment and compiled identity"
+  , Local.LocalTreeAnchor
+      "Phase278ContextResolution"
+      "Phase278ContextResolution"
+      "missing observations leave every named prerequisite unproven"
+  , Local.LocalTreeAnchor
+      "LaneRegistration"
+      "separately selected lane generation registration"
+      "ordered contract digest matches independent ASCII known answer"
+  , Local.LocalTreeAnchor
+      "CriterionReviewData"
+      "CriterionReviewData"
+      "review identity roundtrips without granting execution authority"
+  ]
+
+localRegistryGuard :: [Local.LocalRegistration] -> [(Text.Text, TestTree)] -> TestTree
+localRegistryGuard registrations actualTrees =
+  testCase "the committed local-family inventory and actual tree anchors are exact" $ do
+    assertEqual
+      "local registration failures"
+      []
+      (Local.localRegistrationFailures expectedLocalFamilies registrations)
+    assertEqual
+      "actual local tree anchor failures"
+      []
+      (Local.localTreeAnchorFailures expectedLocalTreeAnchors actualTrees)
+
+localRegistryGuards :: TestTree
+localRegistryGuards =
+  testGroup
+    "local product family registration guards"
+    [ localRegistryGuard Local.committedLocalRegistrations committedLocalFamilyTrees
+    , testCase "dropping every family is rejected against the independent inventory" $
+        rejects (fmap Local.MissingLocalFamily (sort expectedLocalFamilies)) []
+    , testCase "dropping any single expected family fails the actual guard" $
+        forM_ expectedLocalFamilies $ \family ->
+          rejects
+            [Local.MissingLocalFamily family]
+            (filter ((/= family) . Local.registeredLocalFamily) Local.committedLocalRegistrations)
+    , testCase "duplicating any family fails the actual guard" $
+        forM_ expectedLocalFamilies $ \family -> do
+          registration <- requireOne family
+          rejects
+            [Local.DuplicateLocalFamily family]
+            (Local.committedLocalRegistrations <> [registration])
+    , testCase "assigning a family to another real producer fails the actual guard" $
+        forM_ expectedLocalFamilies $ \family -> do
+          registration <- requireOne family
+          other <- requireOne (if family == "LearningSignal" then "OnPolicyHorizon" else "LearningSignal")
+          let misassigned = registration {Local.registeredLocalProducer = Local.registeredLocalProducer other}
+              registrations =
+                fmap
+                  (\current -> if Local.registeredLocalFamily current == family then misassigned else current)
+                  Local.committedLocalRegistrations
+          rejects [Local.MisassignedLocalFamily family (Local.registeredLocalFamily other)] registrations
+    , testCase "an undeclared alias cannot smuggle a duplicate producer into the gate" $
+        rejects
+          [ Local.UnexpectedLocalFamily "UnknownLocalFamily"
+          , Local.MisassignedLocalFamily "UnknownLocalFamily" "LearningSignal"
+          ]
+          ( Local.committedLocalRegistrations
+              <> [Local.LocalRegistration "UnknownLocalFamily" Local.LearningSignalProducer]
+          )
+    , testCase "a correct family and producer name cannot hide any wrong actual tree" $ do
+        assertEqual
+          "unchanged correct names"
+          []
+          (Local.localRegistrationFailures expectedLocalFamilies Local.committedLocalRegistrations)
+        forM_ expectedLocalTreeAnchors $ \anchor -> do
+          let family = Local.anchorLocalFamily anchor
+              otherFamily = if family == "LearningSignal" then "OnPolicyHorizon" else "LearningSignal"
+          other <- requireTree otherFamily
+          let swapped = [(name, if name == family then other else tree) | (name, tree) <- committedLocalFamilyTrees]
+          rejectTrees
+            [ Local.WrongLocalTreeRoot family (Local.anchorLocalRoot anchor)
+            , Local.MissingLocalTreeLeafAnchor family (Local.anchorLocalLeaf anchor)
+            ]
+            swapped
+    , testCase "an empty actual family tree fails the actual guard" $ do
+        let family = "LearningSignal"
+            root = "Additional supervised learning signal"
+            leaf = "ten-class exact random boundary is 136 correct of 1000"
+            emptied =
+              [ (name, if name == family then testGroup root [] else tree)
+              | (name, tree) <- committedLocalFamilyTrees
+              ]
+        rejectTrees
+          [Local.EmptyLocalFamilyTree family, Local.MissingLocalTreeLeafAnchor family leaf]
+          emptied
+    , testCase "duplicate actual leaf paths fail the actual guard" $ do
+        let family = "LearningSignal"
+            root = "Additional supervised learning signal"
+            leaf = "ten-class exact random boundary is 136 correct of 1000"
+            duplicateTree = testGroup root [testCase leaf (pure ()), testCase leaf (pure ())]
+            duplicated =
+              [(name, if name == family then duplicateTree else tree) | (name, tree) <- committedLocalFamilyTrees]
+        rejectTrees [Local.DuplicateLocalTreeLeaf family (Text.pack (root <> "." <> leaf))] duplicated
+    , testCase "actual tree enumeration never acquires a fixture resource" $ do
+        calls <- newIORef (0 :: Int)
+        let family = "ResourceEnumerationFixture"
+            root = "resource anchor fixture"
+            leaf = "resource leaf"
+            tree = withResource (modifyIORef' calls (+ 1)) (const (pure ())) $ \_ ->
+              testGroup root [testCase leaf (pure ())]
+        assertEqual
+          "resource-backed structure"
+          []
+          ( Local.localTreeAnchorFailures
+              [Local.LocalTreeAnchor family (Text.pack root) (Text.pack leaf)]
+              [(family, tree)]
+          )
+        readIORef calls >>= assertEqual "enumeration acquired no resource" 0
+    , testCase "empty or duplicate expected tree anchors cannot weaken the guard" $ do
+        assertEqual
+          "empty expected anchors"
+          [Local.EmptyExpectedLocalTreeInventory]
+          (Local.localTreeAnchorFailures [] [])
+        let anchor = Local.LocalTreeAnchor "ResourceEnumerationFixture" "root" "leaf"
+            tree = testGroup "root" [testCase "leaf" (pure ())]
+        assertEqual
+          "duplicate expected anchors"
+          [Local.DuplicateExpectedLocalTreeFamily "ResourceEnumerationFixture"]
+          (Local.localTreeAnchorFailures [anchor, anchor] [("ResourceEnumerationFixture", tree)])
+    , testCase "an empty expected inventory cannot validate an empty registry" $
+        assertEqual
+          "empty inventory"
+          [Local.EmptyExpectedLocalInventory]
+          (Local.localRegistrationFailures [] [])
+    , testCase "duplicate expected obligations are rejected" $
+        assertEqual
+          "duplicate expected family"
+          [Local.DuplicateExpectedLocalFamily "LearningSignal"]
+          ( Local.localRegistrationFailures
+              (expectedLocalFamilies <> ["LearningSignal"])
+              Local.committedLocalRegistrations
+          )
+    ]
+ where
+  requireOne family = case filter ((== family) . Local.registeredLocalFamily) Local.committedLocalRegistrations of
+    [registration] -> pure registration
+    _ -> fail ("local-family fixture is missing or duplicated: " <> Text.unpack family)
+  rejects expected registrations = do
+    assertEqual
+      "specific registry rejection"
+      (sort expected)
+      (sort (Local.localRegistrationFailures expectedLocalFamilies registrations))
+    accepted <-
+      treeSucceeds (localRegistryGuard registrations (Local.registeredLocalFamilyTrees registrations))
+    assertBool "a broken committed registry unexpectedly passed its actual tasty guard" (not accepted)
+  requireTree family = case [tree | (name, tree) <- committedLocalFamilyTrees, name == family] of
+    [tree] -> pure tree
+    _ -> fail ("local-family tree fixture is missing or duplicated: " <> Text.unpack family)
+  rejectTrees expected trees = do
+    assertEqual
+      "specific actual tree rejection"
+      (sort expected)
+      (sort (Local.localTreeAnchorFailures expectedLocalTreeAnchors trees))
+    accepted <- treeSucceeds (localRegistryGuard Local.committedLocalRegistrations trees)
+    assertBool "a wrong actual tree passed its structural guard" (not accepted)

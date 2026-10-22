@@ -3,11 +3,13 @@
 module Main where
 
 import Data.Foldable (for_)
+import Data.IORef (modifyIORef', newIORef, readIORef)
 import Data.Text qualified as Text
 import Data.Text.IO qualified as Text.IO
 import Test.Tasty (defaultMain, testGroup)
 import Test.Tasty.HUnit (assertBool, assertFailure, testCase, (@?=))
 
+import AlphaZeroArenaBackendControls qualified
 import Control.Exception qualified
 import Data.Bifunctor qualified as Bifunctor
 import Data.Bits qualified as Bits
@@ -69,6 +71,8 @@ import JitML.Numerics.Mlp
   , mlpForward
   , mlpInit
   , mlpInputGradient
+  , mlpZeroGradient
+  , softmax
   )
 import JitML.Numerics.MlpCuda
   ( mlpBackwardCuda
@@ -77,8 +81,11 @@ import JitML.Numerics.MlpCuda
   , mlpForwardCuda
   , mlpInputGradientBatchCuda
   )
+import JitML.Numerics.MlpDevice qualified as MlpDevice
+import JitML.Numerics.MlpDeviceSelect qualified as MlpDeviceSelect
 import JitML.Numerics.MlpMetal
-  ( mlpBackwardMetal
+  ( metalMlpDevice
+  , mlpBackwardMetal
   , mlpBatchGradientMetal
   , mlpForwardBatchMetal
   , mlpForwardMetal
@@ -92,6 +99,8 @@ import JitML.Numerics.MlpOneDnn
   , mlpInputGradientBatchOneDnn
   )
 import JitML.Numerics.MlpOneDnn qualified as MlpOneDnn
+import JitML.Product.DeviceWitness qualified as DeviceWitness
+import JitML.RL.Algorithms.Common qualified as AlgorithmCommon
 import JitML.RL.Algorithms.ContinuousTrainer
   ( ContinuousIterationStat (..)
   , ContinuousTrainConfig (..)
@@ -125,11 +134,15 @@ import JitML.RL.Algorithms.PpoTrainer
   , PpoIterationStat (..)
   , PpoTrainConfig (..)
   , PpoTrainResult (..)
+  , RolloutBoundary (..)
+  , RolloutStep (..)
   , defaultPpoTrainConfig
   , trainOnPolicyOnCartpoleCuda
   , trainOnPolicyOnCartpoleMetal
   , trainOnPolicyOnCartpoleOneDnn
+  , trpoFisherVectorProductDevice
   )
+import JitML.RL.Algorithms.PpoTrainer qualified as PpoTrainer
 import JitML.RL.Algorithms.QrDqnTrainer
   ( QrDqnIterationStat (..)
   , QrDqnTrainConfig (..)
@@ -141,18 +154,223 @@ import JitML.RL.Algorithms.QrDqnTrainer
   )
 import JitML.RL.AlphaZero (initialConnect4)
 import JitML.RL.AlphaZero.PolicyValueNet qualified as PVN
+import JitML.RL.CountExploration qualified as Count
+import JitML.RL.Simulator qualified as Sim
+import JitML.RL.VecEnv qualified as Vec
 import JitML.Substrate qualified as Substrate
 import Path (toFilePath)
-import System.Directory (doesFileExist, getModificationTime, listDirectory)
+import System.Directory (doesFileExist, getCurrentDirectory, getModificationTime, listDirectory)
 import System.Environment (lookupEnv)
-import System.FilePath ((</>))
+import System.FilePath (makeRelative, (</>))
 import System.IO.Temp (withSystemTempDirectory)
+import System.Random qualified as Random
 
 expectRight :: String -> Either Text.Text a -> IO a
 expectRight label result =
   case result of
     Right value -> pure value
     Left err -> assertFailure (label <> ": " <> Text.unpack err)
+
+-- These run after the corresponding real device operation returned. The
+-- witness is minted from that artifact, rather than a declared test label.
+assertLayerGraphWitness :: Substrate.Substrate -> Text.Text -> Env -> IO ()
+assertLayerGraphWitness substrate expected env = do
+  witness <-
+    LayerGraphDevice.layerGraphDeviceExecutionWitness substrate env
+      >>= expectRight "layer-graph execution witness"
+  backend <- expectRight "layer-training backend" (LayerGraphDevice.layerTrainingBackendFor substrate)
+  DeviceWitness.witnessSubstrate witness @?= substrate
+  DeviceWitness.witnessBackend witness @?= expected
+  LayerGraphDevice.layerTrainingBackendIdentity backend @?= DeviceWitness.witnessBackend witness
+
+assertMlpWitness :: Substrate.Substrate -> Text.Text -> Env -> IO ()
+assertMlpWitness substrate expected env = do
+  observed <-
+    MlpDevice.mlpdExecutionWitness (MlpDeviceSelect.mlpDeviceForSubstrate substrate env)
+      >>= expectRight "MLP execution witness"
+  case observed of
+    Nothing -> assertFailure "a real MLP execution returned no device witness"
+    Just witness -> do
+      DeviceWitness.witnessSubstrate witness @?= substrate
+      DeviceWitness.witnessBackend witness @?= expected
+      Engine.engineBackend (Engine.engineForSubstrate substrate) @?= DeviceWitness.witnessBackend witness
+
+-- | Actual selected-device final-policy scoring, with dispatch counted around
+-- the real backend. The synthetic environment tests the evaluator, not a bar.
+assertOnPolicyDeviceEvaluation :: String -> MlpDevice.MlpDevice -> IO ()
+assertOnPolicyDeviceEvaluation label actualDevice = do
+  calls <- newIORef (0 :: Int)
+  let params =
+        MlpParams
+          (MlpShape 1 1 3)
+          (VU.singleton 0.0)
+          (VU.singleton 0.0)
+          (VU.replicate 3 0.0)
+          (VU.fromList [0.0, 2.0, 0.0])
+      config =
+        defaultPpoTrainConfig
+          { ppoVariant = VariantTRPO
+          , ppoObsSize = 1
+          , ppoHiddenUnits = 1
+          , ppoMaxEpisodeSteps = 5
+          }
+      environment =
+        Sim.SimulatedEnvironment
+          { Sim.envName = "device-evaluation-control"
+          , Sim.envInitial = 0 :: Int
+          , Sim.envStep = \state action -> Sim.SimStep (state + 1) (fromIntegral action) (state >= 2)
+          , Sim.envRenderFrame = \state -> Sim.RenderFrame [fromIntegral state] "device evaluation control"
+          , Sim.envActionCount = 2
+          , Sim.envObservationSize = 1
+          , Sim.envMaxEpisodeSteps = 5
+          , Sim.envActionMask = Nothing
+          , Sim.envTrainingStart = Nothing
+          }
+      device =
+        actualDevice
+          { MlpDevice.mlpdForward = \current observation -> do
+              current @?= params
+              modifyIORef' calls (+ 1)
+              MlpDevice.mlpdForward actualDevice current observation
+          }
+      evaluate current =
+        PpoTrainer.evaluateOnPolicyOnDeviceWithEnvironment
+          device
+          (Sim.SomeSimulatedEnvironment environment)
+          current
+          params
+  completed <- evaluate config 2 >>= expectRight (label <> " final policy evaluation")
+  completed @?= replicate 2 (AlgorithmCommon.EvaluationEpisodeResult 3.0 3 True)
+  truncated <-
+    evaluate (config {ppoMaxEpisodeSteps = 2}) 1 >>= expectRight (label <> " final policy horizon")
+  truncated @?= [AlgorithmCommon.EvaluationEpisodeResult 2.0 2 False]
+  readIORef calls >>= (@?= 8)
+
+-- | Time-limit bootstrap executes the real lane at the pre-reset successor.
+assertOnPolicyTimeLimitBootstrap :: String -> MlpDevice.MlpDevice -> IO ()
+assertOnPolicyTimeLimitBootstrap label actualDevice = do
+  batches <- newIORef []
+  let params =
+        MlpParams
+          (MlpShape 1 1 3)
+          (VU.singleton 1.0)
+          (VU.singleton 0.0)
+          (VU.fromList [0.0, 0.0, 3.0])
+          (VU.fromList [0.0, 0.0, 2.0])
+      config =
+        defaultPpoTrainConfig
+          { ppoObsSize = 1
+          , ppoHiddenUnits = 1
+          , ppoRolloutSteps = 2
+          , ppoMaxEpisodeSteps = 1
+          , ppoGamma = 0.9
+          , ppoLambda = 0.8
+          }
+      environment =
+        Sim.SimulatedEnvironment
+          { Sim.envName = "device-horizon-control"
+          , Sim.envInitial = 0 :: Int
+          , Sim.envStep = \_ _ -> Sim.SimStep 10 1.0 False
+          , Sim.envRenderFrame = \state -> Sim.RenderFrame [fromIntegral state] "device horizon control"
+          , Sim.envActionCount = 2
+          , Sim.envObservationSize = 1
+          , Sim.envMaxEpisodeSteps = 3
+          , Sim.envActionMask = Nothing
+          , Sim.envTrainingStart = Nothing
+          }
+      device =
+        actualDevice
+          { MlpDevice.mlpdForwardBatch = \current observations -> do
+              current @?= params
+              modifyIORef' batches (<> [fmap VU.toList observations])
+              MlpDevice.mlpdForwardBatch actualDevice current observations
+          }
+      (initial, generator) = Vec.mkVecEnv environment 1 (Random.mkStdGen 42)
+  count <- Count.newCountTable
+  (vectorized, _, _) <-
+    PpoTrainer.collectRolloutVectorizedOnDevice device count environment config params initial generator
+      >>= expectRight (label <> " pre-reset bootstrap")
+  let rollout = PpoTrainer.vectorizedRollout vectorized
+      (advantages, targets) = PpoTrainer.computeAdvantages config rollout
+  for_ (PpoTrainer.rolloutSteps rollout) $ \sample -> case PpoTrainer.rsBoundary sample of
+    RolloutTruncated value -> assertBool "device lost the pre-reset value" (abs (value - 5.0) < 1.0e-6)
+    other -> assertFailure ("wrong device rollout boundary: " <> show other)
+  assertBool
+    "device GAE used reset value or leaked through the episode boundary"
+    (length advantages == 2 && all (\value -> abs (value - 3.5) < 1.0e-6) advantages)
+  assertBool
+    "device value targets omitted time-limit bootstrap"
+    (length targets == 2 && all (\value -> abs (value - 5.5) < 1.0e-6) targets)
+  readIORef batches >>= (@?= [[[0.0]], [[10.0]], [[0.0]], [[10.0]]])
+
+-- | The same real-device sparse-W2 counterexample runs in each available
+-- lane; the old Float32 finite difference loses its undamped contribution.
+assertTrpoFisherHomogeneity :: String -> MlpDevice.MlpDevice -> IO ()
+assertTrpoFisherHomogeneity label device = do
+  let params =
+        MlpParams
+          (MlpShape 4 1 3)
+          (VU.fromList [0.25, 0.0, 0.0, 0.0])
+          (VU.singleton 0.2)
+          (VU.fromList [0.3, -0.2, 0.1])
+          (VU.fromList [0.1, -0.1, 0.0])
+      observation = VU.fromList [0.4, 0.0, 0.0, 0.0]
+      config =
+        defaultPpoTrainConfig
+          { ppoVariant = VariantTRPO
+          , ppoHiddenUnits = 1
+          }
+      zero = mlpZeroGradient (paramShape params)
+      direction = zero {gradW2 = VU.fromList [1.0, 0.0, 0.0]}
+      flatten gradient =
+        VU.concat [gradW1 gradient, gradB1 gradient, gradW2 gradient, gradB2 gradient]
+      scale factor gradient =
+        MlpGradient
+          (VU.map (* factor) (gradW1 gradient))
+          (VU.map (* factor) (gradB1 gradient))
+          (VU.map (* factor) (gradW2 gradient))
+          (VU.map (* factor) (gradB2 gradient))
+      finite value = not (isNaN value || isInfinite value)
+  outputs <-
+    MlpDevice.mlpdForwardBatch device params [observation]
+      >>= expectRight (label <> " TRPO policy forward")
+  output <- case outputs of
+    [value] -> pure value
+    _ -> assertFailure (label <> " TRPO policy forward returned the wrong batch size")
+  let policy = softmax (VU.take 2 output)
+      step =
+        RolloutStep
+          { rsObs = observation
+          , rsAction = 0
+          , rsLogProb = log (policy VU.! 0)
+          , rsValue = output VU.! 2
+          , rsReward = 1.0
+          , rsBoundary = RolloutContinues
+          , rsPolicy = policy
+          , rsActionMask = Nothing
+          , rsRecurrentState = VU.empty
+          }
+      fisher = trpoFisherVectorProductDevice device config [(step, 1.0, 1.0)] params
+  baseline <- fisher direction >>= expectRight (label <> " TRPO unit-direction Fisher")
+  let undamped =
+        VU.zipWith (-) (flatten baseline) (VU.map (* ppoTrpoCgDamping config) (flatten direction))
+  assertBool
+    "the fixture has a nonzero device-measured Fisher contribution beyond damping"
+    (VU.any (\value -> abs value > 1.0e-3) undamped)
+  -- A fixed epsilon times these directions disappears when the
+  -- nonzero W2 weight is marshalled to Float32. Normalize before
+  -- perturbing and rescale after the device gradient instead.
+  for_ [1.0e-8, -1.0e-8, 1.0e-160] $ \factor -> do
+    scaled <- fisher (scale factor direction) >>= expectRight (label <> " TRPO tiny-direction Fisher")
+    let expected = VU.map (* factor) (flatten baseline)
+        actual = flatten scaled
+        errorBound = abs factor * 1.0e-6
+    assertBool "scaled Fisher is finite" (VU.all finite actual)
+    assertBool
+      (label <> " Fisher preserves homogeneity at direction scale " <> show factor)
+      (VU.and (VU.zipWith (\a b -> abs (a - b) <= errorBound) expected actual))
+  zeroResult <- fisher zero >>= expectRight (label <> " TRPO zero-direction Fisher")
+  flatten zeroResult @?= flatten zero
 
 -- | Compile one rendered source twice, at two distinct cache addresses, and
 -- return the two artifacts' bytes.
@@ -550,6 +768,7 @@ main =
               3.0e-3
               (LayerGraphDevice.layerGraphDeviceGradient run)
               reference
+            assertLayerGraphWitness Substrate.AppleSilicon "apple-metal-fixed-bridge" env
             let evidence = LayerGraphDevice.layerGraphDeviceEvidence run
             length evidence @?= length deviceSupportedLayerKinds
             assertBool
@@ -651,12 +870,14 @@ main =
           "linux-cpu MLP cold-cache compile/load/run honors a custom cache directory"
           $ withSystemTempDirectory "jitml-mlp-custom-cache"
           $ \temporaryRoot -> do
+            cwd <- getCurrentDirectory
             env <- buildEnv defaultGlobalFlags {globalCacheDir = Just (temporaryRoot </> "custom cache")}
             let source = MlpOneDnn.mlpOneDnnRuntimeSource
                 hash = MlpOneDnn.mlpOneDnnHash
                 hashName = Text.unpack (Cache.hashHex hash)
                 cacheRoot = toFilePath (envCacheDir env)
                 expectedArtifact = cacheRoot </> "jit" </> "linux-cpu" </> hashName <> ".so"
+                expectedHandlePath = makeRelative cwd expectedArtifact
                 expectedSources = cacheRoot </> "jit-src" </> "linux-cpu" </> hashName
                 ensureArtifact = do
                   result <- Loader.ensureKernelArtifact env (Engine.engineForSubstrate Substrate.LinuxCPU) source hash
@@ -672,7 +893,7 @@ main =
             cold <- ensureArtifact
             assertBool "the cold custom cache compiles the MLP artifact" (Loader.kernelArtifactCompiled cold)
             let handle = Loader.kernelArtifactHandle cold
-            Engine.kernelHandleArtifactPath handle @?= Text.pack expectedArtifact
+            Engine.kernelHandleArtifactPath handle @?= Text.pack expectedHandlePath
             case Loader.kernelArtifactStatus cold of
               Engine.JitCacheMiss _ _ -> pure ()
               status -> assertFailure ("expected a custom-cache miss, got " <> show status)
@@ -717,6 +938,7 @@ main =
               Left message ->
                 assertBool ("MLP forward oneDNN run failed: " <> Text.unpack message) False
               Right fwd -> do
+                assertMlpWitness Substrate.LinuxCPU "onednn" env
                 assertBool
                   "oneDNN hidden_pre within tolerance of reference"
                   (approxEqualVec 1.0e-3 (forwardHiddenPre fwd) (forwardHiddenPre refForward))
@@ -776,6 +998,7 @@ main =
               1.0e-3
               (LayerGraphDevice.layerGraphDeviceGradient run)
               pureGradient
+            assertLayerGraphWitness Substrate.LinuxCPU "linux-cpu-onednn" env
             let evidence = LayerGraphDevice.layerGraphDeviceEvidence run
                 -- Phase 241: the lowering is total, so every node executes a
                 -- device kernel and every node reports evidence — including the
@@ -1517,6 +1740,7 @@ main =
               1.0e-3
               (LayerGraphDevice.layerGraphDeviceGradient run)
               pureGradient
+            assertLayerGraphWitness Substrate.LinuxCUDA "linux-cuda-cudnn" env
             let evidence = LayerGraphDevice.layerGraphDeviceEvidence run
             length evidence @?= length deviceSupportedLayerKinds
             assertBool
@@ -2034,6 +2258,7 @@ main =
               Left message ->
                 assertBool ("MLP forward CUDA run failed: " <> Text.unpack message) False
               Right cudaForward -> do
+                assertMlpWitness Substrate.LinuxCUDA "cuda" env
                 assertBool
                   ( "CUDA hidden_pre within tolerance of reference: cuda="
                       <> show (VU.toList (forwardHiddenPre cudaForward))
@@ -2681,8 +2906,45 @@ main =
                 assertBool
                   "device-trained policy/value loss should decrease"
                   (lossOf netN < lossOf net0)
+      , testCase "linux-cpu AlphaZero arena uses the selected real device (Phase 278)" $ do
+          env <- buildEnv defaultGlobalFlags
+          AlphaZeroArenaBackendControls.assertAlphaZeroArenaOnDevice
+            Substrate.LinuxCPU
+            (MlpDeviceSelect.mlpDeviceForSubstrate Substrate.LinuxCPU env)
+      , testCase "apple-silicon AlphaZero arena uses the selected real device (Phase 278)" $ do
+          env <- buildEnv defaultGlobalFlags
+          AlphaZeroArenaBackendControls.assertAlphaZeroArenaOnDevice
+            Substrate.AppleSilicon
+            (MlpDeviceSelect.mlpDeviceForSubstrate Substrate.AppleSilicon env)
+      , testCase "linux-cuda AlphaZero arena uses the selected real device (Phase 278)" $ do
+          env <- buildEnv defaultGlobalFlags
+          AlphaZeroArenaBackendControls.assertAlphaZeroArenaOnDevice
+            Substrate.LinuxCUDA
+            (MlpDeviceSelect.mlpDeviceForSubstrate Substrate.LinuxCUDA env)
+      , testCase "linux-cpu on-policy GAE bootstraps time limits on the real device (Phase 278)" $ do
+          env <- buildEnv defaultGlobalFlags
+          assertOnPolicyTimeLimitBootstrap "oneDNN" (MlpOneDnn.oneDnnMlpDevice env)
+      , testCase "apple-silicon on-policy GAE bootstraps time limits on the real device (Phase 278)" $ do
+          env <- buildEnv defaultGlobalFlags
+          assertOnPolicyTimeLimitBootstrap "Metal" (metalMlpDevice env)
+      , testCase "linux-cpu final on-policy evaluation uses the selected real device (Phase 278)" $ do
+          env <- buildEnv defaultGlobalFlags
+          assertOnPolicyDeviceEvaluation "oneDNN" (MlpOneDnn.oneDnnMlpDevice env)
+      , testCase "apple-silicon final on-policy evaluation uses the selected real device (Phase 278)" $ do
+          env <- buildEnv defaultGlobalFlags
+          assertOnPolicyDeviceEvaluation "Metal" (metalMlpDevice env)
+      , testCase
+          "linux-cpu TRPO Fisher preserves tiny-direction homogeneity on the real device (Phase 278)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            assertTrpoFisherHomogeneity "oneDNN" (MlpOneDnn.oneDnnMlpDevice env)
       , -- Metal MLP: validated in the host-native apple-silicon lane.
         testCase
+          "apple-silicon TRPO Fisher preserves tiny-direction homogeneity on the real device (Phase 278)"
+          $ do
+            env <- buildEnv defaultGlobalFlags
+            assertTrpoFisherHomogeneity "Metal" (metalMlpDevice env)
+      , testCase
           "apple-silicon batched MLP gradient is bit-identical to the aligned float32 oracle (Phase 271)"
           $ do
             env <- buildEnv defaultGlobalFlags
@@ -2738,6 +3000,7 @@ main =
               Left message ->
                 assertBool ("MLP forward Metal run failed: " <> Text.unpack message) False
               Right fwd -> do
+                assertMlpWitness Substrate.AppleSilicon "metal" env
                 assertBool
                   "Metal hidden_act within tolerance of reference"
                   (approxEqualVec 1.0e-3 (forwardHiddenAct fwd) (forwardHiddenAct refForward))

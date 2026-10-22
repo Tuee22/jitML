@@ -9,6 +9,7 @@ module JitML.SL.TinyImageNet
   , decodeTinyImageNetJpeg
   , decodeTinyImageNetArchiveBoundedDataset
   , decodeTinyImageNetArchiveBoundedClassificationDataset
+  , tinyImageNetTrainingSelectionContract
   )
 where
 
@@ -49,6 +50,12 @@ data TinyImageNetValAnnotation = TinyImageNetValAnnotation
   }
   deriving stock (Eq, Show)
 
+-- | The bounded training recipe interleaves canonical class labels before
+-- taking a prefix. Bind this version into the plan and evidence identities so
+-- the old class-contiguous training recipe cannot attest the new selection.
+tinyImageNetTrainingSelectionContract :: Text
+tinyImageNetTrainingSelectionContract = "tiny-imagenet-training-class-interleaved-v1"
+
 parseTinyImageNetWnids :: ByteString -> Either String [Text]
 parseTinyImageNetWnids bytes = do
   text <- decodeUtf8 "wnids" bytes
@@ -59,7 +66,10 @@ parseTinyImageNetWnids bytes = do
         ]
   if null wnids
     then Left "tiny-imagenet wnids: no class ids"
-    else Right wnids
+    else
+      if length wnids /= length (List.nub wnids)
+        then Left "tiny-imagenet wnids: duplicate class ids"
+        else Right wnids
 
 parseTinyImageNetWords :: ByteString -> Either String [TinyImageNetClass]
 parseTinyImageNetWords bytes = do
@@ -208,24 +218,30 @@ decodeTinyImageNetArchive split subsetLimit archive labelMap =
       decodeValidationImages archive labelMap subsetLimit
 
 decodeTrainingImages :: TinyZipArchive -> Map.Map Text Int -> Maybe Int -> Either String Dataset
-decodeTrainingImages archive labelMap subsetLimit =
+decodeTrainingImages archive labelMap subsetLimit = do
+  -- Inspect every path before the bound, so an unknown class cannot disappear
+  -- through grouping or prefix selection. Image decompression stays bounded.
+  labeledEntries <- traverse labelEntry (filter isTrainingJpeg (tinyZipEntries archive))
+  let byClass = Map.fromListWith (<>) [(label, [(entry, label)]) | (entry, label) <- labeledEntries]
+      classQueues = fmap (List.sortOn (tinyZipPath . fst)) (Map.elems byClass)
+      -- Labels retain wnids order; path order is stable within each class.
+      -- Transposing ragged queues keeps every image when classes differ in size.
+      selected = takeBound subsetLimit (concat (List.transpose classQueues))
   traverse decodeEntry selected
  where
-  selected =
-    takeBound subsetLimit $
-      List.sortOn tinyZipPath $
-        filter isTrainingJpeg (tinyZipEntries archive)
   isTrainingJpeg entry =
     let path = tinyZipPath entry
      in "tiny-imagenet-200/train/" `List.isPrefixOf` path
           && ".JPEG" `List.isSuffixOf` path
-  decodeEntry entry =
+  labelEntry entry =
     case trainClassIdFromPath (tinyZipPath entry) of
       Nothing -> Left ("tiny-imagenet train: cannot derive class id from " <> tinyZipPath entry)
       Just classId -> do
         label <- lookupLabel labelMap classId
-        features <- decodeTinyImageNetJpeg =<< inflateTinyZipEntry archive entry
-        Right (LabeledExample features label)
+        Right (entry, label)
+  decodeEntry (entry, label) = do
+    features <- decodeTinyImageNetJpeg =<< inflateTinyZipEntry archive entry
+    Right (LabeledExample features label)
 
 decodeValidationImages :: TinyZipArchive -> Map.Map Text Int -> Maybe Int -> Either String Dataset
 decodeValidationImages archive labelMap subsetLimit = do

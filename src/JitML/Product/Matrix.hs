@@ -59,6 +59,7 @@ module JitML.Product.Matrix
   , productResolvedRunPlan
   , projectProductRow
   , projectProductRows
+  , projectSupervisedSeedPlan
   , renderProductMatrixError
   , renderRowClass
   , renderRowFamily
@@ -120,6 +121,12 @@ import JitML.Product.Convergence
   , validateConvergenceBar
   , validatedConvergenceBar
   )
+import JitML.Product.SupervisedQualificationPolicy qualified as SupervisedPolicy
+import JitML.RL.Algorithms.ContinuousTrainer qualified as ContinuousTrainer
+import JitML.RL.Algorithms.DqnTrainer qualified as DqnTrainer
+import JitML.RL.Algorithms.HerTrainer qualified as HerTrainer
+import JitML.RL.Algorithms.PpoTrainer qualified as PpoTrainer
+import JitML.RL.Algorithms.QrDqnTrainer qualified as QrDqnTrainer
 import JitML.RL.AlphaZero qualified as AlphaZero
 import JitML.RL.ConvergenceThresholds qualified as RLConvergence
 import JitML.RL.ProductBudget qualified as ProductBudget
@@ -127,6 +134,7 @@ import JitML.SL.Architecture (ArchitectureFeature)
 import JitML.SL.Architecture qualified as SLArchitecture
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.ConvergenceThresholds qualified as SLConvergence
+import JitML.SL.TinyImageNet qualified as TinyImageNet
 import JitML.Substrate (Substrate (..), allSubstrates, renderSubstrate)
 import JitML.Training.Budget
   ( BudgetKind (..)
@@ -1080,6 +1088,78 @@ projectProductRows substrate rows =
     mapValidationErrors UnprojectableProductRow
       . projectProductRow substrate
 
+-- | Construct one prescribed singleton execution plan for a canonical compact
+-- qualification cohort. The serving child is the canonical ProductRow plan;
+-- every other child has an explicit seed override and a distinct evidence
+-- namespace. The immutable canonical projection, not caller-supplied quantities
+-- or a modified experiment file, owns the graph, lane and per-run budget.
+projectSupervisedSeedPlan
+  :: ProductProjection 'Plan.SupervisedTraining
+  -> SupervisedPolicy.SupervisedSeedIndex
+  -> Either Text SupervisedPlan
+projectSupervisedSeedPlan projection index = do
+  row <-
+    case filter ((== productProjectionRowId projection) . rowId) allProductRows of
+      [canonical] -> Right canonical
+      _ -> Left "supervised qualification requires exactly one canonical ProductRow"
+  canonical <-
+    case projectProductRow (productProjectionSubstrate projection) row of
+      Success (SomeProductProjection SupervisedTrainingWitness value) -> Right value
+      _ -> Left "supervised qualification canonical projection did not refine"
+  if projection == canonical
+    then Right ()
+    else Left "supervised qualification projection differs from the complete canonical row contract"
+  let descriptor = productProjectionDescriptor canonical
+      base = productPlanSeed row
+  headroom <-
+    maybe
+      (Left "supervised qualification architecture has no seed-headroom contract")
+      (Right . snd)
+      (productSeedHeadroom row descriptor)
+  -- productSeedHeadroom includes the other four prescribed cohort members.
+  seed <- SupervisedPolicy.supervisedSeedForIndex base (headroom - 4) index
+  case productProjectionResolvedPlan canonical of
+    ResolvedSupervisedProductPlan servingPlan
+      | SupervisedPolicy.supervisedSeedIndexValue index == 0 -> Right servingPlan
+      | otherwise ->
+          case descriptor of
+            SupervisedProductDescriptor trainingExamples evaluationExamples batchExamples _ ->
+              let suffix = "/supervised-qualification/" <> showText (SupervisedPolicy.supervisedSeedIndexValue index)
+                  subject =
+                    productSemanticSubject row descriptor (experimentConfig row)
+                      <> Text.concat
+                        ( fmap
+                            semanticField
+                            ["qualification-child-index", showText (SupervisedPolicy.supervisedSeedIndexValue index)]
+                        )
+                  request =
+                    rawProductRunRequest
+                      (productProjectionSubstrate canonical)
+                      row
+                      SupervisedTrainingWitness
+                      "training"
+                      subject
+                      (experimentConfig row <> suffix)
+                      ( RawSupervisedBudget
+                          (toInteger (trainingBudgetTargetUnits (trainingBudget row)))
+                          (toInteger trainingExamples)
+                          (toInteger evaluationExamples)
+                          (toInteger batchExamples)
+                          ( supervisedOptimizerUpdates
+                              (trainingBudgetTargetUnits (trainingBudget row))
+                              trainingExamples
+                              batchExamples
+                          )
+                      )
+                  childRequest =
+                    request
+                      { rawRunExperimentId = productRowExperimentHash row <> suffix
+                      , rawRunSeeds = [seed]
+                      }
+               in case resolveSupervisedPlan (RawSupervisedPlan childRequest) of
+                    Success plan -> Right plan
+                    Failure errors -> Left ("supervised qualification child plan did not refine: " <> showText errors)
+
 validateUniqueProductIdentities
   :: [ProductRow state]
   -> Validation (NonEmpty ProductMatrixError) ()
@@ -1380,13 +1460,11 @@ productSeedHeadroom row descriptor =
         Right problem ->
           case rowClass row of
             SupervisedRegression _ _ ->
-              -- Regression owns one MLP initialised directly at the resolved
-              -- seed and derives no child Int seed.
-              Just ("supervised regression MLP", 0)
+              Just ("supervised regression five-seed cohort", 4)
             _ ->
               Just
                 ( "supervised architecture " <> SL.problemModel problem
-                , SLArchitecture.architectureSeedHeadroomForProblem problem
+                , 4 + SLArchitecture.architectureSeedHeadroomForProblem problem
                 )
     RlProductDescriptor algorithm _ _ _ _ _ ->
       let trainer = ProductBudget.trainerKindForAlgorithm algorithm
@@ -1793,6 +1871,45 @@ productSemanticSubject row descriptor subject =
           ( rowClassSemanticFields (rowClass row)
               <> ["row-id", rowId row]
               <> descriptorSemanticFields descriptor
+              <> ( case descriptor of
+                     SupervisedProductDescriptor {} ->
+                       [ "supervised-qualification"
+                       , SupervisedPolicy.supervisedQualificationPolicyContract
+                       , "cohort-base-seed"
+                       , showText (productPlanSeed row)
+                       ]
+                     _ -> []
+                 )
+              <> ( if rowId row == "tiny-imagenet-resnet50"
+                     then ["training-selection", TinyImageNet.tinyImageNetTrainingSelectionContract]
+                     else []
+                 )
+              <> ( case rowClass row of
+                     RlAlgorithmEnvironment "TRPO" _ ->
+                       ["numerical-recipe", PpoTrainer.trpoFisherNumericalContract]
+                     _ -> []
+                 )
+              <> ( case rowClass row of
+                     RlAlgorithmEnvironment algorithm _
+                       | algorithm `elem` ["PPO", "A2C", "TRPO", "MaskablePPO", "RecurrentPPO"] ->
+                           [ "evaluation-recipe"
+                           , PpoTrainer.onPolicyEvaluationContract
+                           , "rollout-recipe"
+                           , PpoTrainer.onPolicyRolloutContract
+                           ]
+                     RlAlgorithmEnvironment "DQN" _ ->
+                       ["evaluation-recipe", DqnTrainer.dqnEvaluationContract]
+                     RlAlgorithmEnvironment "QR-DQN" _ ->
+                       ["evaluation-recipe", QrDqnTrainer.qrDqnEvaluationContract]
+                     RlAlgorithmEnvironment algorithm _
+                       | algorithm `elem` ["DDPG", "TD3", "SAC", "CrossQ", "TQC"] ->
+                           ["evaluation-recipe", ContinuousTrainer.continuousEvaluationContract]
+                     RlGoalConditioned _ ->
+                       ["evaluation-recipe", HerTrainer.herEvaluationContract]
+                     AlphaZeroGame _ ->
+                       ["evaluation-recipe", AlphaZero.alphaZeroEvaluationContract]
+                     _ -> []
+                 )
               <> ["subject", subject]
           )
     )

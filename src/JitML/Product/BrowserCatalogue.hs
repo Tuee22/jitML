@@ -182,7 +182,7 @@ data PublishedProductBrowserCatalogue = PublishedProductBrowserCatalogue
 
 data AdmittedProductBrowserCatalogueRow = AdmittedProductBrowserCatalogueRow
   { admittedCatalogueRowValue :: !ProductBrowserCatalogueRow
-  , admittedCatalogueCompletionValue :: !CheckpointStore.AdmittedCompletedCheckpoint
+  , admittedCatalogueCompletionValue :: !CheckpointStore.AdmittedExecutionCheckpoint
   }
   deriving stock (Eq, Show)
 
@@ -565,7 +565,7 @@ admitSourceRows batch authenticated catalogue = do
         admitted <- admitExactRow row
         pure $ do
           completion <- admitted
-          case Report.validateCompletedProductScenarioLiveAdmission
+          case Report.validateCompletedProductScenarioLiveExecutionAdmission
             projection
             evidence
             completion of
@@ -793,7 +793,7 @@ admitDecodedRows batch catalogue = do
         admitted <- admitExactRow row
         pure $ do
           completion <- admitted
-          let completed = CheckpointStore.admittedCompletedTraining completion
+          let completed = CheckpointStore.admittedExecutionCompletedTraining completion
               invocation = completedTrainingProductScenarioInvocation completed
               failures =
                 [ "live completed PlanId differs from catalogue/current projection"
@@ -847,15 +847,27 @@ admitExactRow
   -> m
        ( Either
            (NonEmpty ProductBrowserCatalogueError)
-           CheckpointStore.AdmittedCompletedCheckpoint
+           CheckpointStore.AdmittedExecutionCheckpoint
        )
 admitExactRow row = do
   admitted <-
-    CheckpointStore.admitCheckpointAt
-      (productBrowserCatalogueRowExperimentHash row)
-      (productBrowserCatalogueRowManifestSha row)
+    case ProductMatrix.productRowForExperimentHash (productBrowserCatalogueRowExperimentHash row) of
+      Just actual
+        | ProductMatrix.family actual `elem` [ProductMatrix.ReinforcementLearning, ProductMatrix.AlphaZero] ->
+            CheckpointStore.admitExecutionCheckpointAt
+              (productBrowserCatalogueRowExperimentHash row)
+              (productBrowserCatalogueRowManifestSha row)
+      _ -> do
+        legacy <-
+          CheckpointStore.admitCheckpointAt
+            (productBrowserCatalogueRowExperimentHash row)
+            (productBrowserCatalogueRowManifestSha row)
+        pure
+          ( CheckpointStore.admittedExecutionFromNeural
+              <$> (legacy >>= CheckpointStore.requireAdmittedCompletedCheckpoint)
+          )
   pure $
-    case admitted >>= CheckpointStore.requireAdmittedCompletedCheckpoint of
+    case admitted of
       Left err ->
         Left
           ( CatalogueLiveAdmissionRejected
@@ -1056,7 +1068,7 @@ admittedProductBrowserCatalogueRowBudget
 admittedProductBrowserCatalogueRowBudget =
   renderTrainingBudget
     . completedTrainingBudget
-    . CheckpointStore.admittedCompletedTraining
+    . CheckpointStore.admittedExecutionCompletedTraining
     . admittedCatalogueCompletionValue
 
 admittedProductBrowserCatalogueRowMeasuredResult
@@ -1064,7 +1076,7 @@ admittedProductBrowserCatalogueRowMeasuredResult
   -> Text
 admittedProductBrowserCatalogueRowMeasuredResult =
   Report.canonicalCompletedTrainingSummary
-    . CheckpointStore.admittedCompletedTraining
+    . CheckpointStore.admittedExecutionCompletedTraining
     . admittedCatalogueCompletionValue
 
 admittedProductBrowserCatalogueRowTensorBoardPrefix
@@ -1073,7 +1085,7 @@ admittedProductBrowserCatalogueRowTensorBoardPrefix
 admittedProductBrowserCatalogueRowTensorBoardPrefix =
   tbrLogPrefix
     . completedTrainingTensorBoard
-    . CheckpointStore.admittedCompletedTraining
+    . CheckpointStore.admittedExecutionCompletedTraining
     . admittedCatalogueCompletionValue
 
 admittedRowManifest
@@ -1081,7 +1093,7 @@ admittedRowManifest
   -> CheckpointManifest
 admittedRowManifest =
   CheckpointStore.admittedCheckpointManifest
-    . CheckpointStore.admittedCompletedCheckpoint
+    . CheckpointStore.admittedExecutionCheckpoint
     . admittedCatalogueCompletionValue
 
 productBrowserCatalogueSelectorRef :: Substrate -> ObjectRef

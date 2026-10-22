@@ -66,16 +66,64 @@ Phase `273` is Done after its full Apple lifecycle and retained journal admissio
 Phase `276` is Done after its CPU-only typed journal aggregation passed the
 full **198 / 198** live integration gate and the other listed validation.
 [Phase 276 → Closure Evidence](phase-276-journal-derived-product-aggregation.md#closure-evidence)
-records the result. Phase `278` is the first open owner. Every later
-phase in the chain validates in the `linux-cpu` lane but cannot close before
-Phase `278` does. Its retained Apple journal needs a real Mac refresh, while
-correction of the independently unproven supervised bars also requires fresh
-per-lane journals under the changed row contracts, including real NVIDIA
-execution. Neither the Mac refresh alone nor a Linux-only session closes those
-obligations; the current hardware boundary and review are owned by
-[Phase 278 → Linux Hardware Boundary](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#linux-hardware-boundary).
-Apple closure evidence lives in
-[Phase 273 → Closure Evidence](phase-273-contract-driven-apple-lane-revalidation.md#closure-evidence).
+records the result. Phase `278` is the first open owner and retains CPU/Apple
+qualification, complete journals, local/live-daemon/backend gates and quality.
+Phase `279` owns the real CUDA lane and its behavioral detector. Phase `280`
+consumes those three earlier lanes on CPU and owns the aggregate plus unchanged
+full CPU unit/integration gates. Every phase validates before the next begins;
+no later aggregate or accelerator blocks an earlier retained surface.
+### Historical Checkpoint Notes
+
+The following checkpoints retain their original source scopes. Current state
+and open work remain owned by [Closure Status](README.md#closure-status) and
+[Phase 278 current validation](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#current-partial-validation).
+
+The 514-input producer checkpoint adds warning-free private compilation, focused
+controls and a genuine fixed-five ARS/cartpole acquisition diagnostic with ten
+matching replays and physical readback. Authentication, stored replay and
+publication remain open. Historical395 native/backend/quality evidence retains
+that source scope; final integrated-producer validation remains required.
+The 514-input checkpoint and earlier private 577/586 failures remain retained,
+including 69d98b 925/926, cd5f's two 926-case passes followed by legacy 1 failure,
+6dcab6c8's compiler errors and the earlier status **253** pre-body harness failure.
+Validated checkpoint `59872c11…` / **586** accepts its complete four-stage private validation:
+warning-free build/HLint, both **926** scopes, legacy **1**, registry **13**,
+status **253** and docs. The reviewed **110**-contract export, governed retention
+and **163-file** controlled adoption include **32** installed fixed review DATA
+files. Supported native `cc5fa74c…`, fresh helper rebind/synchronization and
+supported CPU CLI `4699e46f…` now bind this source. Four standalone helper
+compiles pass, as do the actual CPU **42 / 42** and Apple **29 / 29** backend lanes.
+The unfiltered CPU negative gate fails **3 / 2,683**; three isolated fixture
+corrections and their actual later-source rerun are recorded below. Earlier
+failed generations retain their original outcomes.
+Real CPU/Apple bootstrap, datasets, five-run qualification, eleventh Store-loaded
+replay, complete journals/registration and remaining daemon/quality gates stay
+open. [Closure Status](README.md#closure-status) and [Phase 278](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#current-partial-validation)
+own the exact scope; later numerical owners do not advance.
+
+The retained validated code epoch is `53ab7f12…` / **586** after the three test-only fixture repairs; all
+other **583** inputs remain byte-identical to the validated checkpoint. `53ab`-bound review DATA is
+retained. The supported native build, explicit generated-doc no-op, fresh CPU synchronization and
+incremental build pass. All **3** focused repaired cases, unfiltered CPU negatives **2,683 /
+2,683**, CPU backends **42 / 42** and real Metal backends **29 / 29** pass on this source ([current
+runtime evidence](attestations/phase278-20261015-mac-validation/runtime-receipts/source53ab-native-owned-gates-validation/README.md)). The original source59872 failures remain failed historical
+evidence. Genuine qualification, complete journals/registration, owned daemon and remaining
+docs/quality gates stay open. The later canonical image attempt **FAILED** with controlled exit **130** at the **4 GiB** availability floor before application COPY; endpoint guards pass, while a current image, bootstrap and qualification remain open ([image and engineering checkpoint](attestations/phase278-20261015-mac-validation/runtime-receipts/source53ab-image-engineering-validation/README.md)). The later cold-storage operation preserves the original paths through read-only HOST mirrors and retires one pilot holding plus all **27** frozen duplicate holdings; batch VM available bytes rise from **21,060,104,192** to **98,611,441,664** (**77,551,337,472**), with three real global full guards and fresh per-root recovery proofs ([cold-storage evidence](attestations/phase278-20261015-mac-validation/runtime-receipts/source53ab-cold-storage-validation/README.md)). This supplies no new image, bootstrap, training or qualification result.
+
+Historical Source `4f593f2b…` / **586** passes unfiltered CPU negatives **2,683 / 2,683**, the complete CPU backend lane **42 / 42**, and real Metal backends **29 / 29**. Current bootstrap remains failed after a containerd metadata panic. Both node-local PV trees have verified archives and full Linux scratch restores, while nodes remain intact and platform writers are quiesced. Phase `278` owns the newly exposed state-preserving lifecycle repair from the historical Phase `28`/`43` surfaces before final-source qualification. Fresh CPU/Apple **55-row** qualification, authenticated journals/registration, current-worker admission, the unfiltered CPU daemon proof and final standing/quality gates remain open.
+`53ab7f12…` and **578** remain byte-identical. The changes format constructor
+patterns and review-fixture layouts, route unit diagnostics through the CLI output boundary, and move the
+fixed criterion-review root to the Phase `278` attestation home with strict
+source/lane/scope checks. The supported native build exits **0** (`Up to date`), with all **19** native pins unchanged; full canonical Fourmolu and HLint checks pass ([native/style evidence](attestations/phase278-20261015-mac-validation/runtime-receipts/source6ca-native-style-validation/README.md)). The canonical `53ab` image retry **FAILED** with ordinary
+exit **1** in `jitml check-code`: **15** rendered findings represent **9** distinct
+metadata, taxonomy, terminal-output and formatting failures. The frontend and
+image do not complete. Its original four-service guard also fails because a
+historical stopped Portal test container is absent; the three surviving running
+services and protected bytes are unchanged, and the removal cause is unobserved.
+The [failed image and intermediate static repairs](attestations/phase278-20261015-mac-validation/runtime-receipts/source53ab-image-failure-repair-validation/README.md)
+remain distinct from passing runtime evidence. Those retained repairs bind
+`be58a591…`; the current formatting and style checks have separate receipts. The metadata successor preserves
+the original cold-storage evidence bytes. Historical review DATA relocation preserves all **64** original files / **1,448,988** bytes locally at the [historical home](attestations/phase278-20261015-mac-validation/criterion-review-history/quality-repair-20261017/README.md); only its summary remains versioned, and `documents/validation` is absent. The actual **110**-contract export matches both prior complete **55**-row sets; four independently selected current-source reviews now bind **32** installed DATA files, and one public four-scope FILE capture exits **0** with exact expected identities ([criterion DATA evidence](attestations/phase278-20261015-mac-validation/runtime-receipts/source6ca-criterion-data-validation/README.md)). Apple full55 helper compilation exits **0**, without acquisition. Current CPU rebind/synchronization/build and three helper compilations are accepted. Unfiltered CPU negatives **2,683 / 2,683**, CPU backends **42 / 42** and real Metal backends **29 / 29** pass on Source `6ca12a83…`. That batch stops at Docs **1** on **24** stale empty private directories; HOST has no `documents/validation` category. A separate continuation removes exactly those **24** empty directories and no files, then passes docs, `check-code` and three plan scans with empty finding arrays and Closure Status at **60** lines. The original Docs failure and failed observer preflight remain retained. The Dockerfile repair persists CUDA configuration and recopies the final CLI ([owned-gates evidence](attestations/phase278-20261015-mac-validation/runtime-receipts/source6ca-cpu-owned-gates-validation/README.md)). The subsequent canonical universal image build exits **0** on Source `6ca12a83…` / Gov**58**, including `check-code`; **611** frontend modules compile with **0** errors and two retained generated-code warnings. Immutable-image checks bind the installed/default/CUDA CLI bytes, full source and current/historical DATA; image-owned docs and diagnostic plan scans exit **0** ([canonical image evidence](attestations/phase278-20261015-mac-validation/runtime-receipts/source6ca-canonical-image-validation/README.md)). A retained image-owned CPU client selection and one real streamed image-save measurement exit **0**. Four parser fixtures preserve expected exits **0 / 1 / 1 / 1**; the real stream’s **50** retained command captures all exit **0**. The full stream measures **11,231,578,112** bytes and establishes a `b2e7…` config distinct from image-target/manifest `dbb4…`, without retaining a full archive ([image-save/capacity observations](attestations/phase278-20261015-mac-validation/runtime-receipts/source6ca-image-save-capacity-observations/README.md)). The first storage preflight fails **1** before size walks; fresh read-only inventory exits **0**. The logical comparison `T + 2P + 2U + 4 GiB` is **87,642,323,062** bytes versus observed VM availability **79,029,026,816** bytes; it is not a physical minimum/peak, sufficient bound, recovery estimate or capacity approval. Node-base/platform/runtime growth remains unsized; observed Kind nodes are **0**, with the node base and **18** platform tags absent. Later Gov**60** metadata is outside baked image58 docs. Its actual client projection completed, but Docs exits **1** on four wrapper headers; scans and `check-code` are NotRun in that failed receipt. The earlier ordering-assertion failure remains failed. A metadata-only header correction retains all four original README bytes, four original manifests and both runtime entries through explicit inverse maps. A separate Gov**61** client followup copies exactly **26** metadata files and passes docs, three diagnostic plan scans and `check-code`; all **18** retained command captures exit **0**, with Source `6ca12a83…` and protected domains preserved. This pass belongs to the writable client; the immutable image remains baked Gov**58**. An independently accepted **16**-root cold-storage batch finishes at exit **0** with **2** new verified mirrors, **14** reuses, and actual per-root HOST-only recovery before controlled retirement. The original pre-mirror attempt remains failed; both narrow controller corrections and all raw failures are retained. Separate post-cold capacity and publication facts are accepted. The independently reviewed monitored canonical CPU bootstrap command exits **0** after **97** rollout steps. Separate accepted Source `6ca12a83…` observations establish the CPU context, and the image-owned test-component build, current CLI/package rebind and three helper certifications pass. All **12** canonical dataset uploads and exact live SHA readback pass. The first ARS launch fails on its absent output parent. A corrected fresh launch retains all five original seeds **42..46** and **47** phase objects, but fails completed-checkpoint publication: the admitted canonical wire orders the same metrics differently from the prepared typed manifest, and the strict Store-mirror readback refuses it. Neither failure becomes a passing qualification. The separately reviewed three-file correction was applied as historical Source `31285ae2…` / **586**, with **3** changed inputs and **583** byte-identical. Preparation retains the canonical typed manifest decoded from its exact prepared wire, with pure and filesystem-Store regressions added. This source-application/archive scope alone establishes no compiler, test, style, image or runtime pass. [Source-transition evidence](attestations/phase278-20261015-mac-validation/runtime-receipts/source31285-checkpoint-transition-validation/README.md) retains this finite source-transition scope and the literal failed attempts. A separate Source `31285ae2…` native build exits **0** and generated-doc production returns the expected **3** no-change result. The first fresh helper link fails **1** on ENOSPC, with nine finally launches failing before child start; a later independent preservation diagnostic and fresh native helper compile/export pass. Both complete **55**-row contract sets remain exact. Four newly reviewed criterion scopes bind **42** installed DATA files, and one public four-scope FILE capture exits **0** with exact expected identities ([native and criterion evidence](attestations/phase278-20261015-mac-validation/runtime-receipts/source31285-criterion-validation/README.md)). A later targeted Source `31285ae2…` style preflight retains Fourmolu **100**, with HLint **0** and protected domains unchanged. Two separately captured formatter-only changes are applied as current Source `4f593f2b…` / **586**, with **584** other inputs unchanged and no criterion-provider change. The final three-file Fourmolu/HLint checks pass; a separate current native build exits **0** and generated-doc production returns its defined **3** no-change result. A fresh **110**-contract export exactly matches both prior complete **55**-row sets, and four new independent current-source criterion reviews are selected. Separate materialization and create-only installation each retain **19** actual zero command captures and install **42** exact new DATA files; one direct public four-scope FILE capture exits **0** with **3,664** stdout bytes and exact expected identities ([current-source criterion checkpoint](attestations/phase278-20261015-mac-validation/runtime-receipts/source4f593-criterion-validation/README.md)). A fresh post-cleanup Source `4f593f2b…` / **586** identity preflight passes on HOST and the current CPU client, including CLI `df1173ac…`, selected review DATA, package files and three helpers. Current-worker rollout, current-source standing/live validation, fresh full **55-row** CPU and Apple qualification, authenticated journals/registration and the unfiltered CPU generic/daemon proof remain open.
 
 The 2026-07-15 retained-cluster audit reopened Sprints `2.9` and `3.7`; both
 have re-closed. Sprint `2.9` restored the typed Kind existence branch, retained
@@ -217,7 +265,7 @@ the IR) closed `Done` on 2026-07-28; Phase `239` (checkpoint construction from t
 trained graph) closed `Done` on 2026-07-28; Phases `240`–`246` (the coupled
 literal-architecture landing) closed `Done` on 2026-07-30; Phase `250` (Typed RL Cohort) closed `Done` on 2026-07-30; Phases `251` (TrainingPlan/EvaluationPlan Compiler and Trainer Migration) and `252` (Typed Measured Counters and Evidence Separation) closed `Done` on 2026-07-31. Phase `252` passed RL canonicals **47 / 47**, unit **757 / 757**, model convergence **111 / 111**, integration-target build/link, docs check, and check-code. Phase `261` closed `Done` on 2026-08-01 against immutable image `jitml:local@sha256:051ddff67e55e0d480a4ab7324cb0d5893330186451db35ef7ae81e207ddd72a`: integration passed **161 / 161**, including the Phase `261` subtree **60 / 60**; unit passed **772 / 772**; the parent authenticated the ordered version-`3` **55-row** aggregate and exactly Store-re-admitted every row; all **9** live components were Ready and the exact **12** dataset objects were present; and docs check plus check-code passed. Phase `262` (contract-driven live execution: browser and Playwright) closed `Done` on 2026-08-11 against immutable image `jitml:local@sha256:e36d6ca11f4cc75c231ac8ba2e7f238b1e1ce68623b550b55c94be075ad599e7`: the live `jitml-e2e` gate exited `0` with integration **196 / 196**, Playwright **77 / 77**, and the Haskell `jitml-e2e` suite **30 / 30**, alongside unit **828 / 828**, negative controls **3 / 3**, model convergence **111 / 111**, daemon lifecycle **54 / 54**, docs check, and check-code. Phase `263` (contract-driven live execution: fragment issuance) closed `Done` on 2026-08-12: `jitml test all --live --linux-cpu` passed **11 / 11 invocations, 0 failed, 0 NotRun** in 43,940.53s, including `jitml-integration` **197 / 197** with the standing case that re-mints the committed lane fragment from the persisted scenario journal and fails closed on drift. Phase `263` reopened the same day under rule `C`: its `DeviceEvidence` column is composed from the declared substrate and declared claim, so the standing drift gate compared a declaration against itself. Its 2026-08-12 run remains valid evidence for row identity, plan identity, and cross-process journal re-mint. Phase `229` re-closed `Done` on 2026-08-13 once device evidence was minted only from a `DeviceExecutionWitness`, then reopened `Active` on 2026-08-14 under rule `C` — its closure evidence never included a completed `jitml-sl-canonicals` run, the lane where its MLP-path witness and its unmigrated `TrainingEvidence` field both fail. Phase `229` re-closed `Done` on 2026-08-15 with that lane passing **36 / 36**, and Phase `241` closed `Done` the same day once the operator lowering became total over `LayerOp` and `jitml_op_train` returned an executed-opcode status. Phases `266`–`271` subsequently closed `Done`, with Phase `271` closing on 2026-08-28. At that checkpoint, the Phase `19`–`34` table recorded **60 Done / 1 Active / 0 Planned / 9 Blocked**, with Active Phase `273` the first executable owner and the apple-silicon hard stop on non-Apple hosts. Phase `10` validated its reopened work on `linux-cpu` only.
 That registry sentence records the historical audit checkpoint described in
-the chronology. The current registry is **63 Done / 1 Active / 0 Planned / 6
+the chronology. The current registry is **62 Done / 1 Active / 0 Planned / 7
 Blocked**. Phase `261` re-closed after its exact 55-row portable CPU journal was
 retained and admitted, and Phase `268` / Sprint `29.5` closed on 2026-09-12
 after its real RTX 5090 lifecycle retained and admitted the equivalent CUDA
@@ -1504,7 +1552,7 @@ Each phase is a single-session unit **blocked only by a lower-numbered phase** (
 | 276 | [Journal-Derived Product Aggregation](phase-276-journal-derived-product-aggregation.md) | ✅ Done | 31.3 |
 | 277 | [Negative-Control Suite](phase-277-negative-control-suite.md) | ✅ Done | 32.1 |
 | 278 | [External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md) | 🔄 Active | 32.2 |
-| 279 | [Measured/Declared Type Split & Behavioral Scaffold Lint](phase-279-measured-declared-type-split-behavioral-scaffold-lint.md) | ✅ Done | 32.3 |
+| 279 | [Measured/Declared Type Split & Behavioral Scaffold Lint](phase-279-measured-declared-type-split-behavioral-scaffold-lint.md) | ⏸️ Blocked | 32.3 |
 | 280 | [RunContract Negative Controls - Request and Event Fixtures](phase-280-runcontract-negative-controls-request-and-event-fixtures.md) | ⏸️ Blocked | 32.4 |
 | 281 | [RunContract Negative Controls - Journal Fixtures and Reducer Properties](phase-281-runcontract-negative-controls-journal-fixtures-and-reducer-p.md) | ⏸️ Blocked | 32.5 |
 | 282 | [RunContract Negative Controls - Lifecycle and Per-Row Registration](phase-282-runcontract-negative-controls-lifecycle-and-per-row-registra.md) | ⏸️ Blocked | 32.6 |
@@ -1551,16 +1599,19 @@ than a deletion. Neither phase reopens.
 
 The 2026-08-09 local-resource correction reopened and reclosed Phases `42`,
 `53`, and `69`. The complete current chain is
-`278 → 280 → 281 → 282 → 285 → 288 → 289`.
+`278 → 279 → 280 → 281 → 282 → 285 → 288 → 289`.
 The Phase `19`–`34` product-sprint checkpoint is
-**63 Done / 1 Active / 0 Planned / 6 Blocked**, counted from the 70-entry typed
+**62 Done / 1 Active / 0 Planned / 7 Blocked**, counted from the 70-entry typed
 registry. Phase `261` re-closed with the retained typed CPU journal, and Phase
 `268` closed on 2026-09-12 with the retained typed CUDA journal after its real
 RTX 5090 lifecycle passed **10 / 10** stanzas, the live browser gate, and the
 every-row wall-clock comparison. Phase `273` re-closed on 2026-09-17 after
 its real Apple lifecycle and retained journal admission. Phase `276` then
 closed the CPU-only join of all three journals under rule `M(d)`; Phase `278`
-is the first open owner. Prior Sprint `10.12` validation and pre-V2 publisher results remain
+is the first open owner. Phase `279` reopens Blocked under rule `C`: its
+behavioral output-dependence detector is still a finite name scanner. Existing
+opaque completion/type protections remain; no later feature work starts before
+Phase `278` validates. Prior Sprint `10.12` validation and pre-V2 publisher results remain
 historical evidence only.
 
 ## Status Vocabulary

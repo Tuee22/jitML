@@ -350,42 +350,38 @@ print_cluster_status() {
   fi
 }
 
+# Lifecycle decisions and all destructive operations belong to Haskell.
+run_lifecycle_jitml() {
+  local substrate=$1
+  shift
+  local root
+  root=$(repo_root)
+  case "$substrate" in
+    apple-silicon)
+      (cd "$root" && "$root/.build/jitml" "$@")
+      ;;
+    linux-cpu|linux-cuda)
+      run_linux_compose_jitml "$@"
+      ;;
+    *) die 64 "unknown lifecycle substrate: $substrate" ;;
+  esac
+}
+
 kind_down() {
   local substrate=$1
-  local cluster_name
-  cluster_name=$(cluster_name_for_substrate "$substrate")
-  if have kind; then
-    run_command kind delete cluster --name "$cluster_name" || true
-  else
-    warn "kind is not on PATH; nothing to delete for $cluster_name"
-  fi
+  run_lifecycle_jitml "$substrate" cluster down --substrate "$substrate"
 }
 
 purge_state() {
   local substrate=$1
   local full=${2:-false}
-  local root
-  root=$(repo_root)
-  kind_down "$substrate"
-  rm -rf "$root/.data"
   if [ "$full" = "true" ]; then
-    rm -rf "$root/.build"
+    run_lifecycle_jitml "$substrate" cluster reset --yes --substrate "$substrate" --full
+  else
+    run_lifecycle_jitml "$substrate" cluster reset --yes --substrate "$substrate"
   fi
 }
 
 purge_linux_state() {
-  local substrate=$1
-  local full=${2:-false}
-  local root
-  root=$(repo_root)
-  kind_down "$substrate"
-  # Stateful containers create database and object-store files as root. Remove
-  # Linux runtime trees through the same root-running outer container so purge
-  # remains reliable without sudo and without broadening the target beyond the
-  # repository's explicit runtime directories.
-  (cd "$root" && run_command docker compose run --rm --entrypoint rm jitml -rf "$root/.data")
-  if [ "$full" = "true" ]; then
-    (cd "$root" && run_command docker compose run --rm --entrypoint rm jitml -rf "$root/.build")
-    (cd "$root" && run_command docker compose down --rmi local --volumes || true)
-  fi
+  purge_state "$@"
 }

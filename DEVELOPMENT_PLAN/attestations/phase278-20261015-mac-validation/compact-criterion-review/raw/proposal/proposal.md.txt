@@ -1,0 +1,95 @@
+# Proposed compact-recipe predictive-learning contract
+
+**Status**: Ignored review proposal; unimplemented
+**Supersedes**: Nothing
+**Referenced by**: Root Phase 278 decision review
+**Generated**: Manual source review and primary-source statistical review, 2026-10-16 UTC
+
+## Recommendation and claim
+
+Keep the documented compact graphs, data selections and terminating per-run budgets. Adopt a prospectively versioned **compact-recipe predictive-learning criterion**, with the existing learning-signal tests as its baseline controls, an exact paired improvement over each run's own initialization, and the existing stronger product floors as additional unchanged restrictions. Validate the criterion using five actual predeclared training seeds per recipe and lane. This is a proposal for a limited, testable product claim, not an assertion that the criterion or training evidence is already complete.
+
+The proposed qualifying statement is:
+
+> Under this versioned compact recipe and its unchanged fixed per-run budget, five predeclared training runs were executed. A majority of those runs both improved held-out predictive performance over their own initial model and beat the independently specified constant/uniform-random controls. The five-run median also cleared the unchanged product floor. The predetermined served run independently met the existing publication checks, and its metric was recomputed from its exact admitted artifact. This establishes the stated compact-recipe benchmark result; it does not establish published-model parity, population generalization, or statistical confidence against every input-independent predictor.
+
+Paired improvement is recommended because it makes the word **learning** directly falsifiable: an unchanged initial model cannot pass it, even if that initialization happens to beat a constant or uniform random predictor. The zero-improvement boundary is dictated by this claim rather than calibrated to an observed trained score. It adds no arbitrary accuracy margin and weakens no existing floor. If the intended claim were only “nontrivial prediction after a training process ran,” the existing guards could define that narrower descriptive criterion without paired improvement; that is a weaker claim than this recommendation.
+
+No additional fixed minimum effect size follows from statistics alone. An application-utility claim, specified accuracy guarantee, or published-architecture parity would need an independently chosen utility margin or matching benchmark recipe. Those are additional claims, not requirements that can be invented from papers about different models. This proposal chooses the explicit finite-benchmark improvement claim above.
+
+## What the current doctrine actually requires
+
+`DEVELOPMENT_PLAN/README.md` Exit Definition 26 bans convergence/eligibility thresholds derived from the value checked and calls the bars frozen external constants. Its explicit unresolved text includes measured-calibrated supervised bars and project-calibrated slack. Exit Definition 6 additionally says statistical convergence covers the full SL cohort, with a median over training seeds and a literature-derived threshold. `README.md`'s Threshold methodology and SL test shapes explicitly specify **k=5 training seeds**, not repeated evaluation of one model. Phase 278's objective promises external-truth predicates; its current Remaining Work requires prospective independent compact-criterion review, real seed evidence, exact served-metric replay, refreshed affected journals and standing gates.
+
+Consequently, adding a new name to `LearningSignal`, or saying a stored literal is now independent because it is frozen, does **not** satisfy the current words. The proposed end state requires an explicit governed clarification of the compact rows' claim and acceptance contract. It must not silently rewrite the historical provenance or mark Phase 278 Done when the new contract has no real five-run evidence.
+
+The current Tiny effective floor `0.008` is explicitly documented in source as chosen to clear a measured `0.012`. Cifar and regression origins remain independently unproven. The recommendation does not call these numbers published anchors, infer their justification from future passes, or change them. Published targets may remain separately labelled reference context for their actual published recipes.
+
+## Exact semantics
+
+Freeze before new qualifying training: criterion version, graph/runtime recipe, dataset SHA and deterministic train/selection/final-evaluation membership, target/feature transforms fitted only on training data, semantic class count, evaluation count/order, five distinct training seeds, unchanged per-run schedule, selected lane, and the complete expected attempt inventory. Do not pick seeds or bounds after examining candidate scores. One independently reviewed record must state the claim, algebra, historical-floor provenance, and why the comparison models match the claim.
+
+For classification seed `s`, evaluate exact initial and final graph parameters through the same serving interpreter/transforms on the same held-out examples:
+
+```
+n = held-out example count; C = semantic class count
+M = largest held-out label count
+B = min{k in [0..n+1] : P[Binomial(n,1/C) >= k] <= 1/3000}
+K_initial(s), K_final(s) = exact integer correct counts
+signal(s) = K_final(s) >= max(M+1, B)
+improvement(s) = K_final(s) > K_initial(s)
+```
+
+`B=n+1` intentionally fails an evaluation too small to attain the critical count. The binomial decision remains exact integer arithmetic; no rounded accuracy or parity tolerance can turn a failing count into a pass. All labels, class bounds, predictions, vector widths and measurements must be valid/finite. The present implementation's majority condition rejects every constant classifier on this evaluation set. It does not prove arbitrary feature dependence.
+
+For regression, use the current positive finite target scale and the actual finite binary64 target/prediction vectors, interpreted as exact rationals:
+
+```
+y_mean = exact mean of the held-out targets
+SST = sum((target - y_mean)^2) > 0
+SSE_initial(s) = sum((initial_prediction - target)^2)
+SSE_final(s) = sum((final_prediction - target)^2)
+signal(s) = SSE_final(s) < SST
+improvement(s) = SSE_final(s) < SSE_initial(s)
+```
+
+Use strict comparisons with no epsilon. A non-finite initial predictor is an invalid run, not an infinite-error baseline that makes every final model “improve.” The positive scale cancels in comparisons but must remain bound to the same training-fitted standardization. Constant targets fail closed. The `SSE<SST` boundary is the empirical positive-R² definition, not an RMSE tolerance or a population inference. It excludes every constant prediction vector because the held-out mean minimizes constant squared error. [Official R² definition](https://scikit-learn.org/stable/modules/generated/sklearn.metrics.r2_score.html).
+
+Retain **all five** finite complete runs, including below-bar runs, in the cohort. A missing/incomplete/non-finite run fails the cohort; do not replace its seed or extend its budget. Require at least three of five seeds to satisfy **both** `signal(s)` and `improvement(s)`; separate medians can otherwise succeed on different subsets. Also require the five-run median final accuracy/RMSE to clear the unchanged current row floor. These predicates supply a median-of-five learning result while preserving the existing median threshold.
+
+Keep current per-run publication eligibility unchanged, and add paired improvement to the predetermined served run if this contract governs its claimed learning qualification. In particular, median success cannot publish a below-bar run. Choose the served run prospectively, for example the current canonical seed; do not select the best seed by final test score. Below-bar members remain bound run evidence, never forged admitted completed checkpoints. A cohort may therefore satisfy its descriptive median while its predetermined publication fails; the ProductRow still fails.
+
+The historical classification restrictions remain the exact existing code comparisons (nominal floors approximately `0.90,0.90,0.30,0.81,0.81,0.25,0.20,0.25,0.04,0.008` in current table order), and regression retains standardized `RMSE<=1.0`. Do not replace exact current binary64 comparison behavior with rounded table numbers. Acceptance is the conjunction of the independent rule, real execution/provenance, seed evidence, and these restrictions. A restrictive historical constraint cannot make a model failing the independent rule pass. Its historical origin nevertheless remains post-hoc/unproven; the conjunction does not make that origin external.
+
+## Statistical scope and limits
+
+The binomial reference is specifically independent uniform guessing over `C` labels; its success probability is `1/C` even when the fixed label histogram is imbalanced. Its exact tail follows the [NIST binomial distribution](https://www.itl.nist.gov/div898/handbook/eda/section3/eda366i.htm). It is not a test of all input-independent classifiers. For example, on 600/400 binary labels, a predictor choosing the majority class except at one uniformly chosen position beats the majority by one with probability `0.4`, while its 601/1000 score clears the uniform-guessing tail. The strict majority rule rejects constants; it does not extend the binomial null to this predictor. The accompanying arithmetic script demonstrates this limitation without running any model.
+
+The existing `1/3000` comment budgets 0.01 across ten classification rows × three lanes for **one run each**. Five seeds yield 150 planned comparisons: the simple upper bound becomes `150/3000=0.05`, for that uniform null and fixed family. This union bound does not require independence between comparisons; each individual binomial null does require its stated guessing assumptions. [NIST's general Bonferroni inequality](https://www.itl.nist.gov/div898/handbook/prc/section4/prc473.htm). Do not claim 0.01 across five seeds, include regression in that confidence statement, or claim repeated adaptive attempts are covered. Keeping the same alpha preserves the current guard; an overall 0.01 five-seed claim would require a stricter new alpha and a different contract.
+
+Paired accuracy/SSE improvement here is descriptive and exact on the pinned examples. No significance or population-confidence claim is assigned to it or to strict positive R². The same data reused across five training seeds do not become five independent population samples. The current deterministic prefixes and previously examined benchmark data do not become virgin test samples after a policy version change. Keep an attempt ledger and validation-only model selection. [Cawley and Talbot's primary study](https://www.jmlr.org/papers/v11/cawley10a.html) explains why optimizing a finite evaluation criterion can bias reported performance. Neither a version token nor a new seed erases that issue.
+
+An exact label-permutation test would address a broader exchangeability null than uniform guessing; it would still need assumptions, an attempt family and independence from adaptive selection. It is not necessary for the explicitly limited empirical claim proposed here, and would not by itself establish real input dependence or population generalization. Phase 279's behavioral detector remains its own later obligation. Phase 278 must not wait backward on that feature or pretend its guard already implements it.
+
+## Is the initial comparison available honestly?
+
+Yes, enough exact material is already available **at the producer boundary** to reconstruct the initial serving computation, not merely a hash:
+
+- `SlRunMetrics.slmInitialWeights` captures graph-ordered initial classification parameters before updates. `TrainingExecution.trainingMetricsFor` encodes those F64 values into exact JMW1 bytes, alongside final `LayerGraphMetadata` and input/output transforms.
+- `SupervisedPublishRun` carries initial JMW1 bytes, final JMW1 bytes, graph metadata, runtime transforms and held-out examples. JMW1 is little-endian IEEE-754 F64, so decoding does not invent Float32-rounded starting weights.
+- Current `LayerNode` has operator, shape, mode, activation and optional flat parameters; there is no additional BatchNorm running-state field outside those values. `replaceGraphParameterVector` changes only parameters. The final graph descriptor can reconstruct this static recipe and inject initial bytes. Runtime transforms fitted from training data must be identical for initial and final evaluation.
+- Housing currently reconstructs `mlpInit exactShape exactSeed` in `finishCaliforniaHousingTraining`, rather than returning that vector from its optimizer loop. This is a concrete deterministic reconstruction, not a stored performance observation, but the new baseline witness should preferably come directly from the trainer-owned initial parameters. Document the distinction until changed.
+
+The smallest robust producer change is to capture/hash the initial graph descriptor **before the first update**, preserve its actual initial parameter bytes, and require descriptor equality with the final recipe. No untrained artifact needs completion or Store admission. After real final Store admission, reconstruct this comparison graph separately and run the **same exact serving interpreter** with its initial bytes and identical runtime transforms. Final predictions must continue to come from the actual admitted final artifact. Avoid a validator that requires the baseline's weight SHA to equal the final payload's final SHA: the baseline is a named comparison computation, not an admitted final model. Do not weaken `admitLocalCheckpointAt`, completion validation or public checkpoint eligibility to make an untrained model pass.
+
+Current `RawTrainingRuntimeArtifact` contains initial and final JMW1 bytes, but its payload stores only final graph metadata; published payloads commit initial SHA rather than prove a separately captured initial graph. Existing artifact material is therefore suitable for a prototype/reconstruction, but a read-time learning qualification should retain the initial comparison descriptor/bytes and bind their hashes explicitly. Do not claim every old admitted checkpoint already proves this new baseline.
+
+## Necessary changes, independent review and evidence
+
+1. **Contract/docs first.** Explicitly distinguish compact predictive-learning qualification, historical extra eligibility floors, and published-reference context in README, Exit Definitions 6/26, Phase 278 objective/remaining work and the engineering completion contract. State that measured-calibrated historical floors remain additional restrictions with their true provenance, and cannot justify learning/convergence claims. The literal current statement that *all* eligibility thresholds are externally justified cannot honestly remain unchanged. This is an overt prospective reconciliation of the user-selected compact scope, not a claim that historical self-reference never happened. If governance insists that every extra historical threshold itself must have independent external provenance, the conjunction cannot close that stronger demand without an additional independent normative justification of each retained bound; renaming cannot solve that logical conflict.
+2. **Minimal policy and baseline evidence.** Reuse `LearningSignal` unchanged for the current exact controls; add paired improvement and a typed baseline witness. Bind the full accepted criterion/version and baseline witness to supervised report-contract/evidence identity so old singleton journals cannot attest it. Recipe/seed-pool changes must also bind PlanIds. Schema can be a separately versioned supervised-cohort evidence object referencing current checkpoint/runtime objects; no global V1 checkpoint or Store relaxation is needed. Changing only a report label is insufficient.
+3. **Real five-run execution.** Add a Phase-278-owned bounded cohort runner/adjudicator, not just a five-element seed field in a single-run plan. Current executor/experiment matching binds the canonical singleton seed, so each child must have a legitimate seed-specific typed projection/PlanId and the parent must bind the exact ordered pool. Keep each child's budget unchanged. Retain actual source/device/dataset/initial/final hashes, counters, initial/final predictions or replayable artifacts, selection/evaluation split identities, all failures and the aggregate calculation. Reuse this mechanism in later Phase 285; do not add Phase 285 as a prerequisite or claim its broader work is already complete. The exact five-seed pool must be predeclared by independent review; do not invent a winner-favoring pool from existing scores.
+4. **Falsifiable controls.** An unchanged initial/final model must fail improvement; accuracy ties and exact SSE ties fail; finite positive examples pass; tiny genuine strict improvement cannot be supplied by rounding/parity tolerance; malformed/non-finite/empty/bad-class data fail. Bind initial bytes/descriptor/transforms and reject substitution or stale policy identity. Cohort controls must reject missing, duplicate, substituted or reordered seed identities, incorrect child budgets, filtered below-bar runs, selected winners, and a median formed from fewer than five actual runs. Preserve all existing negative controls and real backend validation.
+5. **Closure evidence.** Independent mathematical/contract review must approve the limited claim and comparisons before new qualifying runs. Then execute the actual cohort scope and affected lane journals/standing gates required by the reconciled Phase 278 ownership, with real hardware and authentic results. The current extra policy tests, input decoder diagnostics and focused RL successes are useful controls, not those supervised cohorts. Keep Phase 278 open until the new machine-checkable evidence and all other owned obligations actually pass. Do not remove its external-context guard simply because this proposal exists.
+
+This proposal supplies a concrete independent reason for acceptance: observed improvement from actual recipe initialization plus positive constant-relative held-out predictive performance, reproducible in a predeclared five-run cohort, with all stronger compatibility restrictions retained. It does not manufacture an external accuracy number or retrofit existing measurements as the reason for a threshold.

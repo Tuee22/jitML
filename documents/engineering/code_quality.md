@@ -70,6 +70,31 @@ Phase `11` Sprint `11.3` also keeps the PureScript smoke suite warning-clean:
 `web/test/Main.purs` runs `purescript-spec` through the Node `spec-node`
 `runSpecAndExitProcess` runner, `web/spago.yaml` declares `spec-node` as a test
 dependency, and `web/.gitignore` excludes the runner's `.spec-results` state.
+The production `spago test` step can materialize that ignored report and the
+separately ignored `web/spago.lock` dependency lock. Execution evidence retains
+exact outputs and any literal full-tree guard failure separately from the
+command's exit; these outputs do not authorize ignoring source changes or
+rewriting failed guards. Generated browser contracts still come only from
+`jitml docs generate` and are checked against the compiled registry.
+
+## CLI Build Reproducibility
+
+The library and executable declare `-fobject-determinism` alongside their LLVM
+build settings in `jitml.cabal`, so ordinary builds, bootstrap and code-quality
+builds inherit the same deterministic Cmm label renaming. GHC
+[9.12.4 applies this renaming before backend code generation](https://github.com/ghc/ghc/blob/ghc-9.12.4-release/compiler/GHC/StgToCmm.hs#L99-L105),
+including LLVM. It preserves external symbols while assigning deterministic
+internal names.
+
+This addresses the generated LLVM symbol-name differences observed between
+otherwise matching CLI builds. A small Linux LLVM compile/link fixture confirms
+that the flag removes the induced symbol-name and whole-file differences;
+`-fno-expose-internal-symbols` does not. GHC still describes object determinism as
+[experimental](https://downloads.haskell.org/ghc/9.12.4/docs/users_guide/9.12.1-notes.html).
+The fixture does not establish whole-project reproducibility. GenericRL retains
+its strict complete-file SHA comparison between the current repository-built
+CLI and the immutable image CLI; actual full builds must pass that comparison
+before live validation proceeds.
 
 ## jitML Project-Specific Lint Rules
 

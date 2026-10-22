@@ -1,0 +1,35 @@
+{
+  "original_scope": "All original v1 files remain byte-identical; separate v2 proposal only",
+  "files": [
+    {
+      "path": "analyze-rule.py",
+      "sha256": "bbdf5c1fa5b147c40a311477f4e902e24b58d00a3d14ad87cb90e336a6bba608",
+      "bytes": 3390,
+      "copied_byte_exact": true
+    },
+    {
+      "path": "arithmetic-and-inputs.json",
+      "sha256": "f338ae001faf335431641cc44e69a7a4b0a88b0656d8485a593990207d12c124",
+      "bytes": 3442,
+      "copied_byte_exact": true
+    },
+    {
+      "path": "primary-sources.json",
+      "sha256": "2c8dacc1f78a75e3b10ee0e007584e2a3079f99b531bae553d2109cedd00f08e",
+      "bytes": 2153,
+      "copied_byte_exact": true
+    },
+    {
+      "path": "proposal.md",
+      "sha256": "6886b07e25cdddded41702f2b15ceabb29788b42d1fd19108ef5f603fad1c2f9",
+      "bytes": 18485,
+      "copied_byte_exact": true
+    },
+    {
+      "path": "manifest.json",
+      "sha256": "bd9ce03d980877ecd537ad9e09e3d8edfea4f05fde5bc9a23532131a51cefb7e",
+      "bytes": 722,
+      "copied_byte_exact": true
+    }
+  ]
+}

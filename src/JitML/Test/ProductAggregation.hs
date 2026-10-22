@@ -9,8 +9,13 @@ module JitML.Test.ProductAggregation
   , ProductAggregateRow
   , ProductLaneInput (..)
   , admitProductAggregation
+  , admitProductAggregationWithQualifications
   , aggregateProductLaneJournals
+  , aggregateProductLaneJournalsWithQualifications
+  , aggregateProductLaneJournalsWithNativeBundles
   , loadProductAggregation
+  , loadRegisteredProductAggregationIn
+  , aggregateRegisteredProductLaneEvidence
   , loadProductAggregationFrom
   , readRetainedProductAggregation
   , productAggregationBytes
@@ -29,16 +34,21 @@ import Data.Aeson (Value, encode, object, (.=))
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Lazy qualified as LazyByteString
+import Data.Either.Combinators (mapLeft)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map.Strict qualified as Map
 import Data.Text (Text)
 import Data.Text qualified as Text
 
 import JitML.Plan.Plan (Validation (..), planIdText)
-import JitML.Product.DeviceWitness qualified as DeviceWitness
+import JitML.Product.LaneRegistration qualified as Registration
+import JitML.Product.LaneRegistrationData qualified as RegistrationData
 import JitML.Product.Matrix qualified as Product
+import JitML.Product.QualificationObjects (readProductLaneQualificationObjects)
+import JitML.Product.ValidationRecord (sha256Hex)
 import JitML.Substrate (Substrate (..), renderSubstrate)
 import JitML.Test.ProductLaneJournal qualified as Lane
+import JitML.Test.RegisteredLaneEvidence qualified as Registered
 import JitML.Training.Budget qualified as Budget
 
 data ProductLaneInput = ProductLaneInput
@@ -48,8 +58,9 @@ data ProductLaneInput = ProductLaneInput
   }
   deriving stock (Eq, Show)
 
--- | These pins are the retained outputs of the independent real lane owners,
--- not digests calculated from whichever bytes happen to be present at read time.
+-- | Historical owner pins, retained for the explicit historical/pure readers.
+-- Current production loading uses separately governed append-only registrations;
+-- these older literals never satisfy a missing current registration.
 productLaneInputs :: [ProductLaneInput]
 productLaneInputs =
   [ ProductLaneInput
@@ -95,6 +106,7 @@ data ProductAggregationError
   | ProductAggregationMissingRow !Substrate !Text
   | ProductAggregationIOFailure !FilePath !Text
   | ProductAggregationReportDrift !FilePath
+  | ProductAggregationRegisteredLaneRejected !Substrate !Registered.RegisteredLaneError
   deriving stock (Eq, Show)
 
 -- | Admit every input against the complete current projection, then join in
@@ -102,14 +114,83 @@ data ProductAggregationError
 aggregateProductLaneJournals
   :: [(ProductLaneInput, ByteString)]
   -> Either (NonEmpty ProductAggregationError) ProductAggregation
-aggregateProductLaneJournals inputs = do
+aggregateProductLaneJournals =
+  aggregateProductLaneJournalsWithQualifications . fmap (\(input, bytes) -> (input, bytes, []))
+
+-- | Explicit object bytes accompany each pinned lane journal. The legacy pure
+-- entrypoint supplies no objects and therefore cannot attest current supervised
+-- qualification. No caller-provided summaries replace the production reader.
+aggregateProductLaneJournalsWithQualifications
+  :: [(ProductLaneInput, ByteString, [(Text, ByteString)])]
+  -> Either (NonEmpty ProductAggregationError) ProductAggregation
+aggregateProductLaneJournalsWithQualifications inputs = do
   let counts =
-        [ (lane, length (filter ((== lane) . productLaneInputSubstrate . fst) inputs))
+        [ (lane, length [() | (input, _, _) <- inputs, productLaneInputSubstrate input == lane])
         | lane <- [LinuxCPU, LinuxCUDA, AppleSilicon]
         ]
   unless (all ((== 1) . snd) counts) $
     Left (ProductAggregationLaneCoverage counts :| [])
   admitted <- traverse admitLane inputs
+  finishAdmittedProductLaneJournals admitted
+ where
+  admitLane (input, bytes, qualifications) = do
+    let lane = productLaneInputSubstrate input
+    unless (input `elem` productLaneInputs) $
+      Left (ProductAggregationUnregisteredInput lane :| [])
+    batch <-
+      case Product.projectProductRows lane Product.allProductRows of
+        Failure errors -> Left (ProductAggregationProjectionRejected lane errors :| [])
+        Success value -> Right value
+    journal <-
+      case Lane.admitProductLaneJournalWithQualifications
+        qualifications
+        (productLaneInputSha256 input)
+        batch
+        bytes of
+        Left errors -> Left (ProductAggregationLaneRejected lane errors :| [])
+        Right value -> Right value
+    pure (input, journal)
+
+-- Actual native file audit is required in addition to the unchanged pure
+-- supervised path. This accepts no arbitrary execution or validation callback.
+aggregateProductLaneJournalsWithNativeBundles
+  :: [(ProductLaneInput, FilePath, ByteString, [(Text, ByteString)])]
+  -> IO (Either (NonEmpty ProductAggregationError) ProductAggregation)
+aggregateProductLaneJournalsWithNativeBundles inputs = do
+  let counts =
+        [ (lane, length [() | (input, _, _, _) <- inputs, productLaneInputSubstrate input == lane])
+        | lane <- [LinuxCPU, LinuxCUDA, AppleSilicon]
+        ]
+  if not (all ((== 1) . snd) counts)
+    then pure (Left (ProductAggregationLaneCoverage counts :| []))
+    else do
+      captured <- traverse auditLane inputs
+      pure (sequence captured >>= finishAdmittedProductLaneJournals)
+ where
+  auditLane (input, path, bytes, objects)
+    | input `notElem` productLaneInputs =
+        pure (Left (ProductAggregationUnregisteredInput (productLaneInputSubstrate input) :| []))
+    | otherwise = case Product.projectProductRows (productLaneInputSubstrate input) Product.allProductRows of
+        Failure errors ->
+          pure (Left (ProductAggregationProjectionRejected (productLaneInputSubstrate input) errors :| []))
+        Success batch -> do
+          actual <-
+            Lane.admitProductLaneJournalWithNativeBundles
+              path
+              objects
+              (productLaneInputSha256 input)
+              batch
+              bytes
+          pure
+            ( case actual of
+                Left errors -> Left (ProductAggregationLaneRejected (productLaneInputSubstrate input) errors :| [])
+                Right journal -> Right (input, journal)
+            )
+
+finishAdmittedProductLaneJournals
+  :: [(ProductLaneInput, Lane.AdmittedProductLaneJournal)]
+  -> Either (NonEmpty ProductAggregationError) ProductAggregation
+finishAdmittedProductLaneJournals admitted = do
   let cells =
         Map.fromList
           [ ((Lane.productLaneJournalRowSubstrate row, Lane.productLaneJournalRowRowId row), row)
@@ -134,33 +215,76 @@ aggregateProductLaneJournals inputs = do
         , productLaneInputSubstrate input == lane
         ]
   pure (ProductAggregation orderedSources rows)
- where
-  admitLane (input, bytes) = do
-    let lane = productLaneInputSubstrate input
-    unless (input `elem` productLaneInputs) $
-      Left (ProductAggregationUnregisteredInput lane :| [])
-    batch <-
-      case Product.projectProductRows lane Product.allProductRows of
-        Failure errors -> Left (ProductAggregationProjectionRejected lane errors :| [])
-        Success value -> Right value
-    journal <-
-      case Lane.admitProductLaneJournal (productLaneInputSha256 input) batch bytes of
-        Left errors -> Left (ProductAggregationLaneRejected lane errors :| [])
-        Right value -> Right value
-    pure (input, journal)
 
 loadProductAggregation :: IO (Either (NonEmpty ProductAggregationError) ProductAggregation)
-loadProductAggregation = loadProductAggregationFrom productLaneInputs
+loadProductAggregation = loadRegisteredProductAggregationIn "."
+
+-- | Join only opaque values produced by the actual fixed registration loader
+-- and full current native lane admission. No caller-chosen DATA pin replaces
+-- the old allowlist in this current production path.
+aggregateRegisteredProductLaneEvidence
+  :: [Registered.RegisteredLaneEvidence]
+  -> Either (NonEmpty ProductAggregationError) ProductAggregation
+aggregateRegisteredProductLaneEvidence lanes = do
+  let admitted = fmap one lanes
+      counts =
+        [ (lane, length [() | (input, _) <- admitted, productLaneInputSubstrate input == lane])
+        | lane <- [LinuxCPU, LinuxCUDA, AppleSilicon]
+        ]
+  unless (all ((== 1) . snd) counts) $
+    Left (ProductAggregationLaneCoverage counts :| [])
+  finishAdmittedProductLaneJournals admitted
+ where
+  one loaded =
+    let generation = Registration.loadedLaneGeneration (Registered.registeredLaneRegistration loaded)
+        selected = RegistrationData.laneGenerationJournal generation
+     in ( ProductLaneInput
+            (RegistrationData.laneGenerationSubstrate generation)
+            (Text.unpack (RegistrationData.selectedLaneFilePath selected))
+            (RegistrationData.selectedLaneFileSha256 selected)
+        , Registered.registeredLaneJournal loaded
+        )
+
+loadRegisteredProductAggregationIn
+  :: FilePath
+  -> IO (Either (NonEmpty ProductAggregationError) ProductAggregation)
+loadRegisteredProductAggregationIn root = do
+  loaded <- traverse loadLane [LinuxCPU, LinuxCUDA, AppleSilicon]
+  pure (sequence loaded >>= aggregateRegisteredProductLaneEvidence)
+ where
+  loadLane lane = do
+    actual <- Registered.loadRegisteredLaneEvidenceIn root lane
+    pure (mapLeft ((:| []) . ProductAggregationRegisteredLaneRejected lane) actual)
 
 loadProductAggregationFrom
   :: [ProductLaneInput]
   -> IO (Either (NonEmpty ProductAggregationError) ProductAggregation)
 loadProductAggregationFrom inputs = do
   loaded <- traverse readInput inputs
-  pure (sequence loaded >>= aggregateProductLaneJournals)
+  case sequence loaded of
+    Left failures -> pure (Left failures)
+    Right actual -> aggregateProductLaneJournalsWithNativeBundles actual
  where
-  readInput input =
-    fmap ((input,) <$>) (readBytes (productLaneInputPath input))
+  readInput input = do
+    captured <- readBytes (productLaneInputPath input)
+    case captured of
+      Left errors -> pure (Left errors)
+      Right bytes
+        | sha256Hex bytes /= productLaneInputSha256 input ->
+            pure
+              ( Left
+                  ( ProductAggregationLaneRejected
+                      (productLaneInputSubstrate input)
+                      (Lane.ProductLaneJournalDigestMismatch (productLaneInputSha256 input) (sha256Hex bytes) :| [])
+                      :| []
+                  )
+              )
+      Right bytes -> do
+        qualifications <- readProductLaneQualificationObjects (productLaneInputPath input) bytes
+        pure $
+          case qualifications of
+            Left err -> Left (ProductAggregationLaneRejected (productLaneInputSubstrate input) (err :| []) :| [])
+            Right objects -> Right (input, productLaneInputPath input, bytes, objects)
 
 -- | The retained report is a projection, never an independent evidence source.
 -- Recompute it from admitted pinned inputs and reject any byte-level drift,
@@ -169,8 +293,16 @@ admitProductAggregation
   :: [(ProductLaneInput, ByteString)]
   -> ByteString
   -> Either (NonEmpty ProductAggregationError) ProductAggregation
-admitProductAggregation inputs bytes = do
-  aggregate <- aggregateProductLaneJournals inputs
+admitProductAggregation inputs =
+  admitProductAggregationWithQualifications
+    (fmap (\(input, journal) -> (input, journal, [])) inputs)
+
+admitProductAggregationWithQualifications
+  :: [(ProductLaneInput, ByteString, [(Text, ByteString)])]
+  -> ByteString
+  -> Either (NonEmpty ProductAggregationError) ProductAggregation
+admitProductAggregationWithQualifications inputs bytes = do
+  aggregate <- aggregateProductLaneJournalsWithQualifications inputs
   unless (productAggregationBytes aggregate == bytes) $
     Left (ProductAggregationReportDrift productAggregatePath :| [])
   pure aggregate
@@ -248,7 +380,7 @@ laneValue row =
     , "completion_journal_sha256" .= Lane.productLaneJournalRowJournalDigest row
     , "measured_sha256" .= Lane.productLaneJournalRowMeasuredDigest row
     , "device_witness"
-        .= DeviceWitness.renderDeviceExecutionWitness (Lane.productLaneJournalRowDeviceWitness row)
+        .= Lane.renderProductLaneJournalRowExecutionProvenance row
     , "completed_training" .= Budget.renderCompletedTraining completed
     , "observed_units" .= Budget.completedTrainingObservedUnits completed
     , "update_count" .= Budget.completedTrainingUpdateCount completed

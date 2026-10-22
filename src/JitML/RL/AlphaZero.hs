@@ -14,6 +14,7 @@ module JitML.RL.AlphaZero
   , applyMove
   , arenaWinRate
   , actionCountFor
+  , alphaZeroEvaluationContract
   , canonicalGames
   , connect4BoardAfter
   , connect4Network
@@ -63,6 +64,11 @@ import Data.IntSet qualified as IntSet
 import Data.Text (Text)
 import Data.Text qualified as Text
 import GHC.Generics (Generic)
+
+-- | Identity of the selected-device final arena. The sequential RNG schedule,
+-- player1 role, legal-uniform opponent and search budget retain the pure recipe.
+alphaZeroEvaluationContract :: Text
+alphaZeroEvaluationContract = "alphazero-selected-device-arena-sequential-rng-v1"
 
 data GameState = GameState
   { gameName :: Text

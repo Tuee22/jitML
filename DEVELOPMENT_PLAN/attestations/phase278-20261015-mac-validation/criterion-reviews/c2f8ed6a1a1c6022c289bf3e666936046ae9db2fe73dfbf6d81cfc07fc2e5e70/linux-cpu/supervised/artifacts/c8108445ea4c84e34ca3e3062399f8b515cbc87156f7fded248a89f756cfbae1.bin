@@ -1,0 +1,152 @@
+# Independent compact-criterion scope review
+
+**Status:** Read-only review; proposed contract and implementation remain unimplemented.
+**Reviewed:** Revision-2 `contract.md` and `implementation-design.md`, current doctrine, and exact arithmetic on 2026-10-16 UTC.
+
+The revision-2 limited claim is defensible for the user's chosen compact recipes
+and unchanged per-run budgets. It supplies an independently specified procedure;
+it does not retroactively supply independent origins for historical floors or
+establish published-model parity. Root has accepted this limited claim subject
+to the concrete boundary clarifications below. No phase is closed by this review.
+
+## Exact approved claim
+
+For each canonical supervised row and real lane, execute all five prescribed
+training seeds `canonicalBase + [0..4]`, in order and at the unchanged budget.
+Keep index 0 as the predetermined serving run. Preserve all finite outcomes,
+including below-floor, below-signal and non-improving runs. Missing, incomplete,
+non-finite, substituted, duplicated or wrong-budget children fail qualification;
+none may be replaced or omitted from the five-run median.
+
+At least three children must **jointly** improve their own exact initial held-out
+score and pass the defined constant/uniform-reference or best-constant regression
+control. The median over all five final primary metrics must clear the exact
+unchanged historical floor. Index 0 must independently pass the floor, signal,
+improvement, real execution, completion and admitted-artifact checks. Its own
+served metric stays the checkpoint's metric; cohort median/N remain separately
+typed and authenticated. A passing cohort cannot borrow another seed's weights
+or publish a failing index 0.
+
+This is observed predictive improvement on the pinned benchmark, supported by
+five actual training runs and authentic artifacts. It is not population
+generalization, application utility, generic feature dependence, or evidence that
+the original published architecture/schedule was reproduced. Existing real
+device, curve-sanity, split, determinism and standing-gate requirements continue.
+
+## Independent arithmetic and probability scope
+
+I independently summed the exact binomial integer weights and verified both
+sides of each critical boundary at `n=1000`, alpha `1/5000`:
+
+| Semantic classes | First passing count | Previous count fails |
+| --- | ---: | --- |
+| 10 | 136 | 135 |
+| 100 | 24 | 23 |
+| 200 | 16 | 15 |
+
+The actual classifier requirement is `max(majorityCount+1, criticalCount)`.
+Semantic class count comes from the canonical projection, not observed-label
+coverage or outputs. The exact results/input hashes are retained in
+`independent-arithmetic-and-inputs.json`. Classification ties and regression
+exact-SSE ties fail improvement. Exact finite binary64 rational SSE comparisons
+cannot borrow a parity epsilon; non-finite initialization must not be treated as
+infinite loss. Regression's strictly positive empirical R² is descriptive and
+receives no probability claim.
+
+Let `J_s` be joint success and `N=sum J_s`. Under a cohort's **all-five** null,
+each seed's predicted labels are independent uniform draws over the held-out
+examples, independent of those labels. Each `J_s` is a subset of that seed's
+binomial-tail event, so `E[N] <= 5/5000`. The pointwise inequality
+`3 * 1{N>=3} <= N` gives `P(N>=3) <= 1/3000`. The union bound over at most thirty
+classification row/lane cohorts is at most `0.01`. I also checked the pointwise
+inequality for every one of the 32 binary joint-success patterns. Cross-seed and
+cross-cohort independence is unnecessary.
+
+The mandatory index-0 joint success and historical median restriction only make
+the complete ProductRow passing event smaller. The stated conservative bound is
+therefore valid; it need not be tightened to justify the chosen alpha.
+
+This bound does **not** cover a mixed cohort containing some skilled predictors,
+nor prove that three members have population signal. More generally, random
+neural-network initialization shares weights across examples and need not obey
+the iid uniform-per-example null. Do not turn this hypothetical reference bound
+into “a probability of false learning below 1%” for arbitrary untrained or
+feature-independent algorithms. Majority rejects every fixed constant on these
+labels; it does not turn the uniform null into all input-independent predictors.
+The [NIST binomial definition](https://www.itl.nist.gov/div898/handbook/eda/section3/eda366i.htm)
+and [union inequality](https://www.itl.nist.gov/div898/handbook/prc/section4/prc473.htm)
+support the stated reference calculations, not those broader claims.
+
+Keep an append-only attempt ledger and the fixed first family of at most thirty
+qualifying classification cohorts. A score-selected retry or newly chosen seed
+pool does not receive the same error budget for free. A later correction needs
+an explicitly disclosed additional family/budget or a narrower probability
+claim. Existing public, previously examined benchmarks do not become fresh
+population samples after versioning; [Cawley and Talbot](https://www.jmlr.org/papers/v11/cawley10a.html)
+support the selection-bias limitation. These statements preserve the intended
+finite-benchmark scope without inventing confidence for regression/improvement.
+
+## Required doctrine reconciliation
+
+Current `DEVELOPMENT_PLAN/README.md:4127` requires literature-derived statistical
+convergence and `:4296` describes frozen external constants; current
+`README.md:2553` and `:2602` prescribe five-training-seed target-minus-slack
+convergence. `product_completion_contract.md:83` also calls the bar externally
+anchored. The new finite compact qualification is an overt prospective
+reconciliation of those words, not an implementation that already satisfies
+them unchanged.
+
+Freeze **the constants and comparison procedures**, independently of the final
+measurement. Authentic pre-update initial weights, data-only majority counts
+and target variance supply separate comparison inputs. They are not themselves
+all literal external constants. Do not characterize this necessary clarification
+as proof that a measured-derived historical floor was always external. Tiny's
+`0.008` and other unproven/project-calibrated floors remain unchanged additional
+restrictions with their true provenance. Their conjunction with the new rule
+cannot repair that origin. Source comments, engineering contracts and current
+UI/report labels need the same distinction, even if legacy field names remain.
+
+This review approves the **SL** proposal. It does not independently justify
+unrelated RL slack, declare all Exit-26 surfaces satisfied, or waive another
+owned obligation. Exact original loss/gradient curve sanity, real device
+execution, deterministic replay and independent train/selection/final-test
+membership remain required. Phase 278 owns actual qualification evidence before
+closure; Phase 285 may consume the mechanism/artifact later but is not an
+implementation or evidence prerequisite. The current local-gate ownership
+proposal and Phase 279 behavioral detector remain separate and unimplemented.
+
+## Concrete implementation boundary corrections
+
+Revision 2 has incorporated the first four clarifications; preserve them in code:
+
+1. Put the primitive `SupervisedSeedIndex` and seed-pool/policy data in a lower
+   pure module. A cohort module may import Matrix; Matrix cannot import that
+   module for its index type and create a dependency cycle.
+2. Static descriptor equality excludes **only parameter payload values**. Bind
+   shape, operator geometry, activation/mode, parameter tensor layout/order,
+   transforms and all nonparameter inference state. Capture actual initial
+   parameters before the first optimizer step. Regression must return its real
+   `params0`, rather than reinitialize after observing the final run. A future
+   nonparameter state needs an explicit captured snapshot policy.
+3. Pair replay recomputes predictions and metrics. It verifies authenticated
+   producer-observed counters/device evidence and expected-budget algebra; final
+   weights alone cannot reconstruct the actual optimizer update history.
+4. Preserve all existing curve, split, real-device and determinism obligations;
+   do not replace them with one scalar improvement check.
+5. Keep raw budget-complete outcomes distinct from `CompletedTraining` and Store
+   admission. Use a preliminary verified raw cohort predicate, then index-0
+   ordinary completion/write/admission, then a qualification artifact referencing
+   that exact admitted checkpoint. The checkpoint need not point back to the
+   artifact; a later authenticated report references both. This avoids both hash
+   cycles and an eligibility-before-admission type cycle.
+
+The reader must hash/load all referenced snapshots, data/order and weights;
+replay the pair under the same bound serving semantics; reconstruct the exact
+ordered children; and verify current policy, plan, device/source authority and
+the index-0 physical/Store tuple. Caller-created internally consistent JSON is
+not authentic training evidence. No untrained or below-floor model receives a
+forged completed artifact merely to make the cohort reader convenient.
+
+No source, threshold, seed, budget, plan status, primary container, or native
+binary was changed by this review. Pure policy API review, adversarial tests,
+real five-run cohorts and fresh owned journals/gates remain subsequent work.

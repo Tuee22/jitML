@@ -11,6 +11,13 @@
 
 ✅ **Done**.
 
+This retained surface covers the original wrapper/cache boundaries. Phase
+`278` owns the later node-local PV preservation regression: Kind deletion
+removes anonymous volumes holding live data, so preserving HOST `.data` alone
+does not establish down/up durability. The live repair and its real survival
+validation belong to [Phase 278](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work)
+as an explicit ownership transfer, without a backward dependency.
+
 ## Sprint 28.1: Bootstrap `down` and `purge` [✅ Done]
 
 **Status**: Done
@@ -21,7 +28,7 @@
 ### Objective
 
 Wire `down`, `purge`, and `purge --full` semantics. `down` preserves both
-`./.data/` and `./.build/` and (on Apple) leaves the tart VM up; `purge` is
+`./.data/` and `./.build/` and leaves the Apple host daemon up; `purge` is
 destructive but cache-preserving (`./.build/` survives, including the JIT
 cache); `purge --full` additionally removes `./.build/` and (on Linux) the
 substrate image.

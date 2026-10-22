@@ -21,12 +21,17 @@ module JitML.Checkpoint.Writer
   , validateGenericV1CompletedWriterRequest
   , writeLocalCandidateWeightCheckpoint
   , writeLocalCompletedProductWeightCheckpoint
+  , writeLocalCompletedArsHostCheckpoint
+  , writeLocalCompletedGenericArsHostCheckpoint
   , writeLocalCompletedWeightCheckpoint
   , writeLocalCompletedSupervisedCheckpoint
   , writeMinIOCandidateWeightCheckpoint
   , writeMinIOCompletedWeightCheckpoint
   , writeMinIOCompletedSupervisedCheckpoint
   , writeTextArtifact
+  , writeBinaryArtifact
+  , verifyRemoteCheckpointSnapshot
+  , writeVerifiedRemoteArtifact
   )
 where
 
@@ -41,17 +46,17 @@ import Data.Maybe (fromMaybe)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
+import Data.Vector.Unboxed qualified as VU
 import Data.Word (Word64)
 import Path (toFilePath)
 import System.FilePath ((</>))
 
 import JitML.AppError.AppError (AppError (..))
-import JitML.Bootstrap (readExistingLivePublication)
 import JitML.CLI.Output (exitWithError)
+import JitML.Checkpoint.ArsHostPhysical qualified as ArsPhysical
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Checkpoint.WeightCodec qualified as WeightCodec
-import JitML.Cluster.Publication qualified as Publication
 import JitML.Env.Env (App, Env (envCacheDir))
 import JitML.Plan.Plan
   ( planIdText
@@ -61,8 +66,11 @@ import JitML.Plan.Plan
   , seedCohortValues
   )
 import JitML.Plan.Workload qualified as WorkloadPlan
+import JitML.Product.ArsHostReference qualified as ArsReference
 import JitML.Product.Completion qualified as ProductCompletion
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.RL.Algorithms.Common qualified as Common
+import JitML.RL.ArsHostTrace qualified as ArsTrace
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Dataset qualified as Dataset
 import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
@@ -70,6 +78,7 @@ import JitML.SL.TrainingExecution (TrainingMetrics (..))
 import JitML.Service.Capabilities qualified as Capabilities
 import JitML.Service.MinIOSubprocess qualified as MinIOSubprocess
 import JitML.Service.Retry (ServiceError (..))
+import JitML.Service.WorkerPublication qualified as WorkerPublication
 import JitML.Training.Budget qualified as TrainingBudget
 
 data SupervisedRuntimeCompletion
@@ -705,6 +714,52 @@ writeLocalCompletedProductWeightCheckpoint completed experimentHash tensorName s
     transcriptPointers
 {-# NOINLINE writeLocalCompletedProductWeightCheckpoint #-}
 
+-- | Low concrete host adapter. Ordinary arguments are checked DATA; only
+-- Store's later physical host admission constructs its closed capability.
+-- Final weights come from this exact retained trace, never a second initializer.
+writeLocalCompletedArsHostCheckpoint
+  :: TrainingBudget.CompletedTraining
+  -> Text
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> ArsTrace.ArsHostTrace
+  -> [Checkpoint.ArtifactPointer]
+  -> App CheckpointStore.StoredCompletedCheckpoint
+writeLocalCompletedArsHostCheckpoint completed experimentHash tensorName step metrics trace transcripts = do
+  let weights = VU.toList (Common.rawTrainerFinalParams (ArsTrace.arsHostTraceObservation trace))
+      finalBytes = LazyByteString.toStrict (WeightCodec.encodeJmw1 weights)
+      checked = do
+        reference <- ArsTrace.arsHostTraceRecordedReference trace
+        ArsPhysical.validateArsHostCheckpointData experimentHash completed finalBytes reference trace
+        case ProductMatrix.productRowForExperimentHash experimentHash of
+          Just row
+            | ProductMatrix.family row == ProductMatrix.ReinforcementLearning
+                && "ARS/" `Text.isPrefixOf` ProductMatrix.rowId row ->
+                Right ()
+          _ -> Left "ARS host writer requires one exact canonical ARS ProductRow experiment"
+        let pointer =
+              Checkpoint.ArtifactPointer
+                { Checkpoint.artifactPointerKind = "ars-host-execution"
+                , Checkpoint.artifactPointerObjectKey = ArsReference.arsHostReferenceObjectKey reference
+                , Checkpoint.artifactPointerSha = Just (ArsReference.arsHostReferenceContentSha256 reference)
+                }
+        pure (pointer, ArsTrace.encodeArsHostTrace trace)
+  case checked of
+    Left reason -> exitWithError (InvalidConfig reason)
+    Right (pointer, bytes) ->
+      writeLocalCompletedWeightCheckpointWithArtifacts
+        completed
+        experimentHash
+        tensorName
+        step
+        metrics
+        weights
+        transcripts
+        [pointer]
+        [(Checkpoint.artifactPointerObjectKey pointer, LazyByteString.fromStrict bytes)]
+{-# NOINLINE writeLocalCompletedArsHostCheckpoint #-}
+
 writeLocalCompletedWeightCheckpointWithTranscripts
   :: TrainingBudget.CompletedTraining
   -> Text
@@ -714,7 +769,32 @@ writeLocalCompletedWeightCheckpointWithTranscripts
   -> [Double]
   -> [Checkpoint.ArtifactPointer]
   -> App CheckpointStore.StoredCompletedCheckpoint
-writeLocalCompletedWeightCheckpointWithTranscripts completed experimentHash tensorName step metrics weights transcriptPointers = do
+writeLocalCompletedWeightCheckpointWithTranscripts completed experimentHash tensorName step metrics weights transcriptPointers =
+  writeLocalCompletedWeightCheckpointWithArtifacts
+    completed
+    experimentHash
+    tensorName
+    step
+    metrics
+    weights
+    transcriptPointers
+    []
+    []
+
+-- Same original validation/read/CAS/mirror body, with explicit extra physical
+-- artifacts used only by the host adapter. Empty lists preserve neural bytes.
+writeLocalCompletedWeightCheckpointWithArtifacts
+  :: TrainingBudget.CompletedTraining
+  -> Text
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> [Double]
+  -> [Checkpoint.ArtifactPointer]
+  -> [Checkpoint.ArtifactPointer]
+  -> [(Text, LazyByteString.ByteString)]
+  -> App CheckpointStore.StoredCompletedCheckpoint
+writeLocalCompletedWeightCheckpointWithArtifacts completed experimentHash tensorName step metrics weights transcriptPointers replayPointers replayPayloads = do
   case validateGenericV1CompletedWriterRequest completed experimentHash tensorName of
     Left err ->
       exitWithError (InvalidConfig err)
@@ -754,8 +834,9 @@ writeLocalCompletedWeightCheckpointWithTranscripts completed experimentHash tens
       manifest =
         baseManifest
           { Checkpoint.manifestTranscriptPointers = transcriptPointers
+          , Checkpoint.manifestReplayPointers = replayPointers
           }
-      payloads = weightPayloads <> transcriptPayloads
+      payloads = weightPayloads <> transcriptPayloads <> replayPayloads
   expectedPointer <- localLatestPointerExpectation checkpointRoot experimentHash
   writeResult <-
     liftIO
@@ -1056,21 +1137,28 @@ mirrorCandidateCheckpointToLiveIfPublished
   -> [(Text, LazyByteString.ByteString)]
   -> App Bool
 mirrorCandidateCheckpointToLiveIfPublished manifest payloads = do
-  publicationMaybe <- liftIO (readExistingLivePublication ".")
-  case publicationMaybe of
+  settingsMaybe <- checkpointPublicationSettings
+  case settingsMaybe of
     Nothing -> pure False
-    Just publication -> do
-      let minioSettings = MinIOSubprocess.minioSettingsForLocalEdge (Publication.publicationEdgePort publication)
+    Just settings -> do
       result <-
         liftIO
-          ( MinIOSubprocess.runMinIOSubprocess
-              minioSettings
-              (CheckpointStore.writeCandidateCheckpointSnapshotWithMinIO manifest payloads)
+          ( MinIOSubprocess.runMinIOSubprocess settings $ do
+              case CheckpointStore.prepareCheckpointSnapshot
+                CheckpointStore.WriterCandidateSnapshot
+                CheckpointStore.WriterNoPointerIntent
+                manifest
+                payloads of
+                Left detail -> pure (Left (SETransient detail))
+                Right prepared -> do
+                  written <- CheckpointStore.writeCandidateCheckpointSnapshotWithMinIO manifest payloads
+                  case written of
+                    Left err -> pure (Left err)
+                    Right stored -> verifyRemoteCheckpointSnapshot prepared (CheckpointStore.candidateStoredCheckpoint stored)
           )
       case result of
-        Right _ -> pure True
-        Left err ->
-          exitWithError (MinIOFailed ("candidate checkpoint mirror failed: " <> Text.pack (show err)))
+        Right () -> pure True
+        Left err -> exitWithError (MinIOFailed ("candidate checkpoint mirror failed: " <> Text.pack (show err)))
 
 mirrorCompletedCheckpointToLiveIfPublished
   :: TrainingBudget.CompletedTraining
@@ -1078,35 +1166,40 @@ mirrorCompletedCheckpointToLiveIfPublished
   -> [(Text, LazyByteString.ByteString)]
   -> App Bool
 mirrorCompletedCheckpointToLiveIfPublished completed manifest payloads = do
-  publicationMaybe <- liftIO (readExistingLivePublication ".")
-  case publicationMaybe of
+  settingsMaybe <- checkpointPublicationSettings
+  case settingsMaybe of
     Nothing -> pure False
-    Just publication -> do
-      let minioSettings = MinIOSubprocess.minioSettingsForLocalEdge (Publication.publicationEdgePort publication)
+    Just settings -> do
       result <-
         liftIO
-          ( MinIOSubprocess.runMinIOSubprocess
-              minioSettings
-              ( do
-                  expectedPointer <-
-                    MinIOSubprocess.minioObjectETag
-                      ( CheckpointStore.checkpointObjectRef
+          ( MinIOSubprocess.runMinIOSubprocess settings $ do
+              expectedPointer <-
+                MinIOSubprocess.minioObjectETag
+                  ( CheckpointStore.checkpointObjectRef
+                      (Checkpoint.latestPointerKey (Checkpoint.manifestExperiment manifest))
+                  )
+              case expectedPointer of
+                Left err -> pure (Left err)
+                Right expected -> do
+                  let intent =
+                        CheckpointStore.WriterLatestPointerIntent
                           (Checkpoint.latestPointerKey (Checkpoint.manifestExperiment manifest))
-                      )
-                  case expectedPointer of
-                    Left err -> pure (Left err)
-                    Right expected ->
-                      CheckpointStore.writeCompletedCheckpointSnapshotWithMinIO
-                        expected
-                        completed
-                        manifest
-                        payloads
-              )
+                  case CheckpointStore.prepareCheckpointSnapshot
+                    CheckpointStore.WriterCompletedSnapshot
+                    intent
+                    manifest
+                    payloads of
+                    Left detail -> pure (Left (SETransient detail))
+                    Right prepared -> do
+                      written <-
+                        CheckpointStore.writeCompletedCheckpointSnapshotWithMinIO expected completed manifest payloads
+                      case written of
+                        Left err -> pure (Left err)
+                        Right stored -> verifyRemoteCheckpointSnapshot prepared (CheckpointStore.completedStoredCheckpoint stored)
           )
       case result of
-        Right _ -> pure True
-        Left err ->
-          exitWithError (MinIOFailed ("completed checkpoint mirror failed: " <> Text.pack (show err)))
+        Right () -> pure True
+        Left err -> exitWithError (MinIOFailed ("completed checkpoint mirror failed: " <> Text.pack (show err)))
 
 renderStoredCheckpointLines :: Text -> CheckpointStore.StoredCheckpoint -> [Text]
 renderStoredCheckpointLines = renderStoredCheckpointLinesWithPrefix "checkpoint"
@@ -1157,45 +1250,124 @@ writeTextArtifact experimentHash kind payloadText = do
       }
 {-# NOINLINE writeTextArtifact #-}
 
+-- | Create-only exact binary qualification material. This is a detached raw
+-- artifact, not a checkpoint companion or a completion/inference claim.
+writeBinaryArtifact :: Text -> Text -> LazyByteString.ByteString -> App StoredArtifact
+writeBinaryArtifact experimentHash kind payloadBytes = do
+  checkpointRoot <- localCheckpointRoot
+  let payload = LazyByteString.toStrict payloadBytes
+      sha = hexEncodeBytes (Crypto.Hash.SHA256.hash payload)
+      objectKey =
+        "jitml-checkpoints/"
+          <> experimentHash
+          <> "/artifacts/"
+          <> kind
+          <> "/"
+          <> sha
+          <> ".cbor"
+  writeResult <- liftIO (CheckpointStore.writeObjectIfAbsent checkpointRoot objectKey payloadBytes)
+  case writeResult of
+    Left err ->
+      exitWithError
+        (InvalidConfig ("binary artifact write: " <> CheckpointStore.renderCheckpointWriteError err))
+    Right _ -> pure ()
+  mirrored <- mirrorObjectToLiveIfPublished objectKey payload
+  pure
+    StoredArtifact
+      { storedArtifactSha = sha
+      , storedArtifactObjectKey = objectKey
+      , storedArtifactMirroredToLive = mirrored
+      }
+{-# NOINLINE writeBinaryArtifact #-}
+
+-- | Resolve the same configured services used for worker inputs/events. A pod
+-- has a mounted BootConfig rather than a host publication file. Resolution
+-- errors are fatal once configured; absence alone keeps offline writes local.
+checkpointPublicationSettings :: App (Maybe MinIOSubprocess.MinIOSettings)
+checkpointPublicationSettings = do
+  resolved <- liftIO (WorkerPublication.resolveWorkerLiveContext ".")
+  context <- either (exitWithError . InvalidConfig) pure resolved
+  pure (fmap WorkerPublication.workerLiveMinIOSettings context)
+
+-- | Re-read the exact immutable remote snapshot through the production Store
+-- physical-binding path, including its durable commit and all declared blobs.
+-- Generic V1 structural inspection is intentionally distinct from ProductRow
+-- completed admission; this never mints AdmittedCompletedCheckpoint.
+verifyRemoteCheckpointSnapshot
+  :: (Capabilities.HasMinIO m)
+  => CheckpointStore.PreparedCheckpointSnapshot
+  -> CheckpointStore.StoredCheckpoint
+  -> m (Either ServiceError ())
+verifyRemoteCheckpointSnapshot prepared stored
+  | CheckpointStore.storedManifestSha stored /= CheckpointStore.preparedSnapshotManifestSha prepared =
+      pure (Left (SETransient "remote snapshot returned a substituted manifest address"))
+  | CheckpointStore.storedManifestObjectKey stored /= expectedKey =
+      pure (Left (SETransient "remote snapshot returned a substituted manifest key"))
+  | CheckpointStore.storedManifestBodySha stored
+      /= CheckpointStore.preparedSnapshotManifestBodySha prepared =
+      pure (Left (SETransient "remote snapshot returned a substituted manifest body address"))
+  | otherwise = do
+      admitted <- CheckpointStore.admitCheckpointAt experiment expectedSha
+      pure $ case admitted of
+        Left err ->
+          Left
+            ( SETransient
+                ("remote snapshot physical readback failed: " <> CheckpointStore.renderCheckpointAdmissionError err)
+            )
+        Right value
+          | CheckpointStore.admittedCheckpointManifestSha value /= expectedSha ->
+              Left (SETransient "remote snapshot readback selected a different immutable address")
+          | CheckpointStore.admittedCheckpointManifest value /= expectedManifest ->
+              Left (SETransient "remote snapshot readback differs from the exact prepared manifest")
+          | otherwise -> Right ()
+ where
+  expectedManifest = CheckpointStore.preparedSnapshotManifest prepared
+  experiment = Checkpoint.manifestExperiment expectedManifest
+  expectedSha = CheckpointStore.preparedSnapshotManifestSha prepared
+  expectedKey = Checkpoint.manifestKey experiment expectedSha
+
 mirrorObjectToLiveIfPublished :: Text -> Data.ByteString.ByteString -> App Bool
 mirrorObjectToLiveIfPublished objectKey payload = do
-  publicationMaybe <- liftIO (readExistingLivePublication ".")
-  case publicationMaybe of
+  settingsMaybe <- checkpointPublicationSettings
+  case settingsMaybe of
     Nothing -> pure False
-    Just publication -> do
-      let minioSettings = MinIOSubprocess.minioSettingsForLocalEdge (Publication.publicationEdgePort publication)
-          ref = CheckpointStore.checkpointObjectRef objectKey
+    Just settings -> do
       result <-
         liftIO
           ( MinIOSubprocess.runMinIOSubprocess
-              minioSettings
-              ( do
-                  write <- Capabilities.putBlobBytesIfAbsent ref payload
-                  case write of
-                    Right _ -> pure (Right ())
-                    Left (SEConflict _) -> do
-                      existing <- Capabilities.minioReadBytes ref
-                      pure $
-                        case existing of
-                          Right bytes
-                            | bytes == payload -> Right ()
-                            | otherwise ->
-                                Left
-                                  (SEConflict "artifact object exists with different bytes")
-                          Left err ->
-                            Left
-                              ( SEConflict
-                                  ( "artifact object exists but exact-byte comparison failed: "
-                                      <> Text.pack (show err)
-                                  )
-                              )
-                    Left err -> pure (Left err)
-              )
+              settings
+              (writeVerifiedRemoteArtifact (CheckpointStore.checkpointObjectRef objectKey) payload)
           )
       case result of
         Right () -> pure True
-        Left err ->
-          exitWithError (MinIOFailed ("artifact mirror failed: " <> Text.pack (show err)))
+        Left err -> exitWithError (MinIOFailed ("artifact mirror failed: " <> Text.pack (show err)))
+
+-- | Create-only publication followed by exact-byte readback on both newly
+-- created and already-identical objects. A success acknowledgement alone does
+-- not establish that another process can fetch the addressed artifact.
+writeVerifiedRemoteArtifact
+  :: (Capabilities.HasMinIO m)
+  => Capabilities.ObjectRef
+  -> Data.ByteString.ByteString
+  -> m (Either ServiceError ())
+writeVerifiedRemoteArtifact ref payload = do
+  written <- Capabilities.putBlobBytesIfAbsent ref payload
+  case written of
+    Left (SEConflict _) -> verifyBytes True
+    Left err -> pure (Left err)
+    Right _ -> verifyBytes False
+ where
+  verifyBytes existingConflict = do
+    existing <- Capabilities.minioReadBytes ref
+    pure $ case existing of
+      Right bytes
+        | bytes == payload -> Right ()
+        | otherwise -> Left (SEConflict "artifact object exists with different bytes")
+      Left err
+        | existingConflict ->
+            Left
+              (SEConflict ("artifact object exists but exact-byte comparison failed: " <> Text.pack (show err)))
+        | otherwise -> Left (SETransient ("artifact exact-byte readback failed: " <> Text.pack (show err)))
 
 renderStoredArtifactLines :: Text -> StoredArtifact -> [Text]
 renderStoredArtifactLines prefix artifact =
@@ -1227,3 +1399,46 @@ hexEncodeBytes =
   hexDigit n
     | n < 10 = toEnum (fromEnum '0' + n)
     | otherwise = toEnum (fromEnum 'a' + n - 10)
+
+-- Separate generic host writer: an ordinary compiled singleton is never
+-- relabelled as a canonical ProductRow. Physical Store checks remain separate.
+writeLocalCompletedGenericArsHostCheckpoint
+  :: TrainingBudget.CompletedTraining
+  -> Text
+  -> Text
+  -> Word64
+  -> [(Text, Double)]
+  -> ArsTrace.ArsHostTrace
+  -> [Checkpoint.ArtifactPointer]
+  -> App CheckpointStore.StoredCompletedCheckpoint
+writeLocalCompletedGenericArsHostCheckpoint completed experimentHash tensorName step metrics trace transcripts = do
+  let weights = VU.toList (Common.rawTrainerFinalParams (ArsTrace.arsHostTraceObservation trace))
+      finalBytes = LazyByteString.toStrict (WeightCodec.encodeJmw1 weights)
+      checked = do
+        _ <- ArsPhysical.validateGenericArsHostCompletionData experimentHash completed
+        reference <- ArsTrace.arsHostTraceRecordedReference trace
+        ArsPhysical.validateArsHostCheckpointData experimentHash completed finalBytes reference trace
+        if tensorName == "rl-ars-weights"
+          then Right ()
+          else Left "generic ARS host writer requires the exact rl-ars-weights tensor"
+        let pointer =
+              Checkpoint.ArtifactPointer
+                { Checkpoint.artifactPointerKind = "ars-host-execution"
+                , Checkpoint.artifactPointerObjectKey = ArsReference.arsHostReferenceObjectKey reference
+                , Checkpoint.artifactPointerSha = Just (ArsReference.arsHostReferenceContentSha256 reference)
+                }
+        pure (pointer, ArsTrace.encodeArsHostTrace trace)
+  case checked of
+    Left reason -> exitWithError (InvalidConfig reason)
+    Right (pointer, bytes) ->
+      writeLocalCompletedWeightCheckpointWithArtifacts
+        completed
+        experimentHash
+        tensorName
+        step
+        metrics
+        weights
+        transcripts
+        [pointer]
+        [(Checkpoint.artifactPointerObjectKey pointer, LazyByteString.fromStrict bytes)]
+{-# NOINLINE writeLocalCompletedGenericArsHostCheckpoint #-}

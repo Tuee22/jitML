@@ -1,0 +1,31 @@
+{
+  "accessed_utc_date": "2026-10-16",
+  "scope": "Primary statistical sources support definitions and cautions, not a numeric accuracy target for a compact jitML recipe",
+  "sources": [
+    {
+      "title": "NIST/SEMATECH e-Handbook: Binomial Distribution",
+      "url": "https://www.itl.nist.gov/div898/handbook/eda/section3/eda366i.htm",
+      "supports": "Binomial mass/cumulative probability, fixed success probability; used only for the explicitly stated independent uniform-guessing null"
+    },
+    {
+      "title": "NIST/SEMATECH e-Handbook: Bonferroni method",
+      "url": "https://www.itl.nist.gov/div898/handbook/prc/section4/prc473.htm",
+      "supports": "General probability inequality for finite predeclared families; arithmetic bound30/3000=.01 or150/3000=.05, without independence between comparisons"
+    },
+    {
+      "title": "scikit-learn official r2_score documentation",
+      "url": "https://scikit-learn.org/stable/modules/generated/sklearn.metrics.r2_score.html",
+      "supports": "Held-out mean prediction has zero R-squared for nonconstant targets; constant targets need explicit handling; not a population confidence claim"
+    },
+    {
+      "title": "Cawley and Talbot2010: On Over-fitting in Model Selection and Subsequent Selection Bias in Performance Evaluation",
+      "url": "https://www.jmlr.org/papers/v11/cawley10a.html",
+      "supports": "Optimizing finite evaluation/model-selection criteria can induce overfitting and biased performance evaluation; criterion versioning does not create fresh test data"
+    }
+  ],
+  "inferences_by_reviewer_not_claims_of_sources": [
+    "Initial-versus-final exact predictive improvement is sufficient for the proposed descriptive benchmark claim when paired with real execution, baseline controls and five-run evidence, not for published-model parity.",
+    "A retained stricter historical restriction cannot cause false acceptance of a model failing an independent conjunct, but does not gain independent provenance from that fact.",
+    "No statistical source uniquely determines an application utility margin or requires a made-up compact-model accuracy target."
+  ]
+}

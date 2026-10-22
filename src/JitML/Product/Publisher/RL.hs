@@ -9,7 +9,6 @@ where
 
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Reader (ask)
-import Data.Text (Text)
 import Data.Text qualified as Text
 
 import JitML.Env.Env (App)
@@ -31,13 +30,13 @@ import JitML.Product.Publisher.Common
   , productPublishUnsupported
   , writeProductTextArtifact
   )
+import JitML.Product.Publisher.NativeCompanion (renderRlTrajectoryArtifact)
 import JitML.Product.Publisher.Projection
   ( ProjectedRlExecution (..)
   , projectedRlExecution
   )
 import JitML.Product.Publisher.Runtime (ProductPublisherRuntime (..))
 import JitML.RL.Algorithms.Common qualified as AlgorithmCommon
-import JitML.RL.EpisodeEnvelope qualified as EpisodeEnvelope
 import JitML.RL.ProductBudget qualified as ProductBudget
 import JitML.RL.TrainerExecution qualified as TrainerExecution
 import JitML.Training.Budget qualified as TrainingBudget
@@ -181,45 +180,4 @@ trainAndPublishRlProductRow invocation runtime row projection =
                                         admitted
                                         [trajectory]
                                         "RL policy artifact and trajectory stored and admitted"
-renderRlTrajectoryArtifact
-  :: Text
-  -> Text
-  -> Text
-  -> Int
-  -> [EpisodeEnvelope.SimulatedEpisode]
-  -> Text
-renderRlTrajectoryArtifact experimentHash environment trainer seed episodes =
-  Text.unlines $
-    [ "kind: rl-trajectory-v1"
-    , "experiment-hash: " <> experimentHash
-    , "environment: " <> environment
-    , "trainer: " <> trainer
-    , "seed: " <> Text.pack (show seed)
-    , "episodes: " <> Text.pack (show (length episodes))
-    ]
-      <> concatMap renderEpisode episodes
- where
-  renderEpisode episode =
-    [ "episode: " <> Text.pack (show (EpisodeEnvelope.simEpisodeIndex episode))
-    , "episode-steps: " <> Text.pack (show (EpisodeEnvelope.simEpisodeSteps episode))
-    , "episode-reward: " <> Text.pack (show (EpisodeEnvelope.simEpisodeReward episode))
-    , "episode-done: " <> Text.pack (show (EpisodeEnvelope.simEpisodeDone episode))
-    , "episode-frame-count: "
-        <> Text.pack (show (length (EpisodeEnvelope.simEpisodeFrames episode)))
-    ]
-      <> concatMap renderFrame (EpisodeEnvelope.simEpisodeFrames episode)
-  renderFrame frame =
-    [ "frame-episode: " <> Text.pack (show (EpisodeEnvelope.simFrameEpisodeIndex frame))
-    , "frame-step: " <> Text.pack (show (EpisodeEnvelope.simFrameStepIndex frame))
-    , "frame-action: " <> Text.pack (show (EpisodeEnvelope.simFrameAction frame))
-    , "frame-reward: " <> Text.pack (show (EpisodeEnvelope.simFrameReward frame))
-    , "frame-done: " <> Text.pack (show (EpisodeEnvelope.simFrameDone frame))
-    , "frame-observation: " <> Text.pack (show (EpisodeEnvelope.simFrameObservation frame))
-    , "frame-next-observation: "
-        <> Text.pack (show (EpisodeEnvelope.simFrameNextObservation frame))
-    , "frame-action-probabilities: "
-        <> Text.pack (show (EpisodeEnvelope.simFrameActionProbabilities frame))
-    , "frame-caption: " <> EpisodeEnvelope.simFrameCaption frame
-    ]
-{-# NOINLINE renderRlTrajectoryArtifact #-}
 {-# NOINLINE trainAndPublishRlProductRow #-}

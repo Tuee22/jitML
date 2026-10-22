@@ -1,0 +1,30 @@
+{
+  "status": "Prospective independent-review candidate; unimplemented",
+  "decided_by_root_for_this_proposal": {
+    "recipes_and_per_run_budgets": "unchanged",
+    "all_stronger_existing_floors": "unchanged with honest historical provenance",
+    "training_seeds": "canonical base seed plus ordered offsets0..4",
+    "served_member": "index0; never chosen by score",
+    "paired_improvement": "strict exact initial-to-final correct-count or SSE improvement",
+    "per_seed_uniform_null_alpha": "1/5000",
+    "cohort_joint_successes_required": "at least3of5",
+    "median": "all five final primary metrics versus unchanged row floor",
+    "served_member_requirements": "independently eligible under all per-artifact requirements",
+    "ownership": "Phase278 owns qualification implementation and real evidence, no dependency on285"
+  },
+  "implementation_choices_still_requiring_review_not_numerical_choices": [
+    "Exact canonical encoding and API names for cohort plans, initial snapshots and authenticated raw outcomes",
+    "Journal wire version and portable artifact reader/authentication integration; no reinterpretation of historical canonical bytes",
+    "Whether to use a separate typed binary artifact writer or existing byte-preserving object-store primitive",
+    "Approved live implementation allocation and final per-lane gate ownership remain root governance decisions"
+  ],
+  "primary_statistical_sources": [
+    "https://www.itl.nist.gov/div898/handbook/eda/section3/eda366i.htm",
+    "https://www.itl.nist.gov/div898/handbook/prc/section4/prc473.htm",
+    "https://ocw.mit.edu/courses/res-6-012-introduction-to-probability-spring-2018/d973b10c2587781f86ca4f2aff49098f_MITRES_6_012S18_Textbook.pdf",
+    "https://scikit-learn.org/stable/modules/generated/sklearn.metrics.r2_score.html",
+    "https://www.jmlr.org/papers/v11/cawley10a.html"
+  ],
+  "source_review_scope": "Probability algebra/definitions and selection-bias caution; none supplies a compact-model published accuracy anchor",
+  "accessed_utc_date": "2026-10-16"
+}

@@ -55,6 +55,36 @@ This document does not own:
 
 ## Raw and Validated Boundaries
 
+**Implemented native DATA boundary.** Source `39547f58…` provides actual initial
+preparations, uncensored returns and fixed-case comparisons, kept separate
+from strict completed evidence. A parsed closed neural/ARS-host provenance
+value is recorded data, not producer origin or Store admission. Host data cannot
+satisfy a neural-only witness accessor, and decoded data or an arbitrary result
+callback cannot restore one-shot execution state. Concrete create-only
+allocation/content-object retention remains distinct from an executed durable
+prefix protocol: exact local readback is not remote publication, and a retained
+subset is not full resumable state. The [checkpoint boundary](checkpoint_format.md#current-status)
+and [native learning contract](training_metrics_and_splits.md#target-native-rl-learning-qualification)
+retain physical replay, actual all-five acquisition and authentication duties.
+
+Native execution, retained source qualification and portable lane audit use
+separate opaque capabilities. The concrete publisher accepts no injected
+trainer, evaluator or writer. The owned parent binds its actual child process,
+source/executable/invocation, create-only attempt reservation, exact retained
+file inventory, full physical
+allocation and eleven selected-lane replays before it can mint a certificate.
+Ordinary reference, receipt, completion and decoded phase data cannot mint it.
+The authenticated source reader obtains a distinct retained qualification only
+after its live physical rechecks. A portable bundle reader obtains a distinct
+file-audit capability only after checking the externally pinned current lane
+and exact closed object bytes. That portable path performs no fresh source
+observation, device selection, training or current-policy evaluation. Neither
+retained capability is an original owned execution certificate or a live
+Store-admission capability. Current source/lane wire versions are `5`/`3`;
+[Checkpoint Format](checkpoint_format.md#compact-supervised-qualification) owns
+the canonical encoding, bounds and historical-version refusal rules.
+
+
 Configuration and wire codecs decode into versioned raw DTOs. A single pure
 refinement step accumulates all independent errors before effects begin:
 
@@ -391,11 +421,14 @@ before payload-object I/O, but it cannot construct an admitted value.
 Generic `JitML.Service.Workload` object effects reject the Store-owned
 `manifests/`, `pointers/`, `snapshots/`, and `gc/` checkpoint prefixes before
 `HasMinIO`; decoded workload input cannot manufacture this proof outside Store.
-Supervised completion requires the supervised-graph payload. Completed
-weight-only refinement is restricted to canonical non-supervised ProductRows
-and additionally binds each companion pointer to its exact fetched bytes;
-generic/non-product and supervised weight-only payloads cannot cross that
-Product completion boundary.
+Supervised completion requires the supervised-graph payload. Product
+weight-only refinement remains restricted to canonical non-supervised
+ProductRows and binds each companion pointer to its exact fetched bytes.
+The target generic ARS branch separately admits an exact non-Product compiled
+host completion, its snapshot-bound trace and one trajectory through the total
+execution-admission API. It cannot cross the Product qualification boundary or
+satisfy a neural-only witness accessor; other unknown V1 completion admission
+is unchanged.
 
 RL has distinct evidence types for training and final quality. `LearningCurve`
 is a non-empty sequence of finite trainer-produced `IterationSummary` values
@@ -628,6 +661,16 @@ host-command forwarding and duplicate-delivery checks are likewise explicitly
 scoped transport/placement smokes; exact decoded command equality or a dedup
 observation is not presented as completed-run evidence.
 
+The additive generic ARS CLI gate requires an actual selected-lane host run,
+owned launch PID and source/executable observations, complete compiled work,
+remote readback and physically admitted trace/JMW1/trajectory. Its Linux daemon
+gate also requires the real image/source identity, owned Job/Pod and complete
+plan-bound event cohort before cleanup. The Apple daemon branch proves actual
+host-command forwarding and no Linux Job; it makes no daemon training claim.
+The separate Apple CLI gate still requires full host execution and readback.
+These are execution obligations, not recorded test-pass claims, and preserve
+the existing eight CLI workflow cells and two PPO daemon cases.
+
 Resource ownership is explicit (`Borrowed` or `Owned`). An interpreter never
 deletes a developer-owned cluster or another run's Job/RunConfig pair. Assertions live outside
 the resource scope so an exception cannot bypass cleanup. The journal fixes the
@@ -848,7 +891,10 @@ supervised rows, and exactly one tuning-v2 transcript for the tuning row.
 
 Reporting is a second nominal boundary, not a text-table join. A private
 `ProductScenarioCompletion kind` can be created only from Store's opaque
-`AdmittedCompletedCheckpoint`. Its persisted manifest and admitted completion
+`AdmittedExecutionCheckpoint`. Its neural arm retains the narrower
+`AdmittedCompletedCheckpoint`; its host arm retains physically admitted ARS
+provenance. Native report admission additionally requires the owned-parent
+certificate and retained qualification described above. Its persisted manifest and admitted completion
 must exactly match the projection's experiment, canonical ProductRow `rowId`,
 `PlanId`, complete budget, budget/evidence kind, criterion, every dimensionally
 defined update-count relation, and family-specific runtime provenance.
@@ -881,7 +927,7 @@ row count, and its failure text counts the authenticated browser journal's own
 rows. Phase `261` supplies the authenticated current-run journal writer, reader,
 executable-identity checks, and report re-admission boundary.
 
-The version-`3` journal writer accepts only the opaque, projection-ordered
+The version-`5` source-journal writer accepts only the opaque, projection-ordered
 `CompletedProductScenarioReport`, covers the complete aggregate and every
 ordered row field with one current-run HMAC-SHA-256 receipt, and publishes by a
 same-directory temporary file plus atomic rename. The parent authenticates that
@@ -892,7 +938,7 @@ successful chronology, and re-admits every recorded immutable manifest address
 through Store. A valid HMAC or green integration exit alone cannot mint report
 evidence.
 
-After that exact re-admission, the parent writes a canonical version-`1`
+After that exact re-admission, the parent writes a canonical version-`3`
 portable lane journal under
 `.build/runtime/product-lane-journals/<substrate>.json`. Its issuer accepts only
 the authentication-preserving journal result. Each projection-ordered row
@@ -1041,6 +1087,24 @@ Its embedded exact plan may make it inference eligible, but its non-product
 experiment identity and generic origin cannot be substituted for the projected
 row's ProductRow-origin artifact or completed scenario journal. Matching a
 `PlanId` without the addressed Product composite origin is insufficient.
+
+Qualifying execution first captures the separately selected criterion review
+from fixed files under `documents/validation/criterion-reviews/`, bound to the
+original code source, lane, scope and full ordered 55-row contract set. Native
+execution compares the current contract digest before reserving its issued
+attempt or launching training; its private certificate and retained receipt bind
+that same identity. A supervised scenario parent captures before launch and
+compares the child's explicitly supplied review identity with that original
+observation. A direct supervised run captures the files itself. Both parent
+routes recheck the selection after execution. Raw supplied identity bytes alone
+do not establish the original observation or qualify a result.
+
+Current status reads the same actually admitted registered-lane observations for
+lane judgments, original source/review epochs and aggregation. The Phase 278
+Apple backend and unfiltered CPU daemon records must match the qualifying source
+epoch. Later code edits affect the separate global standing gates. Governed
+review/registration DATA lives outside the code digest roots; adopting it still
+changes the full host snapshot and requires explicit helper/data rebinding.
 
 ## Workload Instances
 

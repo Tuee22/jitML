@@ -77,6 +77,8 @@ import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Product.Publisher qualified as ProductPublisher
 import JitML.Product.ServedMetric qualified as ServedMetric
+import JitML.Product.SupervisedCohortPlan qualified as Cohort
+import JitML.Product.SupervisedQualification qualified as Qualification
 import JitML.SL.Architecture qualified as Architecture
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Classifier qualified as Classifier
@@ -1408,7 +1410,9 @@ supervisedCheckpointV2Tests =
         let runtime =
               (substitutedSupervisedPublisherRuntime (supervisedPublishRunFixture metrics))
                 { ProductPublisher.publisherRunSupervisedTraining =
-                    \_ _ _ _ _ _ learningRate -> do
+                    \child -> do
+                      let ProductMatrix.SupervisedProductDescriptor _ _ _ learningRate =
+                            ProductMatrix.productProjectionDescriptor (Cohort.supervisedSeedPlanBaseProjection child)
                       liftIO (writeIORef observedRate (Just learningRate))
                       pure (Left "intentional callback stop after learning-rate capture")
                 }
@@ -2264,6 +2268,7 @@ makeTrainingCompletionFixture = do
           , TrainingExecution.tmCheckpointWeights = Just finalWeights
           , TrainingExecution.tmDatasetShaAtRead = Just datasetSha
           , TrainingExecution.tmSupervisedRuntimeProgram = rawRuntime
+          , TrainingExecution.tmInitialLayerGraphMetadata = fixtureGraphMetadata
           , TrainingExecution.tmTrainedLayerGraphMetadata = Just fixtureGraphMetadata
           , TrainingExecution.tmDeviceWitness = Just fixtureDeviceWitness
           , TrainingExecution.tmInitialJmw1Bytes = initialBytes
@@ -2435,7 +2440,7 @@ fixtureDeviceWitness :: DeviceWitness.DeviceExecutionWitness
 fixtureDeviceWitness =
   unsafePerformIO
     ( either (error . Text.unpack) id
-        <$> DeviceWitnessFixture.fixtureDeviceExecutionWitness
+        <$> DeviceWitnessFixture.fixtureClassificationDeviceExecutionWitnessFor Substrate.LinuxCPU
     )
 {-# NOINLINE fixtureDeviceWitness #-}
 
@@ -2462,6 +2467,8 @@ supervisedPublishRunFixture metrics =
         TrainingExecution.tmOptimizerUpdatesExecuted metrics
     , ProductPublisher.supervisedPublishRuntimeProgram =
         TrainingExecution.tmSupervisedRuntimeProgram metrics
+    , ProductPublisher.supervisedPublishInitialLayerGraphMetadata =
+        TrainingExecution.tmInitialLayerGraphMetadata metrics
     , ProductPublisher.supervisedPublishLayerGraphMetadata =
         TrainingExecution.tmTrainedLayerGraphMetadata metrics
     , ProductPublisher.supervisedPublishInitialJmw1Bytes =
@@ -2484,7 +2491,17 @@ substitutedSupervisedPublisherRuntime
 substitutedSupervisedPublisherRuntime run =
   ProductPublisher.ProductPublisherRuntime
     { ProductPublisher.publisherRunSupervisedTraining =
-        \_ _ _ _ _ _ _ -> pure (Right run)
+        \_ -> pure (Right run)
+    , ProductPublisher.publisherSupervisedQualificationProducer =
+        \invocation ->
+          pure
+            ( Right
+                ( Qualification.RawQualificationProducer
+                    (Text.replicate 64 "a")
+                    (maybe (Text.replicate 64 "b") TrainingBudget.productScenarioInvocationExecutableSha256 invocation)
+                    (maybe (Text.replicate 64 "c") TrainingBudget.productScenarioInvocationDigest invocation)
+                )
+            )
     , ProductPublisher.publisherRunRlTraining =
         error "substituted supervised row invoked the RL training callback"
     , ProductPublisher.publisherCompleteProductRow =
@@ -2505,6 +2522,11 @@ substitutedSupervisedPublisherRuntime run =
         error "substituted supervised row invoked the supervised checkpoint writer"
     , ProductPublisher.publisherAdmitCompletedCheckpoint =
         error "substituted supervised row invoked checkpoint admission"
+    , ProductPublisher.publisherWriteBinaryArtifact =
+        \experiment kind payload -> do
+          let sha = WeightCodec.jmw1ContentSha payload
+              key = "jitml-checkpoints/" <> experiment <> "/artifacts/" <> kind <> "/" <> sha <> ".cbor"
+          pure (sha, key)
     , ProductPublisher.publisherWriteTextArtifact =
         error "substituted supervised row invoked the artifact writer"
     , ProductPublisher.publisherLoadTuningDataset =
@@ -2577,7 +2599,12 @@ makeFixtureForRowAndBytes
   -> (Int -> LazyByteString.ByteString)
   -> IO (Either Text Fixture)
 makeFixtureForRowAndBytes fixtureRow metric finalBytesFor = do
-  witnessResult <- DeviceWitnessFixture.fixtureDeviceExecutionWitness
+  witnessResult <-
+    case ProductMatrix.rowClass
+      <$> find ((== fixtureRowId fixtureRow) . ProductMatrix.rowId) ProductMatrix.allProductRows of
+      Just (ProductMatrix.SupervisedClassification _ _) ->
+        DeviceWitnessFixture.fixtureClassificationDeviceExecutionWitnessFor Substrate.LinuxCPU
+      _ -> DeviceWitnessFixture.fixtureDeviceExecutionWitness
   pure
     ( witnessResult
         >>= \witness -> makeFixtureForRowWithWitness fixtureRow witness metric finalBytesFor

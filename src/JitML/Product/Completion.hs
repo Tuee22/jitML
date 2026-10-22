@@ -15,6 +15,8 @@ module JitML.Product.Completion
   , rlCompletedTrainingFailureMessage
   , rlCompletedTrainingWithBudget
   , rlCompletionMetrics
+  , rlConvergenceObservations
+  , alphaZeroConvergenceObservations
   , supervisedProductRowForProblem
   , tuneSweepCompletedTraining
   )

@@ -1,18 +1,22 @@
-cabal-version: 3.16
-name:          jitml
-version:       0.1.0.0
-license:       MIT
-license-file:  LICENSE
-maintainer:    maintainers@example.invalid
-author:        jitML contributors
-tested-with:   ghc ==9.12.4
+cabal-version:      3.16
+name:               jitml
+version:            0.1.0.0
+license:            MIT
+license-file:       LICENSE
+maintainer:         maintainers@example.invalid
+author:             jitML contributors
+tested-with:        ghc ==9.12.4
 synopsis:
     Deterministic, reproducible, JIT-compiled machine learning for Haskell
 
 description:
     jitML is a Haskell-native machine learning framework with a doctrine-shaped CLI.
 
-build-type:    Simple
+build-type:         Simple
+extra-source-files:
+    test/fixtures/compact-supervised-before-identities.txt
+    test/fixtures/compact-supervised-46a-identities.txt
+    test/fixtures/compact-supervised-current-rl-isolation-identities.txt
 
 flag cuda
     description:
@@ -29,6 +33,14 @@ flag cuda
 
 library
     exposed-modules:
+        JitML.Execution.ProducerObservation
+        JitML.Execution.SingleUse
+        JitML.Plan.NativeChildAssociation
+        JitML.Plan.NativeSingletonPlan
+        JitML.Product.ArsHostReference
+        JitML.Product.ExecutionProvenance
+        JitML.RL.AlphaZero.PreparedTrainer
+        JitML.RL.ArsHostTrace
         JitML.App
         JitML.AppError.AppError
         JitML.AppError.Render
@@ -56,6 +68,17 @@ library
         JitML.Codegen.RuntimeSource
         JitML.Codegen.SourceFile
         JitML.Checkpoint.Format
+        JitML.Checkpoint.NativeRetention
+        JitML.Checkpoint.NativePhase.Builder
+        JitML.Checkpoint.NativePhase.CBOR
+        JitML.Checkpoint.NativePhase.Codec
+        JitML.Checkpoint.NativePhase.Context
+        JitML.Checkpoint.NativePhase.Failure
+        JitML.Checkpoint.NativePhase.Graph
+        JitML.Checkpoint.NativePhase.Producer
+        JitML.Checkpoint.NativePhase.Projection
+        JitML.Checkpoint.NativePhase.Schema
+        JitML.Checkpoint.NativePhase.Types
         JitML.Checkpoint.Store
         JitML.Checkpoint.WeightCodec
         JitML.Checkpoint.Writer
@@ -67,6 +90,13 @@ library
         JitML.Cluster.Gateway
         JitML.Cluster.Helm
         JitML.Cluster.Kind
+        JitML.Cluster.Lifecycle
+        JitML.Cluster.LifecycleFilesystem
+        JitML.Cluster.LifecycleTarget
+        JitML.Cluster.PVSnapshot
+        JitML.Cluster.PVSnapshotDocker
+        JitML.Cluster.PVSnapshotPosix
+        JitML.Cluster.PVSnapshotPrograms
         JitML.Cluster.PostgresRegistry
         JitML.Cluster.Publication
         JitML.Cluster.PulsarBootstrap
@@ -147,7 +177,33 @@ library
         JitML.Product.DeviceWitness
         JitML.Product.Evidence
         JitML.Product.ExternalBars
+        JitML.Product.LearningSignal
+        JitML.Product.SupervisedQualificationPolicy
+        JitML.Product.SupervisedCohortPlan
+        JitML.Product.SupervisedQualification
+        JitML.Product.SupervisedQualificationReceipt
+        JitML.Product.QualificationObjects
         JitML.Product.Matrix
+        JitML.Product.NativeArenaLearningPolicy
+        JitML.Product.NativeHerLearningPolicy
+        JitML.Product.NativePreparedAlphaZeroAttempt
+        JitML.Product.NativePreparedArsAttempt
+        JitML.Product.NativeReturnLearningPolicy
+        JitML.Product.NativeRlCohortPlan
+        JitML.Product.NativeRlProducer
+        JitML.Product.NativeRlProducer.Inventory
+        JitML.Product.NativeReferenceCalibration
+        JitML.Checkpoint.NativeReferences.Body
+        JitML.Checkpoint.NativeReferences
+        JitML.Product.NativeRlEvaluationReplay
+        JitML.Product.NativeRlAssessment
+        JitML.Product.NativeRlServingCandidate
+        JitML.Product.NativeRlCompletedServing
+        JitML.Checkpoint.NativeRetentionReader
+        JitML.Checkpoint.ArsHostPhysical
+        JitML.Product.NativeRlStoreLoadedReplay
+        JitML.Checkpoint.NativeAcquisitionData
+        JitML.Product.NativePreparedNeuralAttempt
         JitML.Product.PhaseStatus
         JitML.Product.Pipeline
         JitML.Product.PlanDoc
@@ -212,6 +268,9 @@ library
         JitML.RL.Algorithms.TrpoLoss
         JitML.RL.ALE
         JitML.RL.AlphaZero
+        JitML.RL.AlphaZero.ArenaTape
+        JitML.RL.AlphaZero.NativeArenaEvaluation
+        JitML.RL.AlphaZero.NativeArenaReferences
         JitML.RL.AlphaZero.PolicyValueNet
         JitML.RL.AlphaZero.Mcts
         JitML.RL.AlphaZero.SelfPlay
@@ -228,7 +287,15 @@ library
         JitML.RL.RewardShaping
         JitML.RL.Schema
         JitML.RL.Simulator
+        JitML.RL.TrainerConfiguration
+        JitML.RL.NativeReturnCeiling
+        JitML.RL.NativeReturnReferences
+        JitML.RL.NativeHerReferences
+        JitML.RL.NativeReturnEvaluation
+        JitML.RL.NativeHerEvaluation
+        JitML.RL.PreparedNeuralAttempt
         JitML.RL.TrainerExecution
+        JitML.RL.TrainerObservation
         JitML.RL.VecEnv
         JitML.Routes
         JitML.Run.Contract
@@ -258,6 +325,7 @@ library
         JitML.Service.RegistrySubprocess
         JitML.Service.Retry
         JitML.Service.RunConfig
+        JitML.Service.WorkerPublication
         JitML.Service.Runtime
         JitML.Service.RuntimeState
         JitML.Service.Signal
@@ -273,6 +341,7 @@ library
         JitML.SL.Dataset
         JitML.SL.Regression
         JitML.SL.RuntimeArtifact
+        JitML.SL.InitialComparison
         JitML.SL.TinyImageNet
         JitML.SL.TrainingExecution
         JitML.Storage.Buckets
@@ -320,6 +389,7 @@ library
         JitML.Test.DeviceWitnessFixture
         JitML.Test.ReducerProperties
         JitML.Test.Report
+        JitML.Test.ReportKnobs
         JitML.Test.RunContract
         JitML.Test.RunPlan
         JitML.Test.WorkloadContract
@@ -347,9 +417,62 @@ library
         Proto.Jitml.Training_Fields
         Proto.Jitml.Tune
         Proto.Jitml.Tune_Fields
+        JitML.Checkpoint.NativeParentBindingData
+        JitML.Checkpoint.NativeParentEvaluationSummaryData
+        JitML.Checkpoint.NativeParentPhysicalRead
+        JitML.Checkpoint.NativeParentPolicyData
+        JitML.Checkpoint.NativeParentPolicyData.ArenaRaw
+        JitML.Checkpoint.NativeParentPolicyData.Ars
+        JitML.Checkpoint.NativeParentPolicyData.Evaluation
+        JitML.Checkpoint.NativeParentPolicyData.Lineage
+        JitML.Checkpoint.NativeParentPolicyData.Neural
+        JitML.Checkpoint.NativeParentPolicyData.Node
+        JitML.Checkpoint.NativeParentPolicyData.References
+        JitML.Checkpoint.NativeParentPolicyData.ReturnReplay
+        JitML.Checkpoint.NativeQualificationGc
+        JitML.Checkpoint.NativeQualificationReceiptData
+        JitML.Checkpoint.NativeReplayObjectData
+        JitML.Execution.NativeParentAttemptRetention
+        JitML.Product.NativeParentCompletionData
+        JitML.Product.NativeParentEvaluationReplay
+        JitML.Product.NativeParentExecution
+        JitML.Product.NativePublishedArtifact
+        JitML.Product.NativeQualificationPublication
+        JitML.Product.NativeQualificationReference
+        JitML.Product.NativeRlExecution
+        JitML.Product.NativeRlReplayRetention
+        JitML.Product.NativeRlStoredServing
+        JitML.Test.NativeScenarioJournalBindingData
+        JitML.Test.NativeScenarioReceiptData
+        JitML.Test.NativeScenarioRetention
+        JitML.Test.NativeLaneBundle.Data
+        JitML.Test.NativeLaneBundle.Read
+        JitML.Test.NativeLaneBundle.Recorded
+        JitML.Test.NativeLaneBundle.Write
+        JitML.Test.NativeLaneBundle
+        JitML.Product.Phase278ContextResolution
+        JitML.Product.LaneRegistrationData
+        JitML.Product.LaneRegistration
+        JitML.Test.RegisteredLaneEvidence
+        JitML.Product.CriterionReviewData
+        JitML.Product.CriterionReview
+
+    c-sources:
+        src/JitML/Cluster/pv_snapshot_posix.c
+        src/JitML/Cluster/pv_lifecycle_fs.c
 
     hs-source-dirs:   src gen
     other-modules:
+        JitML.Product.Publisher.Native
+        JitML.Product.Publisher.NativeCompanion
+        JitML.Checkpoint.NativePhase.Projection.Arena
+        JitML.Checkpoint.NativePhase.Projection.Build
+        JitML.Checkpoint.NativePhase.Projection.Cases
+        JitML.Checkpoint.NativePhase.Projection.Evaluations
+        JitML.Checkpoint.NativePhase.Projection.Returns
+        JitML.Checkpoint.NativePhase.Projection.Snapshots
+        JitML.Checkpoint.NativePhase.Projection.Values
+        JitML.Checkpoint.NativePhase.SchemaTable
         JitML.Product.Publisher.AlphaZero
         JitML.Product.Publisher.Audit
         JitML.Product.Publisher.Common
@@ -357,6 +480,7 @@ library
         JitML.Product.Publisher.Projection
         JitML.Product.Publisher.RL
         JitML.Product.Publisher.Runtime
+        JitML.Product.Publisher.SourceAuthority
         JitML.Product.Publisher.Supervised
         JitML.Product.Publisher.Tuning
         JitML.Product.Publisher.TuningTranscript
@@ -374,7 +498,7 @@ library
     ghc-options:
         -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
         -funbox-strict-fields -fspecialise-aggressively
-        -fexpose-all-unfoldings
+        -fexpose-all-unfoldings -fobject-determinism
 
     build-depends:
         base >=4.21 && <4.22,
@@ -394,6 +518,7 @@ library
         directory,
         filepath,
         mtl,
+        transformers,
         network,
         optparse-applicative,
         prettyprinter,
@@ -401,11 +526,11 @@ library
         ansi-terminal,
         path,
         path-io,
-        random,
+        random >=1.3.1,
         cborg,
         serialise,
         stm,
-        typed-process,
+        typed-process >=0.2.12,
         safe-exceptions,
         tasty,
         tasty-hunit,
@@ -437,6 +562,7 @@ executable jitml
         -funbox-strict-fields -threaded -fspecialise-aggressively
         -fexpose-all-unfoldings -with-rtsopts=-A64m -with-rtsopts=-n4m
         -with-rtsopts=-qg1 -with-rtsopts=-qb -with-rtsopts=-T
+        -fobject-determinism
 
     build-depends:
         base >=4.21 && <4.22,
@@ -445,11 +571,47 @@ executable jitml
 test-suite jitml-unit
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
-    hs-source-dirs:   test/unit
+    hs-source-dirs:   test/unit test/shared
     other-modules:
+        BootstrapLifecycle
+        PVSnapshot
+        PVSnapshotPosix
+        PVSnapshotClaim
+        PVSnapshotFixture
+        ClusterLifecycleTarget
+        ClusterLifecyclePurge
+        ClusterLifecyclePublication
+        PreparedTrainers
+        DqnEvaluationControls
+        ArsAppliedStep
+        PreparedContinuousAlphaZero
+        ProducerObservation
+        ArsHostRecordedData
+        ArsRecordedEvidence
+        NativeChildAssociation
+        ArsSingletonProducer
+        PreparedTrainerCapture
+        GenericRlDeviceWitness
+        CheckpointPublication
+        GenericRlPhysicalControls
+        OffPolicyEvaluation
+        TrainerObservation
+        AlphaZeroEvaluation
+        GenericRlPhysicalProof
         CheckpointV1Admission
+        OnPolicyEvaluation
+        OnPolicyHorizon
         DurableStateTopology
         JournalDerivedStatus
+        LearningSignal
+        SupervisedQualificationPolicy
+        SupervisedCohortPlan
+        InitialComparison
+        InitialSnapshotOwnership
+        SupervisedQualification
+        QualificationObjects
+        SupervisedCohortExecution
+        SupervisedQualificationReceipt
         ProductAggregation
         ProductBarProvenance
         ProductExperimentExactness
@@ -462,6 +624,69 @@ test-suite jitml-unit
         ServedMetricVerification
         SupervisedCheckpointV2
         SupervisedTrainingSeed
+        ProductBarLocalControls
+        TinyArchiveControls
+        TrpoFisherControls
+        TrainerConfiguration
+        NativeReturnReferences
+        NativeHerReferences
+        NativeReturnEvaluation
+        NativeHerEvaluation
+        NativeRlCohortPlan
+        PreparedNeuralAttempt
+        NativePreparedNeuralAttempt
+        NativePreparedArsAttempt
+        NativeArenaEvaluation
+        NativePreparedAlphaZeroAttempt
+        NativeRetention
+        NativeReturnCeiling
+        NativeReturnLearningPolicy
+        NativeArenaTape
+        NativeArenaReferences
+        NativeHerLearningPolicy
+        NativeArenaLearningPolicy
+        NativePhaseCodec
+        NativePhaseProjection
+        NativePhaseContext
+        NativePhaseProducer
+        NativePhaseFailure
+        NativeRlProducer
+        NativeReferenceCalibration
+        NativeRlAssessment
+        NativeRetentionReader
+        ArsHostPhysicalAdmission
+        NativeRlStoreLoadedReplay
+        NativePhysicalRead
+        NativeReportExecution
+        NativeCanonicalPublisher
+        NativeRlStoredServing
+        NativeDetachedArtifactRead
+        NativeQualificationReceiptData
+        NativeScenarioReceiptData
+        NativeParentPolicyData
+        NativeParentCompletionData
+        NativeParentEvaluationSummaryData
+        NativeSourceJournalV5
+        NativeParentBindingData
+        NativeParentPhysicalRead
+        NativeParentExecution
+        NativeParentEvaluationReplay
+        NativeProcessSpawn
+        NativeParentAttemptRetention
+        NativeQualificationGc
+        NativeRlExecution
+        NativeRlReplayRetention
+        NativeQualificationPublication
+        NativeQualificationReference
+        NativeReplayObjectData
+        NativeRecordedCheckpointData
+        NativeLaneBundleAdmission
+        NativeLaneBundleData
+        NativeLaneBundleFiles
+        GenericArsHostPublication
+        Phase278ContextResolution
+        LaneRegistration
+        CriterionReviewData
 
     default-language: GHC2024
     ghc-options:
@@ -471,6 +696,7 @@ test-suite jitml-unit
         -with-rtsopts=-qg1 -with-rtsopts=-qb -with-rtsopts=-T
 
     build-depends:
+        cryptohash-sha256,
         base >=4.21 && <4.22,
         aeson,
         bytestring,
@@ -484,20 +710,29 @@ test-suite jitml-unit
         optparse-applicative,
         path,
         path-io,
+        random,
         cborg,
         serialise,
+        safe-exceptions,
         tasty,
         tasty-hunit,
         tasty-quickcheck,
         temporary,
         text,
         unix,
-        vector
+        vector,
+        JuicyPixels,
+        zip-archive
 
 test-suite jitml-integration
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
-    hs-source-dirs:   test/integration
+    hs-source-dirs:   test/integration test/shared
+    other-modules:
+        GenericArsLiveControls
+        GenericRlLiveControls
+        GenericRlPhysicalProof
+
     default-language: GHC2024
     ghc-options:
         -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
@@ -506,6 +741,7 @@ test-suite jitml-integration
         -with-rtsopts=-qg1 -with-rtsopts=-qb -with-rtsopts=-T
 
     build-depends:
+        serialise,
         aeson,
         async,
         base >=4.21 && <4.22,
@@ -528,7 +764,8 @@ test-suite jitml-integration
 test-suite jitml-sl-canonicals
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
-    hs-source-dirs:   test/sl-canonicals
+    hs-source-dirs:   test/sl-canonicals test/unit
+    other-modules:    TinyArchiveControls
     default-language: GHC2024
     ghc-options:
         -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
@@ -603,7 +840,8 @@ test-suite jitml-hyperparameter
 test-suite jitml-backends
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
-    hs-source-dirs:   test/backends
+    hs-source-dirs:   test/backends test/shared
+    other-modules:    AlphaZeroArenaBackendControls
     default-language: GHC2024
     ghc-options:
         -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
@@ -618,6 +856,7 @@ test-suite jitml-backends
         filepath,
         jitml,
         path,
+        random,
         safe-exceptions,
         tasty,
         tasty-hunit,
@@ -630,8 +869,13 @@ test-suite jitml-daemon-lifecycle
     type:               exitcode-stdio-1.0
     main-is:            Main.hs
     build-tool-depends: jitml:jitml
-    hs-source-dirs:     test/daemon-lifecycle
-    other-modules:      SigtermRegression
+    hs-source-dirs:     test/daemon-lifecycle test/shared
+    other-modules:
+        GenericArsLiveControls
+        GenericRlLiveControls
+        GenericRlPhysicalProof
+        SigtermRegression
+
     default-language:   GHC2024
     ghc-options:
         -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
@@ -640,6 +884,11 @@ test-suite jitml-daemon-lifecycle
         -with-rtsopts=-qg1 -with-rtsopts=-qb -with-rtsopts=-T
 
     build-depends:
+        aeson,
+        containers,
+        safe-exceptions,
+        serialise,
+        time,
         base >=4.21 && <4.22,
         async,
         base64-bytestring,
@@ -681,7 +930,109 @@ test-suite jitml-e2e
 test-suite jitml-negative-controls
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
-    hs-source-dirs:   test/negative-controls
+    hs-source-dirs:   test/negative-controls test/unit test/shared
+    other-modules:
+        PreparedTrainers
+        DqnEvaluationControls
+        ArsAppliedStep
+        PreparedContinuousAlphaZero
+        ProducerObservation
+        ArsHostRecordedData
+        ArsRecordedEvidence
+        NativeChildAssociation
+        ArsSingletonProducer
+        PreparedTrainerCapture
+        GenericRlDeviceWitness
+        CheckpointPublication
+        GenericRlPhysicalControls
+        OffPolicyEvaluation
+        TrainerObservation
+        AlphaZeroEvaluation
+        GenericRlPhysicalProof
+        LocalGateRegistry
+        LearningSignal
+        SupervisedQualificationPolicy
+        SupervisedCohortPlan
+        InitialComparison
+        InitialSnapshotOwnership
+        SupervisedQualification
+        QualificationObjects
+        SupervisedCohortExecution
+        SupervisedQualificationReceipt
+        ServedMetricVerification
+        SupervisedCheckpointV2
+        ProductTruthScanner
+        ProductExperimentExactness
+        RegressionStandardization
+        SupervisedTrainingSeed
+        CheckpointV1Admission
+        OnPolicyEvaluation
+        OnPolicyHorizon
+        ProductBarLocalControls
+        TinyArchiveControls
+        TrpoFisherControls
+        ProtocolCodec
+        TrainerConfiguration
+        NativeReturnReferences
+        NativeHerReferences
+        NativeReturnEvaluation
+        NativeHerEvaluation
+        NativeRlCohortPlan
+        PreparedNeuralAttempt
+        NativePreparedNeuralAttempt
+        NativePreparedArsAttempt
+        NativeArenaEvaluation
+        NativePreparedAlphaZeroAttempt
+        NativeRetention
+        NativeReturnCeiling
+        NativeReturnLearningPolicy
+        NativeArenaTape
+        NativeArenaReferences
+        NativeHerLearningPolicy
+        NativeArenaLearningPolicy
+        NativePhaseCodec
+        NativePhaseProjection
+        NativePhaseContext
+        NativePhaseProducer
+        NativePhaseFailure
+        NativeRlProducer
+        NativeReferenceCalibration
+        NativeRlAssessment
+        NativeRetentionReader
+        ArsHostPhysicalAdmission
+        NativeRlStoreLoadedReplay
+        NativePhysicalRead
+        NativeReportExecution
+        NativeCanonicalPublisher
+        NativeRlStoredServing
+        NativeDetachedArtifactRead
+        NativeQualificationReceiptData
+        NativeScenarioReceiptData
+        NativeParentPolicyData
+        NativeParentCompletionData
+        NativeParentEvaluationSummaryData
+        NativeSourceJournalV5
+        NativeParentBindingData
+        NativeParentPhysicalRead
+        NativeParentExecution
+        NativeParentEvaluationReplay
+        NativeProcessSpawn
+        NativeParentAttemptRetention
+        NativeQualificationGc
+        NativeRlExecution
+        NativeRlReplayRetention
+        NativeQualificationPublication
+        NativeQualificationReference
+        NativeReplayObjectData
+        NativeRecordedCheckpointData
+        NativeLaneBundleAdmission
+        NativeLaneBundleData
+        NativeLaneBundleFiles
+        GenericArsHostPublication
+        Phase278ContextResolution
+        LaneRegistration
+        CriterionReviewData
+
     default-language: GHC2024
     ghc-options:
         -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
@@ -690,11 +1041,28 @@ test-suite jitml-negative-controls
         -with-rtsopts=-qg1 -with-rtsopts=-qb -with-rtsopts=-T
 
     build-depends:
+        cryptohash-sha256,
+        unix,
         base >=4.21 && <4.22,
+        aeson,
+        bytestring,
+        cborg,
+        containers,
+        directory,
+        filepath,
         jitml,
+        mtl,
+        path,
+        random,
+        serialise,
+        safe-exceptions,
         tasty,
         tasty-hunit,
-        text
+        temporary,
+        text,
+        vector,
+        JuicyPixels,
+        zip-archive
 
 test-suite jitml-model-convergence
     type:             exitcode-stdio-1.0

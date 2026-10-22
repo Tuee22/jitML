@@ -49,9 +49,54 @@ module JitML.RL.Algorithms.ContinuousTrainer
   , trainContinuousOnDevice
   , trainContinuousOnDeviceWithEnvironment
   , evaluateContinuousPolicyWithEnvironment
+  , continuousEvaluationContract
+  , evaluateContinuousPolicyOnDeviceWithEnvironment
+  , ContinuousTrainObservation
+  , refineContinuousTrainObservation
+  , trainContinuousOnPendulumRaw
+  , trainContinuousOnDeviceWithEnvironmentRaw
+  , PreparedContinuousCold
+  , PreparedContinuous
+  , ContinuousPreparedSnapshot
+  , ContinuousPreparationStage (..)
+  , prepareContinuousOnPendulum
+  , prepareContinuousWithEnvironment
+  , prepareContinuousOnDeviceWithEnvironment
+  , preparedContinuousColdSnapshot
+  , preparedContinuousSnapshot
+  , continuePreparedContinuousInitialization
+  , continuePreparedContinuousRaw
+  , continuousPreparedStage
+  , continuousPreparedConfig
+  , continuousPreparedColdActor
+  , continuousPreparedActor
+  , continuousPreparedCriticA
+  , continuousPreparedCriticB
+  , continuousPreparedTargetActor
+  , continuousPreparedTargetCriticA
+  , continuousPreparedTargetCriticB
+  , continuousPreparedLogAlpha
+  , continuousPreparedActorAdam
+  , continuousPreparedCriticAAdam
+  , continuousPreparedCriticBAdam
+  , continuousPreparedWarmAdam
+  , continuousPreparedGenerator
+  , continuousPreparedReplay
+  , continuousPreparedStep
+  , continuousPreparedState
+  , continuousPreparedEpisodeLength
+  , continuousPreparedEpisodeReturn
+  , continuousPreparedRecentReturns
+  , continuousPreparedStatistics
+  , continuousPreparedEnvironmentName
+  , continuousPreparedObservation
+  , continuousPreparedCountEntries
+  , continuousPreparedWarmUpdateCount
   )
 where
 
+import Control.Exception (evaluate)
+import Control.Monad (when)
 import Control.Monad.Except (ExceptT (..), runExceptT)
 import Data.List qualified
 import Data.Text (Text)
@@ -62,6 +107,7 @@ import Data.Vector.Unboxed qualified as VU
 import System.Random qualified as Random
 
 import JitML.Env.Env (Env)
+import JitML.Execution.SingleUse qualified as SingleUse
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , AdamState (..)
@@ -91,6 +137,7 @@ import JitML.RL.CountExploration qualified as CountExploration
 import JitML.RL.Simulator
   ( ContinuousEnvironment (..)
   , ContinuousSimStep (..)
+  , PendulumState
   , SomeContinuousEnvironment (..)
   , pendulumEnvironment
   )
@@ -194,6 +241,7 @@ data ContinuousIterationStat = ContinuousIterationStat
 
 data ContinuousTrainResult = ContinuousTrainResult
   { contResultStats :: ![ContinuousIterationStat]
+  , contResultInitialActor :: !MlpParams
   , contResultFinalActor :: !MlpParams
   , contResultMeasuredCounters :: !Common.MeasuredTrainerCounters
   -- ^ Exact physical environment transitions and Adam applications executed
@@ -203,6 +251,22 @@ data ContinuousTrainResult = ContinuousTrainResult
   , contResultConfig :: !ContinuousTrainConfig
   }
   deriving stock (Eq, Show)
+
+-- | Uncensored numerical return; no producer/device/learning authority.
+type ContinuousTrainObservation =
+  Common.RawTrainerResult MlpParams ContinuousIterationStat ContinuousTrainConfig
+
+refineContinuousTrainObservation :: ContinuousTrainObservation -> Either Text ContinuousTrainResult
+refineContinuousTrainObservation observed = do
+  counters <- Common.refineObservedTrainerCounters (Common.rawTrainerCounters observed)
+  pure
+    ContinuousTrainResult
+      { contResultStats = Common.rawTrainerStats observed
+      , contResultInitialActor = Common.rawTrainerInitialParams observed
+      , contResultFinalActor = Common.rawTrainerFinalParams observed
+      , contResultMeasuredCounters = counters
+      , contResultConfig = Common.rawTrainerConfig observed
+      }
 
 -- | Actor + critic networks plus their (soft-updated) target copies.
 data ACNets = ACNets
@@ -220,6 +284,313 @@ data ACOpt = ACOpt
   , acCriticAAdam :: !AdamState
   , acCriticBAdam :: !AdamState
   }
+
+-- | Read-only initialization data. It is neither an origin capability nor a
+-- durable/resumable checkpoint. The explicit cold-to-effective continuation
+-- forces the actual completed warm fold; legacy wrappers preserve old laziness.
+data ContinuousPreparationStage = ContinuousCold | ContinuousEffective
+  deriving stock (Eq, Show)
+
+data ContinuousPreparedSnapshot state = ContinuousPreparedSnapshot
+  { internalContinuousStage :: ContinuousPreparationStage
+  , internalContinuousConfig :: ContinuousTrainConfig
+  , internalContinuousColdActor :: MlpParams
+  , internalContinuousActor :: MlpParams
+  , internalContinuousCriticA :: MlpParams
+  , internalContinuousCriticB :: MlpParams
+  , internalContinuousTargetActor :: Maybe MlpParams
+  , internalContinuousTargetCriticA :: Maybe MlpParams
+  , internalContinuousTargetCriticB :: Maybe MlpParams
+  , internalContinuousLogAlpha :: Double
+  , internalContinuousActorAdam :: AdamState
+  , internalContinuousCriticAAdam :: AdamState
+  , internalContinuousCriticBAdam :: AdamState
+  , internalContinuousWarmAdam :: Maybe AdamState
+  , internalContinuousGenerator :: Random.StdGen
+  , internalContinuousReplay :: [ContTransition]
+  , internalContinuousStep :: Int
+  , internalContinuousState :: state
+  , internalContinuousEpisodeLength :: Int
+  , internalContinuousEpisodeReturn :: Double
+  , internalContinuousRecentReturns :: [Double]
+  , internalContinuousStatistics :: [ContinuousIterationStat]
+  , internalContinuousEnvironmentName :: Text
+  , internalContinuousObservation :: [Double]
+  , internalContinuousCountEntries :: [((Int, Int), Int)]
+  }
+  deriving stock (Eq, Show)
+
+data PreparedContinuousCold state
+  = PreparedContinuousCold
+      (ContinuousPreparedSnapshot state)
+      SingleUse.SingleUse
+      (Bool -> IO (PreparedContinuous state))
+
+data PreparedContinuous state
+  = PreparedContinuous
+      (ContinuousPreparedSnapshot state)
+      SingleUse.SingleUse
+      (IO (Either Text ContinuousTrainObservation))
+
+preparedContinuousColdSnapshot :: PreparedContinuousCold state -> ContinuousPreparedSnapshot state
+preparedContinuousColdSnapshot (PreparedContinuousCold snapshot _ _) = snapshot
+
+preparedContinuousSnapshot :: PreparedContinuous state -> ContinuousPreparedSnapshot state
+preparedContinuousSnapshot (PreparedContinuous snapshot _ _) = snapshot
+
+continuePreparedContinuousInitialization
+  :: PreparedContinuousCold state -> IO (Either Text (PreparedContinuous state))
+continuePreparedContinuousInitialization = continueContinuousInitialization True
+
+continueContinuousInitialization
+  :: Bool -> PreparedContinuousCold state -> IO (Either Text (PreparedContinuous state))
+continueContinuousInitialization forceWarm (PreparedContinuousCold _ guard action) = do
+  consumed <- SingleUse.tryConsumeSingleUse guard
+  if consumed
+    then Right <$> action forceWarm
+    else pure (Left "prepared Continuous initialization has already been consumed")
+
+continuePreparedContinuousRaw
+  :: PreparedContinuous state -> IO (Either Text ContinuousTrainObservation)
+continuePreparedContinuousRaw (PreparedContinuous _ guard action) = do
+  consumed <- SingleUse.tryConsumeSingleUse guard
+  if consumed
+    then action
+    else pure (Left "prepared Continuous continuation has already been consumed")
+
+continuousPreparedStage :: ContinuousPreparedSnapshot state -> ContinuousPreparationStage
+continuousPreparedStage = internalContinuousStage
+
+continuousPreparedConfig :: ContinuousPreparedSnapshot state -> ContinuousTrainConfig
+continuousPreparedConfig = internalContinuousConfig
+
+continuousPreparedColdActor :: ContinuousPreparedSnapshot state -> MlpParams
+continuousPreparedColdActor = internalContinuousColdActor
+
+continuousPreparedActor :: ContinuousPreparedSnapshot state -> MlpParams
+continuousPreparedActor = internalContinuousActor
+
+continuousPreparedCriticA :: ContinuousPreparedSnapshot state -> MlpParams
+continuousPreparedCriticA = internalContinuousCriticA
+
+continuousPreparedCriticB :: ContinuousPreparedSnapshot state -> MlpParams
+continuousPreparedCriticB = internalContinuousCriticB
+
+continuousPreparedTargetActor :: ContinuousPreparedSnapshot state -> Maybe MlpParams
+continuousPreparedTargetActor = internalContinuousTargetActor
+
+continuousPreparedTargetCriticA :: ContinuousPreparedSnapshot state -> Maybe MlpParams
+continuousPreparedTargetCriticA = internalContinuousTargetCriticA
+
+continuousPreparedTargetCriticB :: ContinuousPreparedSnapshot state -> Maybe MlpParams
+continuousPreparedTargetCriticB = internalContinuousTargetCriticB
+
+continuousPreparedLogAlpha :: ContinuousPreparedSnapshot state -> Double
+continuousPreparedLogAlpha = internalContinuousLogAlpha
+
+continuousPreparedActorAdam :: ContinuousPreparedSnapshot state -> AdamState
+continuousPreparedActorAdam = internalContinuousActorAdam
+
+continuousPreparedCriticAAdam :: ContinuousPreparedSnapshot state -> AdamState
+continuousPreparedCriticAAdam = internalContinuousCriticAAdam
+
+continuousPreparedCriticBAdam :: ContinuousPreparedSnapshot state -> AdamState
+continuousPreparedCriticBAdam = internalContinuousCriticBAdam
+
+continuousPreparedWarmAdam :: ContinuousPreparedSnapshot state -> Maybe AdamState
+continuousPreparedWarmAdam = internalContinuousWarmAdam
+
+continuousPreparedGenerator :: ContinuousPreparedSnapshot state -> Random.StdGen
+continuousPreparedGenerator = internalContinuousGenerator
+
+continuousPreparedReplay :: ContinuousPreparedSnapshot state -> [ContTransition]
+continuousPreparedReplay = internalContinuousReplay
+
+continuousPreparedStep :: ContinuousPreparedSnapshot state -> Int
+continuousPreparedStep = internalContinuousStep
+
+continuousPreparedState :: ContinuousPreparedSnapshot state -> state
+continuousPreparedState = internalContinuousState
+
+continuousPreparedEpisodeLength :: ContinuousPreparedSnapshot state -> Int
+continuousPreparedEpisodeLength = internalContinuousEpisodeLength
+
+continuousPreparedEpisodeReturn :: ContinuousPreparedSnapshot state -> Double
+continuousPreparedEpisodeReturn = internalContinuousEpisodeReturn
+
+continuousPreparedRecentReturns :: ContinuousPreparedSnapshot state -> [Double]
+continuousPreparedRecentReturns = internalContinuousRecentReturns
+
+continuousPreparedStatistics :: ContinuousPreparedSnapshot state -> [ContinuousIterationStat]
+continuousPreparedStatistics = internalContinuousStatistics
+
+continuousPreparedEnvironmentName :: ContinuousPreparedSnapshot state -> Text
+continuousPreparedEnvironmentName = internalContinuousEnvironmentName
+
+continuousPreparedObservation :: ContinuousPreparedSnapshot state -> [Double]
+continuousPreparedObservation = internalContinuousObservation
+
+continuousPreparedCountEntries :: ContinuousPreparedSnapshot state -> [((Int, Int), Int)]
+continuousPreparedCountEntries = internalContinuousCountEntries
+
+-- | Actual warm optimizer count: zero on the cold actual warmAdam0, final
+-- count on the effective stage. Nothing means no warm recipe applies. The
+-- independent scheduled optimizer state remains fresh zero.
+continuousPreparedWarmUpdateCount :: ContinuousPreparedSnapshot state -> Int
+continuousPreparedWarmUpdateCount = maybe 0 adamStep_ . continuousPreparedWarmAdam
+
+prepareContinuousOnPendulum :: ContinuousTrainConfig -> IO (PreparedContinuousCold PendulumState)
+prepareContinuousOnPendulum = prepareContinuousWithEnvironment pendulumEnvironment
+
+prepareContinuousWithEnvironment
+  :: ContinuousEnvironment state -> ContinuousTrainConfig -> IO (PreparedContinuousCold state)
+prepareContinuousWithEnvironment environment config =
+  prepareContinuousWith environment config $ \actor0 countTable nets0 opt0 gen0 ->
+    Right
+      <$> loop
+        actor0
+        environment
+        config
+        countTable
+        (\nets opt batch doActor -> pure (updateStep config nets opt batch doActor))
+        nets0
+        opt0
+        gen0
+        []
+        0
+        (cEnvInitial environment)
+        0
+        0.0
+        []
+        []
+
+prepareContinuousOnDeviceWithEnvironment
+  :: MlpDevice
+  -> ContinuousEnvironment state
+  -> ContinuousTrainConfig
+  -> IO (PreparedContinuousCold state)
+prepareContinuousOnDeviceWithEnvironment device environment config =
+  prepareContinuousWith environment config $ \actor0 countTable nets0 opt0 gen0 ->
+    loopEither
+      actor0
+      environment
+      config
+      countTable
+      (updateStepDevice device config)
+      nets0
+      opt0
+      gen0
+      []
+      0
+      (cEnvInitial environment)
+      0
+      0.0
+      []
+      []
+
+prepareContinuousWith
+  :: ContinuousEnvironment state
+  -> ContinuousTrainConfig
+  -> ( MlpParams
+       -> CountExploration.CountTable
+       -> ACNets
+       -> ACOpt
+       -> Random.StdGen
+       -> IO (Either Text ContinuousTrainObservation)
+     )
+  -> IO (PreparedContinuousCold state)
+prepareContinuousWith environment config run = do
+  let actorShape = continuousActorShape config
+      criticShape = MlpShape {mlpInputs = ctObsSize config + 1, mlpHidden = ctHidden config, mlpOutputs = 1}
+      coldActor = mlpInit actorShape (ctSeed config)
+      criticA0 = mlpInit criticShape (ctSeed config + 101)
+      criticB0 = mlpInit criticShape (ctSeed config + 202)
+      opt0 = ACOpt (adamInit actorShape) (adamInit criticShape) (adamInit criticShape)
+      gen0 = Random.mkStdGen (ctSeed config + 1)
+      warmAdam0 =
+        if ctVariant config == VariantSAC && ctEnvName config == "pendulum"
+          then Just (adamInit (continuousActorShape config))
+          else Nothing
+      snapshot initialCountEntries stage actor warm targets =
+        ContinuousPreparedSnapshot
+          stage
+          config
+          coldActor
+          actor
+          criticA0
+          criticB0
+          (fmap acTargetActor targets)
+          (fmap acTargetCriticA targets)
+          (fmap acTargetCriticB targets)
+          (log (max 1.0e-6 (ctSacAlpha config)))
+          (acActorAdam opt0)
+          (acCriticAAdam opt0)
+          (acCriticBAdam opt0)
+          warm
+          gen0
+          []
+          0
+          (cEnvInitial environment)
+          0
+          0.0
+          []
+          []
+          (cEnvName environment)
+          (cEnvObservation environment (cEnvInitial environment))
+          initialCountEntries
+  -- This allocation retains its original position before any loop demand of
+  -- the lazy numeric initializers. No device callback/probe/witness runs here.
+  countTable <- CountExploration.newCountTable
+  initialCountEntries <- CountExploration.countTableEntries countTable
+  coldGuard <- SingleUse.newSingleUse
+  let initialize forceWarm = do
+        let warm = case warmAdam0 of
+              Just initialWarmAdam -> Just (pendulumSacWarmStartFrom config coldActor initialWarmAdam)
+              Nothing -> Nothing
+            actor0 = maybe coldActor fst warm
+            warmAdam = snd <$> warm
+            nets0 =
+              ACNets
+                actor0
+                criticA0
+                criticB0
+                actor0
+                criticA0
+                criticB0
+                (log (max 1.0e-6 (ctSacAlpha config)))
+        -- Explicit users get a completed pure preparation boundary. The old
+        -- wrappers use False and retain their original demand/error timing.
+        when forceWarm (evaluate (forceContinuousInitialization actor0 warmAdam))
+        effectiveGuard <- SingleUse.newSingleUse
+        pure
+          ( PreparedContinuous
+              (snapshot initialCountEntries ContinuousEffective actor0 warmAdam (Just nets0))
+              effectiveGuard
+              (run actor0 countTable nets0 opt0 gen0)
+          )
+  pure
+    ( PreparedContinuousCold
+        (snapshot initialCountEntries ContinuousCold coldActor warmAdam0 Nothing)
+        coldGuard
+        initialize
+    )
+
+forceContinuousInitialization :: MlpParams -> Maybe AdamState -> ()
+forceContinuousInitialization actor warm =
+  forceParams actor `seq` maybe () forceAdam warm
+ where
+  forceVector = VU.foldl' (\() value -> value `seq` ()) ()
+  forceParams params =
+    forceVector (paramW1 params) `seq`
+      forceVector (paramB1 params) `seq`
+        forceVector (paramW2 params) `seq`
+          forceVector (paramB2 params)
+  forceGradient gradient =
+    forceVector (gradW1 gradient) `seq`
+      forceVector (gradB1 gradient) `seq`
+        forceVector (gradW2 gradient) `seq`
+          forceVector (gradB2 gradient)
+  forceAdam adam = adamStep_ adam `seq` forceGradient (adamM adam) `seq` forceGradient (adamV adam)
 
 usesTargetNets :: ContinuousVariant -> Bool
 -- CrossQ's real stabilizer is BatchRenorm on the critic activations, which the
@@ -239,48 +610,23 @@ trainContinuousOnPendulum =
 trainContinuousInEnvironment
   :: ContinuousEnvironment state -> ContinuousTrainConfig -> IO ContinuousTrainResult
 trainContinuousInEnvironment environment config = do
-  let actorShape = continuousActorShape config
-      criticShape =
-        MlpShape {mlpInputs = ctObsSize config + 1, mlpHidden = ctHidden config, mlpOutputs = 1}
-      actor0 = initialContinuousActor config
-      criticA0 = mlpInit criticShape (ctSeed config + 101)
-      criticB0 = mlpInit criticShape (ctSeed config + 202)
-      nets0 =
-        ACNets
-          { acActor = actor0
-          , acCriticA = criticA0
-          , acCriticB = criticB0
-          , acTargetActor = actor0
-          , acTargetCriticA = criticA0
-          , acTargetCriticB = criticB0
-          , acLogAlpha = log (max 1.0e-6 (ctSacAlpha config))
-          }
-      opt0 =
-        ACOpt
-          { acActorAdam = adamInit actorShape
-          , acCriticAAdam = adamInit criticShape
-          , acCriticBAdam = adamInit criticShape
-          }
-  -- One visitation table for the whole run, mutated across steps.
-  countTable <- CountExploration.newCountTable
-  loop
-    environment
-    config
-    countTable
-    (\nets opt batch doActor -> pure (updateStep config nets opt batch doActor))
-    nets0
-    opt0
-    (Random.mkStdGen (ctSeed config + 1))
-    []
-    0
-    (cEnvInitial environment)
-    0
-    0.0
-    []
-    []
+  observed <- trainContinuousInEnvironmentRaw environment config
+  either (fail . Text.unpack) pure (refineContinuousTrainObservation observed)
+
+trainContinuousInEnvironmentRaw
+  :: ContinuousEnvironment state -> ContinuousTrainConfig -> IO ContinuousTrainObservation
+trainContinuousInEnvironmentRaw environment config = do
+  prepared <- prepareContinuousWithEnvironment environment config
+  initialized <- continueContinuousInitialization False prepared
+  case initialized of
+    Left err -> fail (Text.unpack err)
+    Right effective -> do
+      result <- continuePreparedContinuousRaw effective
+      either (fail . Text.unpack) pure result
 
 loop
-  :: ContinuousEnvironment state
+  :: MlpParams
+  -> ContinuousEnvironment state
   -> ContinuousTrainConfig
   -> CountExploration.CountTable
   -> (ACNets -> ACOpt -> [ContTransition] -> Bool -> IO (ACNets, ACOpt))
@@ -295,10 +641,11 @@ loop
   -> Double
   -> [Double]
   -> [ContinuousIterationStat]
-  -> IO ContinuousTrainResult
-loop environment config countTable update nets opt gen buffer step state episodeLen episodeReturn episodes stats = do
+  -> IO ContinuousTrainObservation
+loop initialSnapshot environment config countTable update nets opt gen buffer step state episodeLen episodeReturn episodes stats = do
   result <-
     loopEither
+      initialSnapshot
       environment
       config
       countTable
@@ -316,7 +663,8 @@ loop environment config countTable update nets opt gen buffer step state episode
   either (fail . Text.unpack) pure result
 
 loopEither
-  :: ContinuousEnvironment state
+  :: MlpParams
+  -> ContinuousEnvironment state
   -> ContinuousTrainConfig
   -> CountExploration.CountTable
   -> (ACNets -> ACOpt -> [ContTransition] -> Bool -> IO (Either Text (ACNets, ACOpt)))
@@ -331,20 +679,21 @@ loopEither
   -> Double
   -> [Double]
   -> [ContinuousIterationStat]
-  -> IO (Either Text ContinuousTrainResult)
-loopEither environment config countTable update nets opt gen buffer step state episodeLen episodeReturn episodes stats
+  -> IO (Either Text ContinuousTrainObservation)
+loopEither initialSnapshot environment config countTable update nets opt gen buffer step state episodeLen episodeReturn episodes stats
   | step >= ctNumSteps config =
       pure $ do
         measuredCounters <-
-          Common.mkMeasuredTrainerCounters
+          Common.mkObservedTrainerCounters
             (toInteger step)
             (toInteger (adamStep_ (acActorAdam opt)))
         Right
-          ContinuousTrainResult
-            { contResultStats = reverse stats
-            , contResultFinalActor = acActor nets
-            , contResultMeasuredCounters = measuredCounters
-            , contResultConfig = config
+          Common.RawTrainerResult
+            { Common.rawTrainerInitialParams = initialSnapshot
+            , Common.rawTrainerFinalParams = acActor nets
+            , Common.rawTrainerStats = reverse stats
+            , Common.rawTrainerCounters = measuredCounters
+            , Common.rawTrainerConfig = config
             }
   | otherwise = do
       let obs = obsVector environment state
@@ -418,6 +767,7 @@ loopEither environment config countTable update nets opt gen buffer step state e
                           : stats
                   else stats
           loopEither
+            initialSnapshot
             environment
             config
             countTable
@@ -753,45 +1103,20 @@ trainContinuousOnDeviceWithContinuousEnvironment
   -> ContinuousTrainConfig
   -> IO (Either Text ContinuousTrainResult)
 trainContinuousOnDeviceWithContinuousEnvironment device environment config = do
-  let actorShape = continuousActorShape config
-      criticShape =
-        MlpShape {mlpInputs = ctObsSize config + 1, mlpHidden = ctHidden config, mlpOutputs = 1}
-      actor0 = initialContinuousActor config
-      criticA0 = mlpInit criticShape (ctSeed config + 101)
-      criticB0 = mlpInit criticShape (ctSeed config + 202)
-      nets0 =
-        ACNets
-          { acActor = actor0
-          , acCriticA = criticA0
-          , acCriticB = criticB0
-          , acTargetActor = actor0
-          , acTargetCriticA = criticA0
-          , acTargetCriticB = criticB0
-          , acLogAlpha = log (max 1.0e-6 (ctSacAlpha config))
-          }
-      opt0 =
-        ACOpt
-          { acActorAdam = adamInit actorShape
-          , acCriticAAdam = adamInit criticShape
-          , acCriticBAdam = adamInit criticShape
-          }
-  -- One visitation table for the whole run, mutated across steps.
-  countTable <- CountExploration.newCountTable
-  loopEither
-    environment
-    config
-    countTable
-    (updateStepDevice device config)
-    nets0
-    opt0
-    (Random.mkStdGen (ctSeed config + 1))
-    []
-    0
-    (cEnvInitial environment)
-    0
-    0.0
-    []
-    []
+  observed <- trainContinuousOnDeviceWithContinuousEnvironmentRaw device environment config
+  pure (observed >>= refineContinuousTrainObservation)
+
+trainContinuousOnDeviceWithContinuousEnvironmentRaw
+  :: MlpDevice
+  -> ContinuousEnvironment state
+  -> ContinuousTrainConfig
+  -> IO (Either Text ContinuousTrainObservation)
+trainContinuousOnDeviceWithContinuousEnvironmentRaw device environment config = do
+  prepared <- prepareContinuousOnDeviceWithEnvironment device environment config
+  initialized <- continueContinuousInitialization False prepared
+  case initialized of
+    Left err -> pure (Left err)
+    Right effective -> continuePreparedContinuousRaw effective
 
 continuousActorShape :: ContinuousTrainConfig -> MlpShape
 continuousActorShape config =
@@ -806,13 +1131,21 @@ initialContinuousActor config =
 
 pendulumSacWarmStartActor :: ContinuousTrainConfig -> MlpParams -> MlpParams
 pendulumSacWarmStartActor config params0 =
-  fst $
-    Data.List.foldl'
-      ( \(params, adam) _ ->
-          Data.List.foldl' warmStartSample (params, adam) pendulumWarmStartSamples
-      )
-      (params0, adamInit (continuousActorShape config))
-      [1 .. (800 :: Int)]
+  fst (pendulumSacWarmStart config params0)
+
+pendulumSacWarmStart :: ContinuousTrainConfig -> MlpParams -> (MlpParams, AdamState)
+pendulumSacWarmStart config params0 =
+  pendulumSacWarmStartFrom config params0 (adamInit (continuousActorShape config))
+
+pendulumSacWarmStartFrom
+  :: ContinuousTrainConfig -> MlpParams -> AdamState -> (MlpParams, AdamState)
+pendulumSacWarmStartFrom _config params0 initialWarmAdam =
+  Data.List.foldl'
+    ( \(params, adam) _ ->
+        Data.List.foldl' warmStartSample (params, adam) pendulumWarmStartSamples
+    )
+    (params0, initialWarmAdam)
+    [1 .. (800 :: Int)]
  where
   adamCfg = defaultAdamConfig {adamLearningRate = 1.0e-3}
   warmStartSample (params, adam) (obs, targetRaw) =
@@ -1012,3 +1345,101 @@ updateStepDevice device config nets opt batch doActor =
               , acCriticBAdam = criticBAdamNext
               }
           )
+
+continuousEvaluationContract :: Text
+continuousEvaluationContract = "continuous-selected-device-final-evaluation-v1"
+
+-- | Device-backed scoring of the frozen actor. The host action squash and
+-- continuous environment are unchanged; pure scoring remains an explicit oracle.
+evaluateContinuousPolicyOnDeviceWithEnvironment
+  :: MlpDevice
+  -> SomeContinuousEnvironment
+  -> ContinuousTrainConfig
+  -> MlpParams
+  -> Int
+  -> IO (Either Text [Common.EvaluationEpisodeResult])
+evaluateContinuousPolicyOnDeviceWithEnvironment device (SomeContinuousEnvironment environment) config actor episodeCount
+  | episodeCount <= 0
+      || ctMaxEpisodeSteps config <= 0
+      || ctObsSize config <= 0
+      || ctHidden config <= 0
+      || cEnvObservationSize environment /= ctObsSize config
+      || not
+        ( all
+            continuousEvaluationFinite
+            [ctActionLow config, ctActionHigh config, cEnvActionLow environment, cEnvActionHigh environment]
+        )
+      || ctActionLow config >= ctActionHigh config
+      || ctActionLow config /= cEnvActionLow environment
+      || ctActionHigh config /= cEnvActionHigh environment =
+      pure (Left "continuous device evaluation configuration does not match the environment")
+  | not (continuousEvaluationParams (continuousActorShape config) actor) =
+      pure (Left "continuous device evaluation parameters are malformed or overflow the Float32 ABI")
+  | otherwise = collect episodeCount []
+ where
+  collect remaining episodes
+    | remaining <= 0 = pure (Right (reverse episodes))
+    | otherwise = do
+        evaluated <- go (cEnvInitial environment) 0 0.0
+        case evaluated of
+          Left err -> pure (Left err)
+          Right episode -> collect (remaining - 1) (episode : episodes)
+  go state episodeLen episodeReturn
+    | episodeLen >= ctMaxEpisodeSteps config =
+        pure (Right (Common.EvaluationEpisodeResult episodeReturn episodeLen False))
+    | VU.length observation /= ctObsSize config || not (continuousEvaluationVector observation) =
+        pure (Left "continuous device evaluation observation is malformed or overflows the Float32 ABI")
+    | otherwise = do
+        forwarded <- mlpdForward device actor observation
+        case forwarded of
+          Left err -> pure (Left ("continuous device forward failed during evaluation: " <> err))
+          Right forward
+            | VU.length (forwardOutput forward) /= 1 || not (continuousEvaluationVector (forwardOutput forward)) ->
+                pure (Left "continuous device evaluation output has the wrong shape or is not finite Float32")
+            | otherwise -> do
+                let action = squash config (VU.head (forwardOutput forward))
+                    stepResult = cEnvStep environment state action
+                    nextReturn = episodeReturn + cStepReward stepResult
+                    nextLen = episodeLen + 1
+                if not (all continuousEvaluationFinite [action, cStepReward stepResult, nextReturn])
+                  then pure (Left "continuous device evaluation produced a non-finite action or reward")
+                  else
+                    if cStepDone stepResult
+                      then pure (Right (Common.EvaluationEpisodeResult nextReturn nextLen True))
+                      else go (cStepState stepResult) nextLen nextReturn
+   where
+    observation = obsVector environment state
+
+-- Float32 is the selected MLP ABI. Finite binary64 values are accepted when
+-- conversion remains finite; underflow/rounding is allowed, exact Float32
+-- representability is not required. Environment rewards stay finite Double.
+continuousEvaluationFinite :: Double -> Bool
+continuousEvaluationFinite value = not (isNaN value || isInfinite value)
+
+continuousEvaluationVector :: Vector Double -> Bool
+continuousEvaluationVector =
+  VU.all
+    ( \value ->
+        continuousEvaluationFinite value
+          && let encoded = realToFrac value :: Float in not (isNaN encoded || isInfinite encoded)
+    )
+
+continuousEvaluationParams :: MlpShape -> MlpParams -> Bool
+continuousEvaluationParams shape params =
+  paramShape params == shape
+    && toInteger (VU.length (paramW1 params)) == toInteger (mlpHidden shape) * toInteger (mlpInputs shape)
+    && VU.length (paramB1 params) == mlpHidden shape
+    && toInteger (VU.length (paramW2 params)) == toInteger (mlpOutputs shape) * toInteger (mlpHidden shape)
+    && VU.length (paramB2 params) == mlpOutputs shape
+    && all continuousEvaluationVector [paramW1 params, paramB1 params, paramW2 params, paramB2 params]
+
+trainContinuousOnPendulumRaw :: ContinuousTrainConfig -> IO ContinuousTrainObservation
+trainContinuousOnPendulumRaw = trainContinuousInEnvironmentRaw pendulumEnvironment
+
+trainContinuousOnDeviceWithEnvironmentRaw
+  :: MlpDevice
+  -> SomeContinuousEnvironment
+  -> ContinuousTrainConfig
+  -> IO (Either Text ContinuousTrainObservation)
+trainContinuousOnDeviceWithEnvironmentRaw device (SomeContinuousEnvironment environment) =
+  trainContinuousOnDeviceWithContinuousEnvironmentRaw device environment

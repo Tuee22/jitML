@@ -52,7 +52,7 @@ import JitML.Product.ServedMetric qualified as ServedMetric
 import JitML.Substrate qualified as Substrate
 
 import SupervisedCheckpointV2
-  ( Fixture
+  ( Fixture (fixtureFinalBytes, fixtureParameterCount)
   , admitCompletedFixture
   , authoritativeSupervisedProjection
   , californiaFixtureRow
@@ -74,6 +74,7 @@ servedMetricVerificationTests =
     , rejectionTests
     , inputDependentClassificationTests
     , featureDependentRegressionTests
+    , admittedLearningSignalTests
     , publisherWiringTests
     ]
 
@@ -599,13 +600,16 @@ kindAt index =
 -- the one the runtime serves.
 inputDependentCheckpoint :: IO (Either Text Fixture)
 inputDependentCheckpoint =
-  makeFixtureForRowAndBytes mnistFixtureRow 1.0 $ \parameterCount ->
-    let weight index
-          | index == 0 = 10.0
-          | index == 2 * 784 + 1 = 10.0
-          | index == parameterCount - rawOutputWidth + 1 = 5.0
-          | otherwise = 0.0
-     in WeightCodec.encodeJmw1 (weight <$> [0 .. parameterCount - 1])
+  makeFixtureForRowAndBytes mnistFixtureRow 1.0 (WeightCodec.encodeJmw1 . inputDependentWeights)
+
+inputDependentWeights :: Int -> [Double]
+inputDependentWeights parameterCount =
+  let weight index
+        | index == 0 = 10.0
+        | index == 2 * 784 + 1 = 10.0
+        | index == parameterCount - rawOutputWidth + 1 = 5.0
+        | otherwise = 0.0
+   in weight <$> [0 .. parameterCount - 1]
 
 -- | @total@ examples of the interleaved kinds, each labelled by @label@ applied
 -- to the class its own input serves and its position.
@@ -725,6 +729,133 @@ featureDependentRegressionTests =
           ]
 
 -- ---------------------------------------------------------------------------
+-- Learning signal from the same admitted outputs
+
+combined
+  :: Admitted
+  -> Maybe Int
+  -> Text
+  -> Double
+  -> ServedMetric.HeldOutExamples
+  -> IO (Either Text ())
+combined getAdmitted classes metricName reported evidence = do
+  admitted <- getAdmitted
+  ServedMetric.assertAdmittedHeldOutMetricAndLearningSignal
+    admitted
+    classes
+    metricName
+    reported
+    evidence
+
+classificationSignalFailure :: Text
+classificationSignalFailure =
+  "admitted classifier does not beat the held-out majority and exact uniform-random controls"
+
+regressionSignalFailure :: Text
+regressionSignalFailure =
+  "admitted regressor does not strictly beat the best held-out constant predictor"
+
+-- | Each class occurs exactly 100 times. The graph can correctly predict the
+-- first @correct@ occurrences of classes 0, 1, and 2; every other example is
+-- deliberately assigned an input that serves a different class. This puts the
+-- exact 135/136 random-control boundary above the majority count of 100.
+balancedEvidence :: Int -> ServedMetric.HeldOutExamples
+balancedEvidence correct =
+  ServedMetric.HeldOutClassification
+    [ (imageOf (predictionFor index label), label)
+    | index <- [0 .. 999]
+    , let label = index `mod` 10
+    ]
+ where
+  predictionFor index label
+    | label <= 2 && (index `div` 10) * 3 + label < correct =
+        case label of
+          0 -> PixelZeroLit
+          1 -> BlankImage
+          _ -> PixelOneLit
+    | label == 1 = PixelZeroLit
+    | otherwise = BlankImage
+
+admittedLearningSignalTests :: TestTree
+admittedLearningSignalTests =
+  testGroup
+    "additional admitted-output learning signal"
+    [ withAdmitted classOneCheckpoint $ \admitted ->
+        testGroup
+          "constant classification"
+          [ testCase "an exact majority-classifier metric passes provenance and fails learning signal" $ do
+              let evidence = classOneEvidence 1000 900
+              accepts admitted "test_accuracy" 0.9 evidence
+              combined admitted (Just 10) "test_accuracy" 0.9 evidence
+                >>= (@?= Left classificationSignalFailure)
+          , testCase "one decision of provenance tolerance cannot turn equality with the majority into skill" $ do
+              let evidence = classOneEvidence 1000 900
+              accepts admitted "test_accuracy" 0.901 evidence
+              combined admitted (Just 10) "test_accuracy" 0.901 evidence
+                >>= (@?= Left classificationSignalFailure)
+          , testCase "perfect accuracy on a single-label evaluation still rejects the constant classifier" $ do
+              let evidence = classOneEvidence 1000 1000
+              accepts admitted "test_accuracy" 1.0 evidence
+              combined admitted (Just 10) "test_accuracy" 1.0 evidence
+                >>= (@?= Left classificationSignalFailure)
+          ]
+    , withAdmitted inputDependentCheckpoint $ \admitted ->
+        testGroup
+          "input-dependent classification"
+          [ testCase "an input-dependent classifier clears both independent controls" $
+              combined admitted (Just 10) "test_accuracy" 1.0 (interleavedEvidence 1000 (\_ own -> own))
+                >>= (@?= Right ())
+          , testCase "passing learning signal preserves the existing one-decision provenance allowance" $
+              combined admitted (Just 10) "test_accuracy" 0.999 (interleavedEvidence 1000 (\_ own -> own))
+                >>= (@?= Right ())
+          , testCase "the exact binomial boundary rejects 135 correct and accepts 136" $ do
+              accepts admitted "test_accuracy" 0.135 (balancedEvidence 135)
+              combined admitted (Just 10) "test_accuracy" 0.135 (balancedEvidence 135)
+                >>= (@?= Left classificationSignalFailure)
+              combined admitted (Just 10) "test_accuracy" 0.136 (balancedEvidence 136)
+                >>= (@?= Right ())
+          , testCase "reported accuracy within parity tolerance cannot round 135 served decisions up to 136" $ do
+              accepts admitted "test_accuracy" 0.136 (balancedEvidence 135)
+              combined admitted (Just 10) "test_accuracy" 0.136 (balancedEvidence 135)
+                >>= (@?= Left classificationSignalFailure)
+          , testCase "the output width must equal the canonical class count" $
+              combined admitted (Just 9) "test_accuracy" 1.0 (interleavedEvidence 1000 (\_ own -> own))
+                >>= (@?= Left "admitted classification output width differs from the canonical class count")
+          , testCase "classification cannot use a regression learning-signal policy" $
+              combined admitted Nothing "test_accuracy" 1.0 (interleavedEvidence 1000 (\_ own -> own))
+                >>= (@?= Left "held-out evidence kind differs from the canonical learning-signal policy")
+          ]
+    , withAdmitted (constantRegressionCheckpoint 1.0) $ \admitted ->
+        testGroup
+          "constant regression"
+          [ testCase "an exact best-constant metric passes provenance and fails learning signal" $ do
+              let evidence = regressionEvidence 5.0 halfScaleTargets
+              accepts admitted "rmse" 0.5 evidence
+              combined admitted Nothing "rmse" 0.5 evidence
+                >>= (@?= Left regressionSignalFailure)
+          , testCase
+              "the RMSE parity allowance cannot move an actual constant prediction below the skill boundary"
+              $ do
+                let evidence = regressionEvidence 5.0 halfScaleTargets
+                accepts admitted "rmse" 0.4951 evidence
+                combined admitted Nothing "rmse" 0.4951 evidence
+                  >>= (@?= Left regressionSignalFailure)
+          ]
+    , withAdmitted featureDependentCheckpoint $ \admitted ->
+        let honest = featureEvidence 1000 featureAt
+            honestRmse = sqrt ((334 * 0.25 + 333 * 1.0) / 1000.0) :: Double
+         in testGroup
+              "feature-dependent regression"
+              [ testCase "feature-dependent predictions strictly beat every constant on their exact targets" $
+                  combined admitted Nothing "rmse" honestRmse honest
+                    >>= (@?= Right ())
+              , testCase "regression cannot use a classification learning-signal policy" $
+                  combined admitted (Just 10) "rmse" honestRmse honest
+                    >>= (@?= Left "held-out evidence kind differs from the canonical learning-signal policy")
+              ]
+    ]
+
+-- ---------------------------------------------------------------------------
 -- Publisher wiring
 
 -- | The post-admission branch of the supervised publisher, extracted as
@@ -734,8 +865,8 @@ publisherWiringTests :: TestTree
 publisherWiringTests =
   testGroup
     "supervised publisher wiring"
-    [ withAdmitted classOneCheckpoint $ \admittedIO ->
-        let evidence = classOneEvidence 1000 900
+    [ withAdmitted inputDependentCheckpoint $ \admittedIO ->
+        let evidence = interleavedEvidence 1000 (\index own -> if index < 900 then own else (own + 1) `mod` 3)
             projectionFor = do
               row <-
                 maybe
@@ -758,6 +889,7 @@ publisherWiringTests =
                   case ProductPublisher.productPublishDisposition result of
                     ProductPublisher.ProductPublishEligible carried ->
                       assertBool "the eligible result carries the admitted checkpoint" (carried == admitted)
+                    ProductPublisher.ProductPublishNativeEligible _ -> assertFailure "the supervised row carried native child publication eligibility"
                     ProductPublisher.ProductPublishUnsupported _ -> assertFailure "the row was reported unsupported"
                     ProductPublisher.ProductPublishError _ -> assertFailure "the row was reported as an error"
                   ProductPublisher.productPublishRowId result @?= "mnist-shallow-mlp"
@@ -811,7 +943,62 @@ publisherWiringTests =
                   disposition result
                     @?= Rejected
                       "supervised held-out metric failed exact admitted served-byte verification: classification held-out examples require test_accuracy"
+              , testCase "the canonical regression row cannot adopt a classification policy from its evidence" $ do
+                  admitted <- admittedIO
+                  row <-
+                    maybe
+                      (assertFailure "missing california-housing-mlp ProductRow")
+                      pure
+                      (lookupRow "california-housing-mlp")
+                  projection <- expectRight (authoritativeSupervisedProjection Substrate.LinuxCPU row)
+                  result <-
+                    ProductPublisher.verifyAdmittedSupervisedServedMetric
+                      projection
+                      admitted
+                      ("test_accuracy", 0.9)
+                      evidence
+                  disposition result
+                    @?= Rejected
+                      "supervised held-out metric failed exact admitted served-byte verification: held-out evidence kind differs from the canonical learning-signal policy"
               ]
+    , withAdmitted classOneCheckpoint $ \admittedIO ->
+        testCase "the publisher rejects an admitted constant classifier even with an exact passing metric" $ do
+          admitted <- admittedIO
+          row <-
+            maybe (assertFailure "missing mnist-shallow-mlp ProductRow") pure (lookupRow "mnist-shallow-mlp")
+          projection <- expectRight (authoritativeSupervisedProjection Substrate.LinuxCPU row)
+          result <-
+            ProductPublisher.verifyAdmittedSupervisedServedMetric
+              projection
+              admitted
+              ("test_accuracy", 0.9)
+              (classOneEvidence 1000 900)
+          disposition result
+            @?= Rejected
+              ( "supervised held-out metric failed exact admitted served-byte verification: "
+                  <> classificationSignalFailure
+              )
+          ProductPublisher.productPublishArtifacts result @?= []
+    , withAdmitted (constantRegressionCheckpoint 1.0) $ \admittedIO ->
+        testCase "the publisher applies the regression policy from the canonical row" $ do
+          admitted <- admittedIO
+          row <-
+            maybe
+              (assertFailure "missing california-housing-mlp ProductRow")
+              pure
+              (lookupRow "california-housing-mlp")
+          projection <- expectRight (authoritativeSupervisedProjection Substrate.LinuxCPU row)
+          result <-
+            ProductPublisher.verifyAdmittedSupervisedServedMetric
+              projection
+              admitted
+              ("rmse", 0.5)
+              (regressionEvidence 5.0 halfScaleTargets)
+          disposition result
+            @?= Rejected
+              ( "supervised held-out metric failed exact admitted served-byte verification: "
+                  <> regressionSignalFailure
+              )
     , testGroup
         "evaluation example count"
         [ testCase "every canonical supervised row is planned with exactly 1000 evaluation examples" $ do
@@ -883,6 +1070,7 @@ disposition :: ProductPublisher.ProductPublishResult -> Disposition
 disposition result =
   case ProductPublisher.productPublishDisposition result of
     ProductPublisher.ProductPublishEligible _ -> Eligible
+    ProductPublisher.ProductPublishNativeEligible _ -> Eligible
     ProductPublisher.ProductPublishUnsupported reason -> Unsupported reason
     ProductPublisher.ProductPublishError reason -> Rejected reason
 
@@ -890,6 +1078,7 @@ isEligible :: ProductPublisher.ProductPublishResult -> Bool
 isEligible result =
   case ProductPublisher.productPublishDisposition result of
     ProductPublisher.ProductPublishEligible _ -> True
+    ProductPublisher.ProductPublishNativeEligible _ -> True
     ProductPublisher.ProductPublishUnsupported _ -> False
     ProductPublisher.ProductPublishError _ -> False
 
@@ -1047,7 +1236,33 @@ storeBackedRuntime run =
           liftIO (expectRight written)
     , ProductPublisher.publisherAdmitCompletedCheckpoint =
         CheckpointWriter.admitLocalStoredCompletedCheckpoint
+    , ProductPublisher.publisherWriteBinaryArtifact =
+        \experiment kind payload -> do
+          let sha = WeightCodec.jmw1ContentSha payload
+              key = "jitml-checkpoints/" <> experiment <> "/artifacts/" <> kind <> "/" <> sha <> ".cbor"
+          root <- CheckpointWriter.localCheckpointRoot
+          _ <- liftIO (expectRight =<< CheckpointStore.writeObjectIfAbsent root key payload)
+          pure (sha, key)
     }
+
+-- | A publisher control with the same authoritative plan and runtime as the
+-- shared fixture, but a graph that distinguishes three inputs. Exactly 900 of
+-- 1,000 labels agree with their input's prediction; the remaining 100 differ.
+-- Its 0.9 metric clears the existing convergence bar and the additional
+-- majority/random controls independently of the provenance comparison.
+inputDependentPublishRunFixture :: IO ProductPublisher.SupervisedPublishRun
+inputDependentPublishRunFixture = do
+  (_, _, metrics, _, _) <- expectRight makeTrainingCompletionFixture
+  fixture <- expectRight =<< inputDependentCheckpoint
+  let finalWeights = inputDependentWeights (fixtureParameterCount fixture)
+  pure
+    (supervisedPublishRunFixture metrics)
+      { ProductPublisher.supervisedPublishFinalJmw1Bytes = fixtureFinalBytes fixture
+      , ProductPublisher.supervisedPublishCheckpointWeights = Just finalWeights
+      , ProductPublisher.supervisedPublishHeldOutMetric = Just ("test_accuracy", 0.9)
+      , ProductPublisher.supervisedPublishHeldOutExamples =
+          interleavedEvidence 1000 (\index own -> if index < 900 then own else (own + 1) `mod` 3)
+      }
 
 -- | The post-admission gate reached through the real publisher. The reported
 -- metric is the only difference between the two runs: an honest report makes
@@ -1062,13 +1277,12 @@ postAdmissionBoundaryTests =
     "row boundary (post-admission, real local Store)"
     [ testCase "an honest reported metric publishes the row" $
         withSystemTempDirectory "jitml-served-e2e" $ \root -> do
-          (_, _, metrics, _, _) <- expectRight makeTrainingCompletionFixture
-          runBoundary root (storeBackedRuntime (supervisedPublishRunFixture metrics))
+          honest <- inputDependentPublishRunFixture
+          runBoundary root (storeBackedRuntime honest)
             >>= (@?= RowPublished)
     , testCase "a reported metric the admitted bytes do not serve rejects the row" $
         withSystemTempDirectory "jitml-served-e2e" $ \root -> do
-          (_, _, metrics, _, _) <- expectRight makeTrainingCompletionFixture
-          let honest = supervisedPublishRunFixture metrics
+          honest <- inputDependentPublishRunFixture
           metricName <-
             maybe
               (assertFailure "the fixture reports no held-out metric")
@@ -1084,8 +1298,7 @@ postAdmissionBoundaryTests =
             >>= (@?= RowRejected)
     , testCase "the rejected checkpoint remains admissible in Store" $
         withSystemTempDirectory "jitml-served-e2e" $ \root -> do
-          (_, _, metrics, _, _) <- expectRight makeTrainingCompletionFixture
-          let honest = supervisedPublishRunFixture metrics
+          honest <- inputDependentPublishRunFixture
           metricName <-
             maybe
               (assertFailure "the fixture reports no held-out metric")
@@ -1114,5 +1327,20 @@ postAdmissionBoundaryTests =
               (ProductMatrix.productProjectionExperimentHash projection)
           case readmitted of
             Left err -> assertFailure ("the rejected checkpoint left Store: " <> show err)
+            Right _ -> pure ()
+    , testCase "an exact constant-classifier report reaches Store but cannot publish the row" $
+        withSystemTempDirectory "jitml-served-e2e" $ \root -> do
+          (_, _, metrics, _, _) <- expectRight makeTrainingCompletionFixture
+          runBoundary root (storeBackedRuntime (supervisedPublishRunFixture metrics))
+            >>= (@?= RowRejected)
+          row <-
+            maybe (assertFailure "missing mnist-shallow-mlp ProductRow") pure (lookupRow "mnist-shallow-mlp")
+          projection <- expectRight (authoritativeSupervisedProjection Substrate.LinuxCPU row)
+          readmitted <-
+            CheckpointStore.admitLocalLatestCheckpoint
+              (root </> "checkpoints")
+              (ProductMatrix.productProjectionExperimentHash projection)
+          case readmitted of
+            Left err -> assertFailure ("the constant classifier did not reach admission: " <> show err)
             Right _ -> pure ()
     ]

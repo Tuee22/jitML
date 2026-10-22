@@ -20,57 +20,60 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**🔄 Active (2026-10-15 UTC).** Phase `278` remains the first open owner.
-The retained evidence derives **63 Done / 1 Active / 0 Planned / 6 Blocked**
-across 70 sprints. The open chain is
-`278 → 280 → 281 → 282 → 285 → 288 → 289`; later phases stay Blocked under
-standards rule `M(c)`.
+**🔄 Active (2026-10-21 UTC).** Phase `278` is the first executable owner.
+The registry derives **62 Done / 1 Active / 0 Planned / 7 Blocked** across
+70 sprints. Execution remains `278 → 279 → 280 → 281 → 282 → 285 → 288 → 289`;
+each predecessor validates before the next phase begins.
 
-**Current hardware boundary.** The Linux audit confirms x86_64 Linux, 16 CPUs,
-62.7 GiB Docker-visible RAM, and an RTX 3090 with 24 GiB VRAM visible inside a
-GPU container. Apple stage-0 doctor exits `2` because this host is not macOS.
-Phase `278` already requires a fresh real-Metal Apple journal under the current
-contracts. That obligation cannot be validated here, so execution stops at this
-phase under the user's hardware stopping condition; later phases do not begin.
-The earlier [Mac review](attestations/phase278-20261015-mac-review/README.md)
-records that separate host's capabilities.
+Current Source `c2f8ed6a…` / **603** preserves production recipes, budgets,
+bars and seeds. Public source/**110** contracts, native build, real Metal
+**29 / 29**, selected **56-file** criteria/public capture, image `24a9ccae…`,
+baked-package/helper coherence and image-build container `check-code` pass.
+Unfiltered CPU negatives pass **2,685 / 2,685**, backends **42 / 42**, with
+strict whole-file installed/canonical CLI equality and protected state exact.
 
-**Independent-anchor review.** The Tiny ImageNet bar is explicitly selected to
-clear an observed result in its source comment. It cannot close the independent
-anchor obligation. Published full-model results do not justify the compact
-rows' floors. The review records a concrete additional anti-trivial policy and
-split-selection concerns; it does not substitute that policy for published-model
-convergence. Correcting an affected row's bar changes its contract digest and
-requires new complete journals on all three lanes, including a real NVIDIA host.
-Per-lane repair ownership also remains to be reconciled with standards `M(b)`/`M(d)`.
+Native A1 expected **2** conflict refusal and Mode B expected public **2**
+read-only refusal/exact18-controller compensation pass within their scopes.
+C passes guardian/outer **0**, expected public **255** after one verified INT
+at partial-quiescence entry before reservation/capture; all **18** controllers
+compensate. It proves no all18zero or archive-helper interruption. Original
+STOPPING data survives B and C; after-C readbacks pass **8 / 8**.
+Separate after-C genuine Reuse returns public **0 / 626.755331 s** and
+guardian/outer **0**. Source-bound success proves both fail-closed POSIX guards
+returned; six authenticated leased discovery events are supporting evidence.
+Original **35** contexts stay exact; its retained client is the **36th**.
+Current publication is fresh **483-byte Ready**, with eight live components.
+Root and independent review accept this Reuse.
 
-**Retained Linux validation (2026-10-14–15).** The prior Ubuntu VM run passes
-**1,503 / 1,512** unit cases; all nine failures reject the stale Apple journal.
-CPU backends pass **38 / 38**, and docs/code-quality pass. Generic RL CLI and
-focused daemon execution plus exact Store re-admission are completed scoped
-checks. They do not establish a full standing integration GateTranscript.
-Neither hardware audit runs a phase validation gate. The current Linux audit
-retains host probes and a diagnostic journal comparison: all three files match
-their pins, CPU/CUDA contracts agree, and Apple differs on exactly three RL rows.
-It does not run Haskell journal admission, a kernel test, or a standing gate.
+Fresh Ready data passes **7 / 7** receipts/**14** streams and independent review:
+twelve HTTP200/full original SHA-256 bodies (**629,581,277 bytes**), MinIO74/
+original opaque ETag and Pulsar `CEcQADAA` survive. One permit, no ACK/NACK/
+unsubscribe, clean1000 close, backlog1 and zero ack times remain literal.
+HOST observations match; Root separately verifies native889/three DBs. The
+HOST receiver adds no container; current baseline remains **36** contexts.
 
-**Next steps, in order.** Resolve the independent supervised convergence policy
-and actual split baselines before changing bars or spending another full lane.
-Re-issue affected-contract evidence on the real CPU, CUDA, and Apple lanes; run
-the three changed Apple RL rows before its full journal. Then pin the admitted
-journals, regenerate the aggregate, pass all four Phase `278` Validation commands
-and final full standing integration gate, and advance the remaining phases in
-numerical order. No status guard or evidence pin is waived.
+The first daemon attempt retains daemon **130**, guardian/outer
+**1 / 7,202.437529 s**, exact preservation and separate strict package closure
+**0**; its original suite-log/final stage stays NotRun. The separate unchanged
+unfiltered daemon gate now passes **59 / 59**: all five inner stages and outer
+return **0** (**7,015.585215 s** outer). Actual ordered bodies and a typed candidate
+are captured; initial/final strict package and external **36-context / 11-volume /
+native889** preservation pass. No signal or abort occurs.
+Snapshot 2026-10-21 20:43:05 UTC: CPU **55-row** is **Running**; **41** closed rows: **10** returned cohorts / **50** SL DATA outcomes.
+Snapshot 2026-10-21 20:43:05 UTC: **31** refusals / **0** observer exceptions; **10** confirmed path-only; 038 public Evaluation adds no deeper cause.
+Snapshot 2026-10-21 20:43:05 UTC: current041+ stays untouched; replay/Store/Lane admission is open; Apple **270** seeds/tuning remain NotRun.
+Snapshot 2026-10-21 20:43:05 UTC: both journals/admissions and final quality stay open; original finally/preservation remains outstanding.
+HELD: **19** file targets, including raw-unit cleanup; C2 gates stay historical after source fixes.
+Composed **17** Git / **20** synthetic Python cases retain scope; raw022 curves are DATA; unit18 stays Failed (real suites `280`).
+Content hygiene reviews **302** changed source/test/config paths and **104** text roles; raw-unit cleanup stays HELD; no blanket commit approval.
+Actual adoption, real transport/durable storage and clean-checkout/Store/Lane admission await.
+After CPU closure: DOWN, then genuine Apple context/twelve datasets before Apple **55**.
+A2 stays optional; `279` owns CUDA, `280` full CPU unit/integration and aggregation.
+No metadata-only closure; later phases stay Blocked and Phase 278 stays Active.
 
-**Evidence.** The current [Linux host probes](attestations/phase278-20261015-linux-hardware-audit/host-probes.json)
-and [journal comparison](attestations/phase278-20261015-linux-hardware-audit/journal-inspection.json)
-record the stopping boundary. The [Mac review](attestations/phase278-20261015-mac-review/README.md)
-records policy findings and resumption commands. Prior Linux command streams,
-checkpoints, and inspectors remain under
-[attestations/phase278-20261014-linux-cpu/](attestations/phase278-20261014-linux-cpu/).
-Owned closing work remains in
-[Phase 278 → Remaining Work](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work).
-Earlier narratives remain in the [Historical Current-Status Diary](#historical-current-status-diary).
+[Current validation](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#current-partial-validation)
+and [remaining work](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work)
+retain preservation/capacity bounds, incident recovery and all earlier raw failures.
 
 ## Historical Current-Status Diary
 
@@ -2272,7 +2275,7 @@ CUDA journal. Phase `273` re-closed on 2026-09-17 with the retained typed
 Apple journal. Phase `276` closed on 2026-09-24 after its full CPU validation;
 Phase `278` is the first open owner. The chain proceeds
 strictly as
-`278 → 280 → 281 → 282 → 285 → 288 → 289`:
+`278 → 279 → 280 → 281 → 282 → 285 → 288 → 289`:
 
 1. Sprint `2.9` has restored and validated the typed Kind existence branch,
    retained edge-port authority, and fail-closed recovery publication semantics.
@@ -2323,15 +2326,16 @@ strictly as
    `apple-silicon` journal, SHA-256
    `1496c8632bb62d616ea99990774b2c5c2e2d95e148834a3932b6aae5e31d7621`.
 9. Sprint `31.3` (Phase `276`) is Done on its retained join surface: its
-   aggregation admits three pinned lane journals, and its nine aggregation cases
-   stay red until the `apple-silicon` journal is re-issued under Phase `278`.
+   aggregation admits three pinned lane journals; its aggregation cases remain
+   red until Phase `278` supplies fresh evidence for the changed supervised
+   contracts in every lane and the three changed Apple RL contracts.
    Sprint `32.2` (Phase `278`) is Active: it binds external bars to exact served
    bytes. Sprints `32.4`–`32.6` (Phases `280`–`282`) install the request, event,
    journal, lifecycle, and per-row negative controls; Sprint `33.3` (Phase `285`)
    closes contract-driven per-model measurements; Sprint `34.3` (Phase `288`)
    derives plan status; and Sprint `34.4` (Phase `289`) closes evidence-typed
    report measurements. All are implemented in the worktree apart from the
-   Mac-only runs and stay Blocked behind Phase `278`.
+   current-contract lane evidence and final gates, and stay Blocked behind Phase `278`.
 
 ### Historical roadmaps
 
@@ -3135,9 +3139,9 @@ CPU journal, and Phase `268` closed on 2026-09-12 with the retained typed CUDA
 journal. Phase `273` re-closed on 2026-09-17 with the retained typed Apple
 journal. Phase `276` closed on 2026-09-24 after its current-source CPU gate
 passed. The Phase `19`–`34` registry is
-**63 Done / 1 Active / 0 Planned / 6 Blocked**, counted from the typed registry.
+**62 Done / 1 Active / 0 Planned / 7 Blocked**, counted from the typed registry.
 The complete open chain is
-`278 → 280 → 281 → 282 → 285 → 288 → 289`,
+`278 → 279 → 280 → 281 → 282 → 285 → 288 → 289`,
 with Phase `278` Active and each later Blocked phase naming its predecessor.
 Phase `276` consumed the retained accelerator journals on `linux-cpu` under
 standards rule `M(d)` without rerunning accelerator lanes.
@@ -4012,13 +4016,13 @@ ten Cabal test-suite stanzas with deterministic bodies that
 
 The current dependency chain is:
 
-`278 → 280 → 281 → 282 → 285 → 288 → 289`.
+`278 → 279 → 280 → 281 → 282 → 285 → 288 → 289`.
 
 Sprints `1.18`, `2.9`, `3.7`, `5.18`, `8.16`, `9.17`, `10.6`, `10.12`, and
 `12.16` remain closed on their retained surfaces. Phases `252`, `42`, `53`,
 `69`, `229`, `261`, `262`, `268`, `270`–`273`, and `276` remain Done. Phase
 `278` is Active after the CPU-only journal aggregation closed;
-Phases `280`–`282`, `285`, `288`, and `289` are Blocked by
+Phases `279`–`282`, `285`, `288`, and `289` are Blocked by
 their immediate predecessor in the chain.
 Outside the registry range, Phases `7` and
 `72` re-closed `Done` on 2026-08-13; Phases `77`, `79`, `80`, and `84`
@@ -4125,9 +4129,16 @@ This plan is complete only when all of the following are true:
    `Some Tuning::{ … }`-shaped per the worked Dhall example in
    [../README.md → Concrete Dhall worked example](../README.md) and each trial
    trains a real model and measures a real objective that drives the
-   sampler/scheduler/pruner. Statistical convergence assertions (median over `k`
-   seeds clears a literature-derived in-code threshold) cover RL and must cover
-   the full canonical SL cohort; current Phase `8` validation proves every SL
+   sampler/scheduler/pruner. RL retains its fixed-cohort statistical convergence
+   requirement. Every compact canonical SL row satisfies the versioned five-run
+   predictive-learning contract in
+   [../README.md → Threshold methodology](../README.md#threshold-methodology):
+   seeds canonical base plus `0..4`, at least three joint initialization-improvement
+   and trivial-reference successes, all-five median against unchanged historical
+   floors, and independent eligibility of served index `0`. Actual source-bound
+   cohort outcomes and served-model metrics are separate authenticated evidence;
+   neither a repeated evaluation nor a singleton plan supplies five training runs.
+   Current Phase `8` validation proves every SL
    row executes a substrate-backed train step, while final no-caveat closure
    still requires real staged dataset artifacts plus live convergence for
    Conv2D, ResNet, Wide-ResNet, ViT, deep MLP, Dense MLP, and tabular canonical
@@ -4294,30 +4305,39 @@ truth the implementer cannot author or tune, and they are owned by Phases `32`�
     convolution — must be **rejected** by the corresponding gate. The
     `jitml-negative-controls` stanza fails the build if any known-fake is accepted; a
     gate that cannot reject its known-fake is not a gate. (Phase `32`.)
-26. **No self-referential validation.** No convergence or eligibility threshold is a
-    function of the value it checks: convergence bars are frozen external constants in
-    `src/JitML/Product/ExternalBars.hs`, and a lint rejects the
+26. **No self-referential validation.** Acceptance constants and comparison
+    procedures are fixed independently of the qualifying final result. The compact
+    SL five-run procedure is defined in
+    [Threshold methodology](../README.md#threshold-methodology); its paired
+    initialization and constant/uniform-reference comparisons are frozen rules,
+    not thresholds fitted to a candidate's score. Unchanged historical SL floors
+    remain additional restrictions with their actual provenance; they are not
+    claimed published anchors. RL retains its separately justified cohort bars.
+    `src/JitML/Product/ExternalBars.hs` enforces structural bar consistency,
+    and source lint rejects the
     `mkConvergenceBar … measuredValue 0.0` / `threshold = measured` pattern. Every
     reported metric is recomputed at read time from the *served* artifact by an
     independent evaluator (not a stored boolean), and the served weights hash to the
     checkpoint. RL reward is a rollout of the trained policy, never a scripted
     controller. (Phases `19`, `21`, `25`, `32`.)
 
-    **Not met as of 2026-09-30.** Phase `278` enforces the invariant in code:
+    **Not met as of 2026-10-16.** This explicitly reconciles the user's compact
+    SL scope prospectively; no historical provenance is rewritten. Phase `278`
+    still owns the new criterion's implementation, authenticated five-run
+    outcomes, actual served-model replay and fresh lane evidence. Existing code
+    enforces a narrower structural boundary:
     `assertProductBarExternal` (positive slack, finite and self-consistent bar),
     `assertConvergenceObservationsAgainstBar` (exactly one observation of the row's
     metric, whose criterion and value agree with the row's own bar), a token-stream
     `ProductTruth` lint that rejects a bar derived from a measured value, and the
     post-admission served-metric recomputation for the supervised rows; the three
-    previously unfalsifiable bars are now `0.5` (`PPO/key-door-grid`,
-    `A2C/key-door-grid`) and `400` (`TRPO/cartpole`), and the `linux-cuda` and
-    `linux-cpu` journals were re-issued under them. Still open: the `apple-silicon`
-    journal re-issue under the tightened bars, bars calibrated to measured values in
-    the supervised table, the generic (non-ProductRow) RL fallback that cannot
-    identify its cohort, and the `apple-silicon` fit of the served-metric
-    tolerance (proven on `linux-cuda` and `linux-cpu`); and the bar is not wholly external because
-    `literatureTarget` is an external constant while `slack` is project-calibrated,
-    as `src/JitML/RL/ConvergenceThresholds.hs` itself records. The implementing
+    previously unfalsifiable bars are `0.5` (`PPO/key-door-grid`,
+    `A2C/key-door-grid`) and `400` (`TRPO/cartpole`). Generic RL admission now
+    binds its actual compiled cohort; selected-device evaluation and truncation
+    bootstrap are repaired. Every affected lane journal still needs refresh.
+    RL slack remains project-calibrated, as
+    `src/JitML/RL/ConvergenceThresholds.hs` records; the compact SL decision does
+    not independently justify it. The implementing
     sprint is `278.1`, which is `Active`; Phases `19`, `21`, and `25` retain `Done`
     on their other owned surfaces under rule `M(a)`. See
     [Phase 278 → Remaining Work](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work).

@@ -1,0 +1,26 @@
+# Prepared Source Native Host Build and Conditional Sizing
+
+**Status**: Supporting reference
+**Supersedes**: N/A
+**Referenced by**: [Runtime receipts](../README.md), [Mac validation](../../README.md), [Phase 278](../../../../phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md)
+**Generated sections**: none
+
+> **Purpose**: Preserve actual source/document application, supported native build and unchanged generation, plus separately scoped canonical sizing arithmetic.
+
+Adopted source `39547f58…` / **471** inputs passes the supported `./bootstrap/apple-silicon.sh build`: actual exit **0**, **871.020933 s**, complete stdout/stderr and no compiler warnings. Native `.build/jitml` is **186,282,864 bytes**, SHA `2dc13331…ce00ee`. Stderr is bootstrap information and the existing signature replacement. Existing jobs-one configuration and GHC/LLVM tools are recorded; full user configuration contents remain outside this evidence.
+
+The separate new-native `docs generate` returns literal **3**, **1.788748 s**, exactly the documented `docs generate: no changes` result. Stdout is empty. Contracts remain SHA `66236f42…c37a` / **118,942 bytes**; source/full-host, all19 observed native FILEs, helper/configuration and canonical-record guards stay exact. Exit3 is retained as3. The wrapper accepts its documented unchanged scope without turning it into exit0 or erasing earlier failed wrappers.
+
+Root physically retained all **416** old source inputs and all **19** observed native artifacts before replacement. The source transition applies exactly **74** paths, **55 new / 19 modified**; eleven reviewed documents and recoverable prepared evidence follow. A separate one-document correction removes stale current416 wording. Both actual source/document application receipts, their full before/after maps and exact old/new bytes are recoverable. Native build copies all471 current inputs and physically preserves19 before/19 after artifacts. Its old test binaries are observations; this build does not compile or execute their bodies.
+
+The eight lossless views include the complete **553-member** native build packet, **506-member** generation packet, actual applications, separate canonical sizing12, frame-premise2, documentation70 and actual outer receipts/Root review. There are **1,660 logical entries**, **709 unique objects**, **1,933,127,859 raw unique bytes** stored in **405,824,071 object bytes**. The largest stored object is47,113,943 bytes. Every original packet manifest/member is recoverable. [Facts](facts.json) give exact FILE/result identities and [derivation](derivation.json) preserves the original retention seal.
+
+The sizing view is ordinary Python arithmetic over the previously observed430 child descriptors. It performs no model/RNG initialization, environment step, neural call, evaluation, training, serializer or hardware execution. Source-owned canonical frame widths and bounded legal game histories refine the earlier conservative model. CountTriple stays28 bytes; GameState uses a64-byte fixed reservation, and completed arena episodes/current progress partition the same nine-game budget. No sharing between payloads is assumed; each evaluation shares its actual fixed policy parameter value while counting every reference.
+
+The conditional maxima are **242,882,077 encoded bytes**, **345,279 nodes**, **345,300 typed references**, **16,676,361 sequence elements** and **14,046,576 F64 coordinates**. The largest single sequence is2,400,000; the unchanged finite schema depth bound is14. All430 canonical cases fit the unchanged proposed caps under the stated source/shape/text/integer premises. The sequence margin is100,855. Actual malformed, oversized or unmaterializable data still requires explicit refusal. The earlier502,718,735-byte bound and220 unproved cases remain immutable as the original conservative calculation, without alleging actual oversize. Neither calculation is an encoded payload, capture-success or runtime-memory proof.
+
+A separately retained scalar-atom audit corrects GeneratorState's fixed-header sub-bound from31 to57 bytes: its exact26-byte representation literal occupies28 CBOR bytes. The existing512-byte reservation, every emitted model/report bound and all resource conclusions stay unchanged. Original arithmetic files and their correction remain separate; no encoder/runtime result was involved.
+
+Verify from this directory with the included reviewed `retain-bytes.py verify --retained-dir <directory> --retained-manifest-sha <parent-index-pinned-sha>`. Materialize a named view to a fresh ignored native-byte-materialized-* directory using the helper; recovered contents are DATA and are never executed or installed. The helper validates stored/raw identities with bounded decompression and does not need the original ignored packets.
+
+This capture precedes helper rebinding, synchronization, fresh container quality and real backend continuation. Prior CPU42/Metal29 and quality results retain their416 source scope. Actual all-five acquisition, authenticated producer/lane proof, canonical codec enforcement, durable prefix capture, physical replay, Store qualification and Phase278 closure remain open. The phase stays Active; obligations and canonical records are unchanged.

@@ -36,11 +36,34 @@ The result is:
 The integration command retains a portable typed lane journal after authenticating
 its completed ProductRow scenarios. Product closure requires retained evidence
 from each real substrate lane and exact admission by the later aggregation.
-All three lane journals are retained. The `linux-cuda` (2026-09-24) and
-`linux-cpu` (2026-09-30) journals were re-issued under the tightened convergence
-bars and are admitted; the `apple-silicon` journal (2026-09-17) predates those
-bars and is rejected until a Mac re-issues it, so the CPU-only aggregation cannot
-yet be regenerated.
+All three lane journals are retained. Phase `278` adds exact-held-out
+learning-signal controls to supervised eligibility; their versioned contract
+makes the eleven supervised rows in each retained journal stale. The Apple
+journal also predates three tightened RL bars. Fresh admitted evidence is
+required before the CPU-only aggregation can be regenerated.
+On-policy final reward evaluation and time-limit successor values use the same
+selected device as training. True termination has zero value bootstrap, and both
+reset boundaries stop advantage recursion. Producer-owned evaluation and rollout
+recipe versions require fresh canonical on-policy evidence.
+QR-DQN, continuous-control, HER and AlphaZero arena neural scoring also use the
+selected device. Raw initial/final state and uncensored returns are observations,
+not completion or qualification. Configured worker publication rejects invalid
+coordinates and verifies remote bytes. ARS remains host-linear; a neural witness
+cannot prove its actual execution origin. The selected native learning contract
+keeps strict actual initial improvement and permits reference ties only at
+proved optima. Adopted source `8e1a0b13…` / **514** inputs adds the durable
+native producer and ARS physical admission. Its warning-free supported private
+build, formatting, HLint, docs and both focused **256 / 256** scopes pass.
+The first actual ARS/cartpole diagnostic trains seeds **42..46** at **800,000** each:
+all initial medians **8**, final medians **500**, ten matching in-memory replays
+and **48** physical objects read back. Authenticated qualification, stored replay,
+publication, current journals and other rows remain open. Native `2dc13331…`,
+helper sync, quality and CPU **42 / 42** / Metal **29 / 29** results retain
+historical `39547f58…` / **471** scope; final integrated native gates remain due.
+The forward allocation assigns CPU/Apple qualification and journals plus local,
+backend and live CPU daemon gates to Phase `278`; CUDA and its behavioral
+detector to `279`; and CPU aggregation plus unchanged full unit/integration to
+`280`. No standing obligation or evidence guard is removed.
 The current execution owner, host prerequisites, validation evidence, and status
 counts live in [DEVELOPMENT_PLAN/README.md → Closure Status](DEVELOPMENT_PLAN/README.md#closure-status).
 
@@ -422,11 +445,13 @@ Each script is **idempotent and restartable**, but deliberately small: it probes
 
 Cleanup semantics matter:
 
-- `down` tears down the cluster; preserves `./.data/` and `./.build/`.
-- `purge` is destructive but **cache-preserving**: cluster down, `rm -rf ./.data/`. `./.build/` survives — including `./.build/jit/apple-silicon/`, `./.build/runtime/`, `./.build/conf/`, and the Kind metadata needed for subsequent `docker compose run --rm jitml jitml <command>` calls. A subsequent bootstrap or inference command can resolve from cache without re-JITting any model already compiled. On Apple, a cached kernel is a `<hash>.metal.json` source/metadata record plus the process-local bridge pipeline cache; there is no VM rebuild on a cache hit.
-- `purge --full` is `purge` plus `rm -rf ./.build/` (and on Linux, `docker compose down --rmi local --volumes` to drop the substrate image). Use only for fresh-start debugging.
+- `down` delegates to `jitml cluster down --substrate <substrate>`. Apple and Docker-backed CPU quiesce registered writers, archive every node’s complete registered PV tree, verify an actual isolated restore, and durably select that generation before deleting Kind. A subsequent fresh bootstrap restores it before PV overlays or services; existing healthy roots remain authoritative. Linux CUDA retains its host-backed PV data directly. A preservation failure refuses deletion and retains evidence-free coordinates for recovery.
+- `purge` delegates to `jitml cluster reset --yes --substrate <substrate>` and is destructive but **cache-preserving**: invalidate all selected snapshots, delete the exact cluster, and remove `./.data/`. Another extant jitML substrate cluster prevents deletion of shared data. `./.build/` survives — including `./.build/jit/apple-silicon/`, `./.build/runtime/`, `./.build/conf/`, and the Kind metadata needed for subsequent `docker compose run --rm jitml jitml <command>` calls. A subsequent bootstrap or inference command can resolve from cache without re-JITting any model already compiled. On Apple, a cached kernel is a `<hash>.metal.json` source/metadata record plus the process-local bridge pipeline cache; there is no VM rebuild on a cache hit.
+- `purge --full` adds the implemented `cluster reset --full` behavior: remove `./.build/` after data cleanup and, on Linux, run `docker compose down --rmi local --volumes` through the container’s Compose plugin. That command removes eligible local images and project volumes; custom image tags can remain. Use this form for fresh-start debugging.
 
-Forbidden: anything that touches `~/.kube/config`, `~/.docker/config.json`, or global state outside the repo except typed prerequisite remediation that explicitly installs Homebrew packages. Shell bootstrap scripts never write the user's Homebrew prefix; Haskell `jitml` may validate and install Homebrew packages lazily, on demand, through the typed prerequisite DAG. Build outputs, generated Dhall, runtime coordinates, kubeconfig, Kind metadata, and JIT artifacts live under `./.build/`; `./.data/` is reserved strictly for manual PV bind mounts. Both roots are in `.gitignore` **and** `.dockerignore` so the substrate image never accidentally bakes in host artifacts.
+The host and Docker guest do not share `flock` semantics on this filesystem bridge. Lifecycle operations therefore hold both a local file lock and an exclusive shared directory claim. A competing claim refuses the operation. An interrupted claim is retained and is never broken automatically by a PID guess; establish that its exact owner has terminated before deliberate recovery. A pending or unproven partial restore refuses both reuse and normal down, preserving the selected complete archive. Purge remains the explicit destructive recovery path.
+
+Forbidden: anything that touches `~/.kube/config`, `~/.docker/config.json`, or global state outside the repo except typed prerequisite remediation that explicitly installs Homebrew packages. Shell bootstrap scripts never write the user's Homebrew prefix; Haskell `jitml` may validate and install Homebrew packages lazily, on demand, through the typed prerequisite DAG. Build outputs, generated Dhall, runtime coordinates, kubeconfig, Kind metadata, and JIT artifacts live under `./.build/`; `./.data/` owns registered manual PV bind mounts and `.jitml-pv-snapshots/<substrate>/` durable lifecycle generations. The fixed repo-local `.jitml-pv-lifecycle.lock` and `.jitml-pv-lifecycle.claim.lock/` are ignored lifecycle guards outside both purge roots. Both roots are in `.gitignore` **and** `.dockerignore` so the substrate image never accidentally bakes in host artifacts.
 
 ---
 
@@ -1637,9 +1662,9 @@ mindmap
 | `jitml doctor` | Check host prerequisites. | `jitml doctor [--scope <toolchain\|container\|cluster>] [--remediate]` |
 | `jitml service` | Run the jitML daemon. | `jitml service [--config <path>] [--consume-once <n>] [--dry-run] [--plan-file <path>]` |
 | `jitml cluster up` | Bring the cluster up. | `jitml cluster up [--substrate <substrate>] [--dry-run] [--plan-file <path>]` |
-| `jitml cluster down` | Bring the cluster down. | `jitml cluster down` |
+| `jitml cluster down` | Bring the cluster down. | `jitml cluster down [--substrate <substrate>]` |
 | `jitml cluster status` | Report cluster status. | `jitml cluster status` |
-| `jitml cluster reset` | Destructively reset cluster state. | `jitml cluster reset --yes` |
+| `jitml cluster reset` | Destructively reset cluster state. | `jitml cluster reset --yes [--substrate <substrate>] [--full]` |
 | `jitml train` | Run a supervised training job. | `jitml train <experiment-dhall> [--resume <checkpoint-id>] [--substrate <substrate>] [--seed <word64>] [--dry-run] [--plan-file <path>]` |
 | `jitml eval` | Run deterministic evaluation. | `jitml eval <experiment-dhall> [--checkpoint <checkpoint-id>]` |
 | `jitml tune` | Run a hyperparameter sweep. | `jitml tune <tune-dhall> [--resume <sweep-id>] [--sampler <name>] [--scheduler <name>] [--pruner <name>] [--trials <natural>] [--parallelism <natural>] [--dry-run] [--plan-file <path>]` |
@@ -2030,6 +2055,16 @@ obligation with its evidence pointer, and `jitml docs check` refuses a phase
 document that disagrees with the projection and any product-closure claim unless the
 closure verdict is closed. `jitml docs check` and `jitml check-code` are computed when
 they run and are never attested by a file that would sit inside the tree they check.
+
+Raw command logs/receipts, compiled files, checkpoints, downloaded archives and
+caches stay under ignored `.build/` or the existing data/cache homes and are
+excluded from Docker build contexts. Commit curated summaries, the structured
+validation records above, selected criterion/registration data, and deliberate
+test fixtures. Registered generated source (including PureScript contracts,
+chart templates, CLI documentation and completions) remains versioned. Historical
+receipt links in plan summaries may refer to local-only diagnostic payloads;
+those payloads are absent from a clean checkout and cannot supply committed
+closure evidence. See the [plan standards](DEVELOPMENT_PLAN/development_plan_standards.md#n-evidence-derived-product-status-and-thin-closure-narrative).
 
 Inference batching has two monotonic boundaries. Admission captures a
 handler/publication-entry deadline at the configured latency, while sparse
@@ -2500,7 +2535,12 @@ residual BasicBlock/Bottleneck blocks, attention, and GeGLU — trained as compa
 proxies under the bounded product budget, with the 2-D convolution forward
 implemented as a tight unboxed kernel. All 55 product rows admitted their checkpoints on `linux-cpu` at that date; admission is a checkpoint property, and per-model measured convergence and per-row device evidence remain owned by Phases `229`, `285`, and the per-lane phases.
 
-| Dataset | Model | Architectural features showcased | Literature target | Citation |
+The published figures below remain bibliographic reference context. Their
+architectures, data and training schedules do not establish an acceptance floor
+for jitML's compact recipes. Reproduction claims require the corresponding
+published recipe; compact qualification follows the separate contract below.
+
+| Dataset | Model | Architectural features showcased | Published reference | Citation |
 |---|---|---|---|---|
 | MNIST | shallow MLP (1×128 hidden) | Dense + ReLU + Softmax | ~98.0% test acc | LeCun et al. 1998 [^lecun1998] |
 | MNIST | deep MLP w/ BN + Dropout | Dense + BatchNorm + Dropout + GELU | ~98.5–99.0% | Ioffe & Szegedy 2015 [^ioffe2015] |
@@ -2548,30 +2588,81 @@ docker compose run --rm \
 
 ## Threshold methodology
 
-The literature-target column above is a **sanity-check expectation** consumed at
-test time after the model's fixed, terminating budget has completed. The
-convergence assertion for `(dataset, model)` is
+Compact canonical SL rows use a prospectively fixed predictive-learning
+qualification. Each row trains five actual models with seeds
+`canonicalBase + [0,1,2,3,4]`, in order, at the unchanged per-run budget. Index
+`0` is the predetermined served model. Missing, incomplete or non-finite runs
+fail; finite below-floor outcomes remain in the five-run calculation. No seed is
+replaced, selected by its test score or trained beyond the declared budget.
 
-```
-median(test_acc over k=5 seeds, current run, current substrate)
-  ≥ literature_target − slack
-```
+On the same pinned held-out inputs and serving interpreter, at least three runs
+must jointly improve over their own actual initialization and pass defined
+trivial-reference controls. Classification requires strictly more correct
+decisions than initialization, every constant classifier, and the exact
+uniform-per-example binomial reference at alpha `1/5000`. Regression requires
+strictly lower exact binary64-rational SSE than initialization and the best
+held-out constant (`SSE < SST`). The full five-run median must also clear the
+unchanged historical product floor. Index `0` independently passes every floor,
+learning, device, fixed-budget, completion and actual Store-admission requirement.
+Its own served metric remains distinct from the cohort median.
 
-where `slack` is a conservative constant declared in code per problem
-class (e.g. ~3 percentage points for image classification, proportional
-band for RMSE on regression). The threshold is **not** stored as a
-committed per-substrate fixture: jitML is a numerical-methods repo, and
-hardcoding the producing host's empirical accuracy as authoritative
-would lock in whichever substrate / RNG / FP-reduction order happened
-to run the calibration first. See [Test-suite stanzas → Snapshot
+These comparisons establish observed predictive improvement on the pinned
+benchmark. They establish neither published-model parity nor population
+generalization. Under the explicitly all-five iid uniform-per-example guessing
+null for each cohort, `P(three joint successes) <= 5/(3*5000) = 1/3000`;
+the union bound for at most thirty planned classification cohorts is `0.01`,
+without cross-seed independence. This does not cover arbitrary untrained
+networks, nonuniform guessing, mixed-null cohorts, regression, or score-selected
+retries. Every attempted cohort remains in an append-only attempt ledger.
+
+The existing numeric floors stay additional restrictions with their true
+provenance. In particular, Tiny's `0.008` was selected after a measured `0.012`;
+it is not a published anchor. Other unproven target/slack origins remain labelled
+project policy. The new independently specified procedure does not retroactively
+make those historical choices external. No floor is lowered or fitted to a new
+qualifying result. [Independent contract and review](DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/compact-criterion-review/README.md)
+retain the exact rule, arithmetic, limits and implementation boundary.
+
+This is a prospective doctrine reconciliation under the user's compact-recipe
+decision. Phase `278` still owns its implementation, authentic all-five evidence
+and fresh journals. Existing singleton checkpoints do not attest this contract.
+Native RL, HER and AlphaZero have a separate selected target: five actual
+unchanged-budget models at seeds `42..46`, with index `0` predetermined for
+serving. All outcomes remain in the cohort. At least three models jointly
+improve strictly over their own actual effective initial policy and satisfy
+the same fixed task-reference comparisons. The complete five-model median
+also passes every unchanged family quality bar; index `0` independently passes
+its own joint learning, quality, budget, execution and physical admission
+requirements. Twenty evaluation episodes from one model are not five models.
+
+Reference equality is allowed only when the reference and final statistic both
+attain an independently proved exact optimum. The reviewed mathematical RETURN
+comparison supports that exception only for the certified KeyDoor scope; other
+RETURN tasks keep strict
+reference comparisons. HER's limits are all `20` successes and zero terminal
+distance; AlphaZero's is exact score `1` from all nine actual outcomes, with
+the actual reference also attaining it. Initial-policy gain always stays
+strict. No general `>=` rule, epsilon, new seed selection or changed recipe
+creates a pass. The [native criterion contract](documents/engineering/training_metrics_and_splits.md#target-native-rl-learning-qualification)
+defines the paired cases, arithmetic, reference families and remaining
+acquisition boundary; the [scope review](DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/rl-criterion-review/README.md)
+keeps implementation evidence separate from this target.
+
+Existing target/slack bars remain additional restrictions, including
+`median(final return over all five models) >= literature_target - slack` where
+applicable. Their origins retain their actual provenance: the representation
+and a positive project-calibrated slack do not make every bar a published or
+independently chosen result. The SL rule supplies no RL probability bound.
+Native comparison APIs and private controls do not acquire authenticated
+five-model evidence, prove served-policy replay or make a row eligible.
+Thresholds are not committed per-substrate output fixtures. See
+[Test-suite stanzas → Snapshot
 prohibition on numerical fixtures](#snapshot-targets) and
 [`documents/engineering/unit_testing_policy.md`](documents/engineering/unit_testing_policy.md#snapshot-tests-and-the-prohibition-on-numerical-fixtures).
 
-If a substrate's `k=5` median falls below `literature_target − slack`,
-that's an investigation trigger — the test fails loudly rather than
-silently re-baselining or extending the budget until convergence happens.
-Treating either the literature target or any particular host's measured median
-as load-bearing for cross-substrate comparison is forbidden.
+A failed qualification or retained floor is an investigation trigger. It fails
+without re-baselining, dropping outcomes or extending the budget. Within-substrate
+reproducibility remains separate from cross-substrate performance comparison.
 
 ## Citations
 
@@ -2594,9 +2685,10 @@ commit numerical fixtures for the substrate-sensitive parts of training
 (per [Snapshot targets → Numerical-fixture prohibition](#snapshot-targets)):
 
 - **Run-to-run determinism** — `train` produces bit-identical checkpoint files on the same substrate, same seed, when run twice. The two runs are compared against each other via `sha256(supervised.weights)`; no reference checkpoint is committed.
-- **Convergence (statistical)** — after the fixed budget completes,
-  `median(test_acc over k=5 seeds) ≥ literature_target − slack`, with `slack` a
-  per-problem-class constant declared in code (see [Threshold methodology](#threshold-methodology)).
+- **Compact predictive-learning qualification** — five actual fixed-budget runs
+  satisfy the paired learning, all-five median and predetermined served-model
+  contract in [Threshold methodology](#threshold-methodology). Historical floors
+  remain unchanged; published-reference results are not compact-model anchors.
 - **Curve sanity (properties, not fixtures)** — over the training budget, the loss is finite at every step, is monotonically decreasing modulo a small per-class noise window, gradients are finite, and the final-epoch loss improves over the first-epoch loss by at least a per-problem-class margin. No stored per-epoch curve file.
 
 ---
@@ -3106,7 +3198,7 @@ read a committed numerical fixture:
    between the two SHAs. No reference trajectory or SHA is stored.
    Runs in `jitml-unit`; costs seconds.
 
-2. **Convergence (the headline check, statistical).**
+2. **Convergence and native learning (the headline measured checks).**
    Fix `(env, algo, seed_pool of k=5 seeds, hyperparameters)` and the pure,
    terminating `TrainingBudget`. Train each seed for exactly the budgeted
    timesteps. Assertion:
@@ -3116,7 +3208,14 @@ read a committed numerical fixture:
    an external literature quantity. Regression detection is by
    threshold violation; if a substrate's median falls below the threshold, the
    test fails loudly rather than silently re-baselining or continuing training
-   until convergence happens.
+   until convergence happens. The selected native qualification target also
+   requires strict paired initial gain, the fixed task-reference comparisons,
+   at least three same-model joint successes, and index `0`'s own full
+   requirements, as defined in [Threshold methodology](#threshold-methodology).
+   Equality with a reference is confined to an independently proved exact
+   optimum; it never weakens initial gain or an existing quality bar. These
+   fixed-task observations establish no population or published-recipe parity.
+   The full acquisition/qualification integration remains owned by Phase `278`.
    Runs in `jitml-rl-canonicals`; costs minutes-to-hours per `(env, algo)`.
 
 3. **Replay-from-checkpoint determinism.**
@@ -3132,9 +3231,9 @@ read a committed numerical fixture:
    per-class noise window. `EvaluationSet` is an exact map keyed by evaluation
    episode id; its complete finite reward cohort supplies the final median in
    (2). Arrival order, the latter half of a final evaluation set, or a partial
-   set is never called a learning curve. No numerical fixture is stored; both
-   values are derived from the completed run journal and discarded after the
-   test.
+   set is never called a learning curve. No numerical golden fixture is stored. Native
+   qualification must retain the actual complete observations in its append-only
+   evidence; transient test views do not replace that durable record.
 
 Wall-clock perf is **not** part of the bit-determinism contract and is
 not asserted against a stored fixture; per-host throughput varies and a
@@ -3799,9 +3898,12 @@ other substrate. Numerical correctness is asserted three ways instead:
 1. **Run-to-run determinism** — two fresh runs on the same substrate /
    same seed produce bit-identical outputs, compared against each other
    via SHA-256, never against a stored file.
-2. **Statistical convergence** — `median(metric over k seeds) ≥
-   literature_target − slack`, with `slack` an in-code per-problem-class
-   constant. See [Threshold methodology](#threshold-methodology).
+2. **Measured qualification** — compact SL uses the five-training-seed paired
+   learning contract; native RL adds paired initial/reference comparisons to
+   its unchanged fixed-five quality requirements, with reference equality only
+   at an independently proved optimum. Actual authenticated acquisition and
+   qualification remain separate from mathematical DATA comparisons.
+   See [Threshold methodology](#threshold-methodology).
 3. **Property tests** — finite gradients, monotonically-decreasing
    training loss, monotone evaluator reward modulo a noise window,
    codec round-trips, legal-move generation, and terminal-state detection.

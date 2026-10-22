@@ -38,6 +38,11 @@ That finding motivates the external-truth conditions below. The run mechanism
 that prevents raw or partial evidence from manufacturing completion is
 [Typed Run Contract](run_contract.md).
 
+The current product-truth source scanner detects registered fossil names and
+forbidden reachable imports. It does not establish generic output dependence on
+trained weights; the stronger behavioral detector remains an unmet contract in
+[Phase 279](../../DEVELOPMENT_PLAN/phase-279-measured-declared-type-split-behavioral-scaffold-lint.md#remaining-work).
+
 The completion bar is intentionally stricter than "a command exists" or "a row
 appears in a generated matrix". A row is complete only when the same canonical
 product row is implemented, trainable, checkpointed, rendered, covered by
@@ -70,16 +75,25 @@ tune; this section names the obligation and the plan owns the implementation.
    event, and a foreign admission, with a guard that fails the stanza when a
    row has no registered controls. A gate that cannot reject its own
    known-fake, or rejects it for the wrong reason, is a failure, not a pass.
-2. **The convergence bar is externally anchored and structurally independent of
-   the measurement.** The row's `convergenceBar` is `literatureTarget − slack`:
-   an external, checked-in published target less a project-calibrated per-cohort
-   slack. It is **never** derived from, tuned to, or set equal to the measured
-   value it checks — no threshold may be a function of the value it grades. The
-   slack is the calibrated part and is not itself an external constant, so
-   "externally anchored" is the precise claim rather than "wholly external"; see
+2. **Acceptance rules are independently fixed before qualifying execution.**
+   Compact SL uses the five-run paired predictive-learning contract in
+   [the CLI doctrine](../../README.md#threshold-methodology): canonical base
+   plus `0..4`, original served index `0`, at least three joint learning successes,
+   full-cohort median against unchanged floors, and independent served-model
+   eligibility. Exact initial/final serving replay, authentic complete outcomes
+   and source-bound cohort admission are required; a singleton checkpoint or
+   stored pass flag does not supply them. Historical SL floors retain their
+   true measured-calibrated/unproven origins as additional restrictions; they
+   are not published-model anchors. Phase `278` owns validation of the
+   implementation and actual five-run evidence for this contract. Its opaque
+   qualification/publication and current journal boundaries are specified in
+   [Checkpoint Format](checkpoint_format.md#compact-supervised-qualification). The SL rule does not justify
+   RL's separate target/slack criteria. Existing numeric bar representation is
+   `literatureTarget − slack`; its field names alone prove no external origin.
+   New rules or constants may not be fitted to the qualifying final values. See
    [training_metrics_and_splits.md](training_metrics_and_splits.md#current-status)
-   for the enforcement boundary. Three checks enforce it, and none is a proof of
-   provenance on its own:
+   for the enforcement boundary. Three existing checks enforce structural bar
+   consistency; none proves independent provenance or the new cohort qualification:
    - *Source lint.* `JitML.Lint.ProductTruth` (run by `jitml check-code`) reads
      each `src/` file that mentions a bar constructor or target field as a token
      stream, so a field split over lines, an argument on its own line, or a value
@@ -153,6 +167,30 @@ tune; this section names the obligation and the plan owns the implementation.
    read-time recomputation of every displayed product number in the Exit
    Definition is not claimed by this supervised gate. A stand-in remains typed
    `Declared` and cannot be surfaced as `Measured`/`Real`.
+   Supervised ProductRow publication eligibility also checks the exact served outputs against the
+   label-only majority and exact-binomial classification rules, or strict
+   positive held-out R² for regression. These additive learning-signal checks
+   use integer counts and actual prediction vectors independently of the
+   provenance tolerances. A constant model can have perfect metric provenance
+   and still be rejected. The policy is versioned in supervised scenario
+   contract digests, making earlier journals stale for those rows. The precise
+   rules and their statistical scope live in
+   [Training Metrics and Splits](training_metrics_and_splits.md#additional-held-out-learning-signal-policy).
+   They supplement the historical floor. The independently reviewed compact
+   qualification additionally requires exact paired improvement, all-five median
+   and original index-zero eligibility. Phase `278` owns its final validation
+   and actual qualification evidence.
+   The scalar gate does not add a checkpoint companion or rerun on general
+   weighted inference. Compact qualification is a separate detached object,
+   bound to the index-zero Store admission through its publication reference;
+   it is not a Store-owned learning-eligibility refinement. Current optional
+   remote publication is mandatory for parsed scenario binary attempt records;
+   every new or already-identical remote write requires exact-byte readback.
+   Direct local publication remains explicitly offline-capable.
+   A post-check rejected artifact can
+   remain structurally completed and physically admitted while its ProductRow
+   publication is denied. The authenticated product browser catalogue requires
+   the current scenario digest and live admitted row evidence separately.
 4. **RL reward is a rollout of the trained policy.** An RL row's reward is a
    rollout evaluation of the *trained policy* through the production device seam
    (`rleSyntheticTransitionEvidence = False`, median over `k` seeds at or above
@@ -160,10 +198,20 @@ tune; this section names the obligation and the plan owns the implementation.
    ([Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md))
    grades each row's opaque completed-run evidence, minted only from the
    validated projection and the admitted retained lane-journal row, against a
-   criterion re-derived independently from the canonical tables; the journal
-   retains the median final reward, not the per-episode evaluation set (see
+   criterion re-derived independently from the canonical tables. The compact row
+   metric records the median final reward; current native qualification also
+   requires complete original evaluation graphs and raw parent capture,
+   physically re-audited through the authenticated lane reader (see
    [training_metrics_and_splits.md](training_metrics_and_splits.md#per-model-completed-run-evidence)).
    A scripted or expert controller reward can never close an RL row.
+   These requirements retain current evidence limits: singleton completed models
+   and repeated episodes do not supply five training runs. QR-DQN, continuous,
+   HER and arena neural scoring use their selected device. Raw numerical returns
+   do not establish process/source origin or learning. ARS's non-MLP path uses
+   checked host provenance instead of a neural witness. Durable prepared capture, independent comparison
+   inputs, authenticated five-run qualification and exact physical policy replay
+   remain distinct obligations; see
+   [Training Metrics and Splits](training_metrics_and_splits.md#current-final-policy-runtime-scope).
 
 The `Measured`/`Declared` split, external bars, served-byte provenance binding,
 and evidence-derived closure guard are owned by Phases `278`–`289`; this
@@ -249,14 +297,17 @@ Production ML paths must satisfy all rules below:
    update-critical operations. Host-only rollout helpers may exist, but they do
    not prove the substrate training claim.
 
-   The recorded device cell is minted from a `DeviceExecutionWitness`
+   For neural execution, the recorded device cell is minted from a `DeviceExecutionWitness`
    (`JitML.Product.DeviceWitness`). That type has no exported constructor and no
    pure smart constructor: `witnessDeviceExecution` runs in `IO`, requires the
    compiled artifact the engine reported to be present at the path the engine
-   reported, digests its bytes, and records the backend and executed identity
-   read back *out of that artifact* — `jitml_layer_training_backend` /
-   `jitml_kernel_family_name` for the loadable backends, and the `family` field
-   of the `<hash>.metal.json` source-metadata document on `apple-silicon`. The
+   reported, digests its bytes, and records the execution-family backend and executed
+   identity. Loadable layer-graph kernels expose `jitml_layer_training_backend`;
+   the Apple layer graph uses its fixed-bridge identity. MLP execution keeps the
+   selected engine backend and reads the executed family through
+   `jitml_kernel_family_name`, or the `family` field of its Metal source metadata.
+   The [supervised family binding](checkpoint_format.md#compact-supervised-qualification)
+   selects the exact expected identity from the typed projection. The
    witness is recorded after the training loop returns successfully, bound to
    the run's `TrainingEvidence`, and carried into the completion; checkpoint
    admission (`requireAdmittedCompletedCheckpoint`) rejects a completion that
@@ -304,6 +355,18 @@ substrate. Renaming an experiment cannot substitute a generic run's cohort or
 authorize canonical row evidence. A manifest that claims an RL policy requires
 an environment-transition completion budget.
 
+The target generic ARS path retains a separate actual host origin over the same
+prepared numerical loop and full compiled plan. Its generic experiment,
+`generic-compiled-plan-attempt-v1` context, applied work, initial/final JMW1 and
+physically fetched trace bind that singleton completion; no MLP execution
+witness or canonical row identity is invented. Actual unchanged quality checks
+still apply. A positive generic evaluation count describes episodes of one
+training run, not independent training seeds. The canonical native requirement
+remains all five fixed training runs, strict effective-initial gain, the
+independent reference rules, full-five old-quality medians, three joint
+successes and independently eligible served index `0`. Generic host publication
+cannot satisfy those acquisition or authentication obligations.
+
 The additional plan is carried by the nested `RawCompletedTraining` V3 DTO;
 unbound completions retain their exact V2 encoding, including the completions
 in retained ProductRow lane journals. This completion DTO version does not
@@ -317,8 +380,9 @@ evidence must show network-backed priors and leaf values, persistent per-game
 MCTS cache state across moves, deterministic root-noise seeding, and the row's
 own transcript/game id. The checkpoint manifest carries a `CompletedTraining`
 witness with the initial/final policy-value network hashes, positive generation
-count, passing per-game arena win-rate observation, and an opaque
-`AdmittedCompletedCheckpoint` from the Store loader boundary.
+count and passing per-game arena win-rate observation. Store's neural loader
+then supplies an opaque `AdmittedCompletedCheckpoint` after physical admission;
+the manifest itself carries no admission capability.
 
 ## Type-State DSL Contract
 
@@ -336,8 +400,11 @@ dataset-read provenance where applicable, finite criterion-evaluated
 measurements, TensorBoard metadata, and matching `PlanId`. Product reporting
 does not admit that caller-held value directly. Store first re-reads the exact
 persisted manifest, snapshot commit/descriptor, and scoped payload-object graph,
-then returns opaque `AdmittedCompletedCheckpoint`. A private kind-indexed
-`ProductScenarioCompletion` accepts only that value when its manifest
+then supplies physical admission to the addressed report boundary. That boundary
+carries opaque `AdmittedExecutionCheckpoint`: its neural arm retains
+`AdmittedCompletedCheckpoint`, while its host arm retains the admitted ARS trace.
+A private kind-indexed `ProductScenarioCompletion` accepts only that total
+value when its manifest
 experiment, canonical `rowId`, manifest/completion `PlanId`, full completion
 identity, budget/evidence kind, criterion, every dimensionally defined
 update-count relation, and family-specific runtime provenance exactly match the
@@ -360,11 +427,11 @@ executable path/SHA identity and passes them only to the `jitml-integration`
 child through an opaque process environment. Child startup validates the whole
 bundle, consumes the key once, and unlinks and clears the capability before
 Tasty or any ProductRow work. The child can persist only an opaque,
-projection-ordered `CompletedProductScenarioReport`; journal version `3`
+projection-ordered `CompletedProductScenarioReport`; current journal version `5`
 authenticates the complete aggregate and all ordered row fields. The parent
 authenticates that current-run receipt before semantic admission, then requires
 the current projection, the exact ProductScenario invocation carried by the
-current `RawCompletedTraining` V2 DTO, checkpoint scope,
+canonical completion's `RawCompletedTraining` V2 DTO, checkpoint scope,
 executable identity, execution/inference chronology, and fresh Store admission
 of every recorded manifest address. A missing, partial, stale, reordered, or
 wrong-HMAC journal fails closed even when the Cabal process exits successfully.
@@ -374,15 +441,31 @@ completion, contribute a row, or weaken exact observed-budget equality, and a
 subsequent attempt starts a fresh scope rather than resuming or reusing partial
 roots.
 
-The authenticated parent then issues a canonical version-`1` portable lane
-journal before deleting that scope. It retains the complete refined
-`CompletedTraining` DTO together with the row, plan, substrate, admitted
-manifest, inference manifest, device witness, executable, invocation,
-contract, and completion-journal identities. This is an archival projection,
-not a replacement admission: later consumers must pin its exact SHA-256, and
-the portable reader refines the embedded completion against the current
-ProductRow batch without claiming that the deleted HMAC key or checkpoint root
-still exists.
+The authenticated parent issues a canonical version-`3` portable lane journal
+and its exact detached qualification objects before deleting the live scope.
+It retains the complete refined `CompletedTraining` DTO together with the row,
+plan, substrate, admitted manifest, inference manifest, execution provenance,
+executable, invocation, contract and completion-journal identities. Native
+neural rows retain their selected-device witness; ARS rows retain their honest
+host reference and cannot satisfy a neural-only witness accessor.
+
+Native row admission requires the original owned parent to verify the full
+five-child physical allocation, exact policy-specific data and eleven actual
+replays, including the Store-selected index-zero checkpoint. The source journal
+binds the resulting native receipt and its complete identity in both row and
+aggregate authentication. Re-reading that journal in its live scope rechecks
+the retained physical evidence; parsed receipt data cannot construct an owned
+execution certificate.
+
+Portable native admission requires a separate IO audit of the pinned lane and
+its complete content-addressed bundle. This checks retained bytes and recorded
+associations without rerunning training, selecting a device or restoring the
+deleted live Store or HMAC authority. It is suitable for later CPU aggregation;
+the pure lane reader cannot admit native rows. The wire and sidecar bounds are
+specified in [Checkpoint Format](checkpoint_format.md#compact-supervised-qualification).
+These implementation boundaries do not establish that any required real lane
+journal or qualifying execution has passed; current evidence and remaining
+validation are tracked in Phase `278`.
 
 The supervised-graph payload makes that provenance distinction nominal. The ProductRow
 publisher writes `RawProductRowProjectionOrigin`, which must resolve the row and
@@ -441,8 +524,11 @@ equal-valued `best_objective` measurement.
 Dhall selectors and checkpoint manifests are raw persisted DTOs. Store loaders
 start from an opaque persisted address, verify the exact manifest, commit,
 descriptor, and scoped payload-object bytes, re-run semantic refinement, and
-return opaque `AdmittedCompletedCheckpoint` only when artifact identity and
-completed evidence agree. Missing, partial, synthetic, seeded-demo,
+return a Store-issued completed admission only when artifact identity and
+completed evidence agree. Neural-only admission returns the narrower opaque
+`AdmittedCompletedCheckpoint`; total neural-or-closed-host admission returns
+`AdmittedExecutionCheckpoint` with the corresponding actual admission fields.
+Decoded manifest or host-reference DATA cannot mint either value. Missing, partial, synthetic, seeded-demo,
 failed-training, wrong-plan, or
 non-finite provenance remains a typed rejection before any substrate runner
 receives weights.
@@ -581,6 +667,27 @@ retained report requires exact regeneration from the pinned journals; prose
 attestations and declared test IDs cannot manufacture completion. This boundary
 retains the original Store-admitted checkpoint identity and does not claim a
 fresh live admission or independent metric recomputation after teardown.
+
+Current production loaders select each lane through its separately governed
+append-only registration in `DEVELOPMENT_PLAN/attestations/product-lane-registrations/`.
+An immutable snapshot records the independently selected journal path, byte count
+and SHA-256, complete ordered 55-row PlanIds/contracts, original qualifying code
+source and supervised/native review identities. Expected output pins are selected
+after actual whole-lane acquisition and independent review. Reading a journal
+never makes its observed digest the expected pin. The safe default readers use
+full registered-lane admission; explicit historical readers retain older pins.
+
+The independent criterion selection is frozen before training. Its bounded
+original review files and artifact references bind the source, lane, scope and
+complete 55-row contract set. Actual supervised/native execution retains that
+same prelaunch identity in its authenticated qualification chain. Current
+registration requires original source/review bindings for all 54 training rows.
+The tuning row has no recorded original code source; its full current contract
+and original lane admission remain required. CPU and Apple judgments are
+independent; the later aggregate still requires all three actual admitted lanes.
+Parsing review or registration DATA establishes no reviewer independence or
+execution, device, Store or parent capability. Phase 278 owns the remaining
+actual acquisition and validation.
 
 ## Phase Validation Boundary
 

@@ -13,6 +13,8 @@ module JitML.Product.Pipeline
   , experimentHash
   , inferenceEligibleModelRef
   , markInferenceEligible
+  , markExecutionInferenceEligible
+  , inferenceEligibleExecutionModelRef
   , modelRefCompletedTraining
   , modelRefExperimentHash
   , modelRefManifestSha
@@ -132,3 +134,33 @@ inferenceEligibleModelRef eligible =
   admitted = CheckpointStore.admittedCompletedCheckpoint eligible
   manifest = CheckpointStore.admittedCheckpointManifest admitted
   completed = CheckpointStore.admittedCompletedTraining eligible
+
+-- | The total neural/host alternative consumes only an ACTUAL closed Store
+-- admission. This is inference lifecycle DATA, not native qualification.
+markExecutionInferenceEligible
+  :: CheckpointStore.AdmittedExecutionCheckpoint
+  -> ModelRef 'TrainingCompleted
+  -> Either Text InferenceEligibleRef
+markExecutionInferenceEligible eligible (TrainingCompletedModelRef hash refCompleted)
+  | refCompleted /= completed =
+      Left "completed-training witness does not match model reference"
+  | hash /= manifestExperiment manifest =
+      Left "completed checkpoint does not match model experiment"
+  | otherwise = Right (inferenceEligibleExecutionModelRef eligible)
+ where
+  admitted = CheckpointStore.admittedExecutionCheckpoint eligible
+  manifest = CheckpointStore.admittedCheckpointManifest admitted
+  completed = CheckpointStore.admittedExecutionCompletedTraining eligible
+
+inferenceEligibleExecutionModelRef
+  :: CheckpointStore.AdmittedExecutionCheckpoint
+  -> InferenceEligibleRef
+inferenceEligibleExecutionModelRef eligible =
+  InferenceEligibleModelRef
+    (manifestExperiment manifest)
+    (CheckpointStore.admittedCheckpointManifestSha admitted)
+    completed
+ where
+  admitted = CheckpointStore.admittedExecutionCheckpoint eligible
+  manifest = CheckpointStore.admittedCheckpointManifest admitted
+  completed = CheckpointStore.admittedExecutionCompletedTraining eligible

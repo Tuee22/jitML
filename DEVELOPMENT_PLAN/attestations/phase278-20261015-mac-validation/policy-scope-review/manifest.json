@@ -1,0 +1,18 @@
+{
+  "schema": "phase278-read-only-policy-review-v1",
+  "scope": "Exact copies of read-only assessments; no seed pool, local gate, ownership transfer or phase closure is implemented by these notes. Source stamps inside each assessment retain their original scope.",
+  "files": [
+    {
+      "path": "five-seed-scope-review.md.txt",
+      "original_path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/five-seed-scope-review.md",
+      "bytes": 10773,
+      "sha256": "d938922802437e5fac1a1374c2b224a8c452ba0bdced5976d13aaee28ae55d22"
+    },
+    {
+      "path": "local-gate-dependency-inventory.md.txt",
+      "original_path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/local-gate-dependency-inventory.md",
+      "bytes": 20579,
+      "sha256": "12eb43d2ab2fb98d2f11b24002385989ddd4f461d9f3b8e6c919091817aac75d"
+    }
+  ]
+}

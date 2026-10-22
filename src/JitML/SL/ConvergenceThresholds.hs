@@ -80,16 +80,14 @@ slCohortThresholds =
   , ("cifar10-resnet56", SlConvergenceThreshold 0.93 0.73)
   , ("cifar10-vit", SlConvergenceThreshold 0.93 0.68)
   , ("cifar100-wide-resnet", SlConvergenceThreshold 0.78 0.74)
-  , -- Phase 245 re-baseline (2026-07-30): the compact literal ResNet-50 proxy
-    -- (2 strided convs + residual/attention mixer) trained on the bounded product
-    -- budget (8,000 examples over 200 classes, 15 epochs) measures a deterministic
-    -- 1.2% held-out accuracy on 1,000 eval examples — a real "learned above chance"
-    -- signal (2.4x the 1/200 = 0.005 random floor) but far below the full-model
-    -- literature target, as the compact-proxy doctrine expects. The effective bar
-    -- is set to 0.008 (1.6x the random floor) — non-vacuous per 'slBarIsNonVacuous'
-    -- and cleared by the measured 1.2% with margin. Raising it toward the 0.02
-    -- aspiration would require materially more data/capacity than the bounded proxy
-    -- budget permits.
+  , -- Historical compact-policy declaration: this 0.008 effective floor was
+    -- selected to clear a measured 0.012 result, so it does not establish an
+    -- independently justified convergence anchor. The additional LearningSignal
+    -- gate requires at least 16 correct of 1,000 at alpha 1/5000 for a balanced
+    -- 200-class evaluation, so the earlier 12-correct observation cannot
+    -- establish learning signal either. Preserve this calibration history:
+    -- the extra gate and repaired class-interleaved split do not establish
+    -- published-model convergence.
     ("tiny-imagenet-resnet50", SlConvergenceThreshold 0.64 0.632)
   ]
 

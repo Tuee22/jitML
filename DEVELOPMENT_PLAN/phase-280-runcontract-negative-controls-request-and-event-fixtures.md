@@ -9,10 +9,12 @@
 
 ## Phase State
 
-⏸️ **Blocked**. Blocked by Phase 278 (Sprint 278.1).
+⏸️ **Blocked**. Blocked by Phase 279 (Sprint 279.1), after Phase 278.
 
 The request and event fixture suites are implemented and pass on the host and in
-the `linux-cpu` container; closure waits on Sprint `278.1` (see Remaining Work).
+the `linux-cpu` container. This phase additionally consumes the three earlier
+lane journals, owns their CPU-only aggregate, and retains the unchanged full CPU
+unit and integration gates. Closure waits on Sprint `279.1` (see Remaining Work).
 
 ## Sprint 280.1: RunContract Negative Controls - Request and Event Fixtures [⏸️ Blocked]
 
@@ -25,7 +27,7 @@ the `linux-cpu` container; closure waits on Sprint `278.1` (see Remaining Work).
 `src/JitML/Test/LiveEvidence.hs`, `src/JitML/Test/LiveEvidenceBudget.hs`,
 `src/JitML/Test/RunContract.hs`, `test/negative-controls/Main.hs`,
 `test/unit/Main.hs`
-**Blocked by**: Sprint `278.1`
+**Blocked by**: Sprint `279.1`
 **Docs to update**: `../documents/engineering/run_contract.md`,
 `../documents/engineering/unit_testing_policy.md`, `system-components.md`
 
@@ -36,7 +38,9 @@ requests and known-illegal event streams. This sprint owns the request- and
 event-fixture portions of the adversarial coverage for
 [Exit Definition](README.md#exit-definition) items `31` and `32`.
 The binding design is
-[README.md → Typed run contracts](../README.md#typed-run-contracts).
+[README.md → Typed run contracts](../README.md#typed-run-contracts). It is also
+the first consumer of the earlier CPU/Apple/CUDA journals and owns aggregate plus
+unchanged full CPU suites. It reruns no accelerator and has no later prerequisite.
 
 ### Deliverables
 
@@ -49,11 +53,17 @@ The binding design is
 - Each fixture asserts contract *reject*; accepting any known-invalid request or
   event fixture fails the standing stanza.
 
+- Admit all three earlier pinned lane journals and exact qualification objects,
+  regenerate the aggregate through the production reader and preserve every
+  original retained-evidence success case and live integration registration.
+
 ### Validation
 
 ```bash
 docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu
 docker compose run --rm jitml jitml test jitml-unit --linux-cpu
+docker compose run --rm jitml jitml test jitml-integration --linux-cpu
+docker compose run --rm jitml jitml docs check
 docker compose run --rm jitml jitml check-code
 ```
 
@@ -82,11 +92,18 @@ docker compose run --rm jitml jitml check-code
   worker's completed checkpoint carries exactly the planned steps.
 ### Remaining Work
 
-- Blocked until Sprint `278.1` closes: the `jitml-unit` Validation gate stays red on
-  the nine `Journal-derived product aggregation (Phase 276)` cases until the
-  `apple-silicon` lane journal is re-issued on a Mac.
-- Run the three Validation commands on the final tree in the `linux-cpu` container
-  lane and commit the validation records.
+- Wait for Sprints `278.1` and `279.1` to validate in numerical order; they own
+  complete current CPU/Apple and CUDA journals respectively. Admit every exact
+  retained qualification object and current contract; preserve historical bytes.
+- Pin the admitted earlier journals and regenerate
+  `attestations/product-aggregate.json` through production
+  `loadProductAggregation`/`productAggregationBytes`. This CPU consumer operation
+  performs no accelerator rerun and rejects missing/stale/substituted evidence.
+- Run all five complete Validation commands on the final CPU tree/live cluster.
+  Preserve request/event controls, every cross-lane unit success check and every
+  original integration case; no focused pass or eighteen-failure allowlist is a
+  standing pass. Retain authentic invocation records and update derived status
+  only when all owned obligations validate. The human alone stages/commits/pushes.
 
 ## Documentation Requirements
 

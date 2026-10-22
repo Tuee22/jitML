@@ -36,6 +36,15 @@ If the user explicitly asks you to commit or push, decline and remind them of th
 - Development plan: [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md) — single execution-ordered plan and sprint status.
 - CLI doctrine: [README.md](README.md) — binding contract for the CLI surface.
 
+## Local artifacts
+
+Write build outputs, raw command receipts/logs, checkpoints, downloaded datasets,
+and caches under ignored `.build/` or the existing data/cache homes. Never add
+them to Git or Docker build contexts. Keep curated review summaries, deliberate
+test/criterion data, structured validation records, and registered generated
+source in their canonical homes. Do not create new dated raw-receipt trees under
+`DEVELOPMENT_PLAN/attestations/`; see the [plan standards](DEVELOPMENT_PLAN/development_plan_standards.md#n-evidence-derived-product-status-and-thin-closure-narrative).
+
 ## Code-quality execution
 
 Linting and `jitml check-code` are container-only workflows. Lack of host-level

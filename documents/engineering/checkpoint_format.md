@@ -57,6 +57,22 @@ Completions without this generic RL binding keep their exact V2 tuple encoding,
 so existing ProductRow journal completion digests remain stable. The nested
 completion DTO version does not alter the checkpoint envelope or payload sum.
 
+**Target generic ARS host scope.** The ordinary generic command binds its actual
+experiment and complete compiled schedule under
+`generic-compiled-plan-attempt-v1`; it cannot borrow a canonical ProductRow or
+ProductScenario invocation. The public compiler determines supported
+environments and positive evaluation counts, without the canonical singleton
+origin's twenty-evaluation limit. Trace resource limits refuse explicitly and
+never shorten the requested work. Actual preparation, returned counters, final
+evaluation and before/after process observations produce the private host
+origin. Completed host admission fetches the exact trace and JMW1 bytes from the
+same committed snapshot, with one actual `rl-trajectory` companion. It uses
+`AdmittedExecutionCheckpoint`; the neural-only witness accessor still rejects
+host provenance. The trace context tag adds no checkpoint envelope variant or
+MLP witness. This closed non-Product branch leaves other unknown V1 completion
+admission unchanged. Physical admission does not establish canonical five-run
+qualification or parent authentication.
+
 **Real trained weights only.** Checkpoint payloads carry weights produced by the
 declared training workflow with correct per-tensor shapes; synthetic,
 zero-padded, byte-identical-across-models, randomly initialized, or untrained
@@ -67,6 +83,51 @@ evidence. See
 [Training Metrics and Data Splits](training_metrics_and_splits.md).
 
 ## Current Status
+
+**Implemented recorded native evidence boundary.** Source `39547f58…` preserves
+neural six-element/tag-0 evidence bytes
+and historical five-element/tag-0 decoding, and adds host six-element/tag-1 with
+a checked canonical ARS host reference. This is nested evidence CBOR, not a new
+checkpoint envelope or Store eligibility. Its host-reference bound is checked
+after the outer bytestring decodes; it claims neither preallocation safety nor
+global canonicality for the existing outer evidence decoder. Recorded host data
+is not actual producer origin, neural execution or physically admitted host
+completion. Separate phase-payload codecs and decoded observations cannot
+mint prepared stages, retention acknowledgments, origin or admission.
+[Raw and validated boundaries](run_contract.md#raw-and-validated-boundaries) and
+the [native criterion](training_metrics_and_splits.md#target-native-rl-learning-qualification)
+keep those obligations separate from this recorded-data wire.
+
+
+**Separate native phase DATA.** `JitML.Checkpoint.NativePhase.Codec` now encodes
+and decodes ordinary, self-contained phase records with a closed 73-node schema,
+exact context, predecessor/root digests and a sorted content-addressed node pool.
+This is separate evidence DATA; it does not add a checkpoint-envelope variant.
+Definite shortest CBOR, complete input consumption and canonical byte equality
+reject maps, tags, indefinite encodings, primitive floats and trailing bytes.
+Floating coordinates retain their exact eight-byte binary64 bits, including
+signed zero and nonfinite DATA; eligibility still requires separate finite
+observations and learning checks.
+
+The complete phase payload is bounded at 256 MiB, tensor chunks at 1 MiB,
+context at 2 MiB and the unique producer-node closure at 16 KiB. Typed graph
+validation bounds the pool at 1,048,576 nodes, reference edges at 4,194,304,
+aggregate sequence elements at 16,777,216, F64 coordinates at 33,554,432 and
+reference depth at 14, without expanding shared DAGs. All enclosing metadata
+and wrappers still count toward the whole-payload bound. Context records keep
+observed and supplied source roles distinct even when their bytes agree;
+parsing them performs no source observation or invocation authentication.
+
+Failure capture preserves each complete, oversize, unavailable or absent slot
+explicitly. Oversize diagnostics do not become complete prefixes; asynchronous
+exceptions propagate. These codec/projection controls do not prove that every
+possible training failure fits, that durable producer capture ran, or that five
+training seeds, physical admission or qualified serving completed. Separately,
+the 514-input producer diagnostic executes five real ARS/cartpole seeds, ten in-memory
+replays and **48**-object physical readback. Its concrete completion is not a
+published Store-selected checkpoint or authenticated journal qualification.
+Current implementation and execution evidence remain in
+[Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md).
 
 **Implemented today.** The checkpoint wire is
 **one self-describing envelope**: a payload-variant version, the raw 32-byte
@@ -80,11 +141,13 @@ cascade or fall-through), and one `canonicalManifest` serve every row. The
 byte-frozen V1 golden fixture, the dead V3 `LayerGraph` encoder, the retained
 pre-Sprint-`10.12` legacy decoder, and the parallel `canonicalManifestV2` were
 all retired; checkpoints are regenerated deterministically from current source,
-so no persisted bytes are reinterpreted. Store admission is likewise **one
-path**: a decode with no per-version allow-list, then a
-single classify-on-payload-variant — a supervised-graph checkpoint is admissible
-only with no companion pointer, a weight-only checkpoint routes through the
-authoritative non-supervised ProductRow companion rules. The dormant legacy-V3
+so no persisted bytes are reinterpreted. Store admission shares that canonical
+envelope decode and exact snapshot
+binding. A supervised-graph checkpoint is admissible only with no companion
+pointer; completed Product weight-only admission uses the authoritative
+non-supervised ProductRow companion rules. The separate closed generic ARS host
+branch above uses the same physical snapshot binding and cannot establish
+Product qualification. The dormant legacy-V3
 graph reconstruction helpers were deleted; the current supervised reader
 reconstructs the trained graph from the one envelope as described below.
 
@@ -96,6 +159,142 @@ that rides alongside the graph is slimmed to the task and the exact input/output
 transforms; serving reconstructs the graph, injects the one physical
 graph-ordered `supervised.weights` blob, runs `LayerGraph.runLayerGraph`, and
 applies the transforms outside the graph.
+
+## Compact supervised qualification
+
+Compact ProductRows use the versioned five-training-seed predictive-learning
+contract. `SupervisedCohortPlan` derives exactly five singleton child plans from
+the canonical base seed plus offsets `0..4`, with checked numeric headroom and
+distinct auxiliary plan transports. Index `0` is predetermined for serving;
+neither a winning seed nor the cohort median replaces its primary metric.
+The policy and base seed participate in the supervised plan/report identities.
+Every per-seed numerical recipe, budget and historical floor is unchanged.
+
+The producer captures each run's actual pre-update graph/parameters and final
+artifact, complete observed work, verified dataset/split, selected-device
+witness and common held-out evaluation. A strict canonical initial-comparison
+snapshot binds runtime, exact graph metadata and JMW1 parameters. It is captured
+from the real training state, never reconstructed by initializing a second
+model after training. Replay checks runtime/graph ingress and output widths and
+uses the actual initial/final serving semantics.
+
+The typed `ProductProjection` selects the expected device backend from the
+execution family. Classification uses the layer-graph training backend:
+`linux-cpu-onednn`, `linux-cuda-cudnn`, or `apple-metal-fixed-bridge` for
+`linux-cpu`, `linux-cuda`, or `apple-silicon` respectively. Regression uses the
+MLP engine backend: `onednn`, `cuda`, or `metal` for those same lanes.
+Qualification compares that single expected identity with the unchanged recorded
+witness. A generic MLP identity cannot stand in for a classification kernel, and
+a layer-graph identity cannot stand in for regression. This check changes no
+training recipe, seed, budget, metric or bar.
+
+`SupervisedQualification` is opaque replayable mathematical data. Its version-1
+canonical CBOR object retains all five exact prescribed outcomes, including
+finite non-improving/below-floor members. Qualification requires at least three
+joint paired-improvement/reference-control successes and the all-five median
+against the unchanged historical floor. Index `0` independently passes the
+same improvement/reference/floor conditions and actual completion/device/Store
+requirements. Classification uses exact strict correct-count improvement and
+`max(majority+1, binomial critical count at alpha 1/5000)`; regression compares
+exact binary64-rational initial/final SSE and requires final SSE strictly below
+both initial SSE and positive finite target SST. There is no epsilon allowance
+in these criteria. Existing scalar provenance tolerances remain separate.
+
+The content-addressed qualification key is
+`jitml-checkpoints/<experiment>/artifacts/supervised-qualification/<sha256>.cbor`.
+It is a detached artifact, never a supervised checkpoint companion pointer and
+never an auxiliary `CompletedTraining`. Strict decode checks the whole object,
+canonical re-encoding, current cohort/child plans, exact seeds/work/identities,
+common evaluation, device-witness structure and initial/final replay. Embedded source,
+executable and invocation hashes alone do not prove execution or dataset origin.
+
+`SupervisedQualificationPublication` additionally binds a qualified cohort to
+the actual Store-admitted original index-zero checkpoint and exact served bytes.
+Its strict reference line starts `product-supervised-qualification-v1` and
+includes the row/plan/lane/experiment/manifest, producer source/executable/
+invocation, cohort/object identity and exact initial/final/runtime/graph/evaluation
+hashes. Parsed references and retained portable proofs cannot construct a fresh
+Store publication. Direct local publication remains distinguishable from an
+authenticated ProductScenario; report/lane admission requires the latter.
+
+Current source journals use wire version `5`. The aggregate HMAC binds all
+ordered row fields, including the native qualification receipt. Independent row
+authorization preserves the exact version-`2` semantic material for an empty
+native receipt; a nonempty native receipt uses the separate native version-`1`
+domain and binds both that complete earlier material and the exact receipt.
+Older source-journal versions are rejected rather than reinterpreted.
+
+Current portable lane journals use wire version `3`. Supervised rows retain
+their authenticated reference and exact detached qualification objects. Native
+rows retain a reference to a separate canonical version-`1` bundle root. The
+root binds the complete nineteen-field source-journal identity, exact parent
+receipt and sorted closed object inventory; each object binds its key, SHA-256
+and byte count. The root is at most 1 MiB and declares at most 163 objects.
+Neither decoding the root nor parsing its reference creates an execution,
+Store, source-authentication or portable-audit capability.
+
+The writer derives a private copy plan from actual retained qualification. It
+streams the original files into create-only, exact-byte-verified sidecars under
+`<lane-journal-filename>.qualifications/<sha256>.cbor` and writes the bundle root
+before atomically replacing the main journal. Existing conflicting bytes,
+nonregular files and symbolic links fail closed. Original object keys never
+become destination paths. The externally pinned main-journal digest, canonical
+wire and current row coverage are checked before portable native file reads.
+The IO reader verifies the exact closed files, recorded checkpoint/JMW1 bytes,
+phase/replay associations, the complete recorded five-child closure, ARS trace and all
+receipt bindings. It performs no training, device selection or current-policy
+mathematical replay and cannot restore the original live execution or Store
+admission. The pure lane reader refuses native rows because it has no private
+physical-audit capability. Older lane versions are typed stale after their
+main digest is checked. Historical bytes and pins remain intact.
+
+The producer writes a source/executable/invocation-bound start before the first
+child, each raw child return before refinement, valid raw outcomes and common
+evaluation, the full qualification and a terminal verdict where available.
+Malformed/non-finite returns and handled failures remain observable. An
+unexpected infrastructure abort can leave a start/prefix without a verdict and
+must remain an incomplete attempt. The binary writer first persists locally
+with immutable create-only semantics. Remote coordinates resolve from a mounted
+worker BootConfig or, only when absent, a valid host publication. A present
+malformed, unreadable or non-live configuration fails closed. Every newly
+created or already-identical remote binary write requires exact-byte readback;
+a parsed scenario invocation requires that verified remote result for every
+binary attempt record before returning its identity. Direct offline
+writers retain local-only behavior and cannot claim that durability.
+
+**Required qualifying-execution evidence (not yet acquired).** The outer
+execution attestation prospectively pins allocation, exact actual
+plans/seeds/work, source/executable/process bindings and complete previous/final
+physical namespace inventories, including all failed and incomplete attempts.
+It independently reconciles the authenticated source/lane journals and all
+detached objects. A portable qualification cannot prove that an earlier
+namespace was omitted. The product claim is finite pinned-benchmark observed
+learning; no automatic familywise probability, population generalization or
+published-model parity claim is exposed. Historical floors retain their actual
+provenance as additional restrictions. Current implementation validation and
+actual five-run evidence remain owned by
+[Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work).
+
+
+Generic remote snapshot readback re-admits the exact prepared manifest,
+commit/descriptor and declared payloads through Store's physical binding path.
+Preparation retains the canonical typed manifest decoded from the exact prepared
+wire bytes. Map-like input lists therefore compare through the same canonical
+typed value, without weakening Store's strict manifest equality. The wire
+format, content addresses and FlatWeightLayout execution order are unchanged.
+This structural generic check does not mint ProductRow completed admission or
+learning qualification. Coordinates alone prove neither live readiness nor
+image/source/executable coherence; live callers establish those separately.
+
+The independently selected review is captured before qualifying training and
+retained through the original attempt and qualification chain. Reviewed native
+parent receipts use their explicit version `2`; the unchanged version-`1` path
+remains historical. Supervised raw producer tags distinguish actual direct FILE
+observation from a scenario parent's supplied identity; original unreviewed
+producer bytes retain their historical encoding. Current registered admission
+requires the exact applicable original review identity. Source-journal version
+`5` and portable lane-journal version `3` remain distinct outer formats. Parsed
+review identities cannot restore an original execution or Store capability.
 
 ## The Self-Describing Checkpoint Envelope
 
@@ -196,14 +395,19 @@ supervised-graph payloads.
 
 ## Inference Eligibility
 
-A checkpoint manifest can be loaded for inspection at any step, but only a
-Store-minted `AdmittedCompletedCheckpoint` may flow to `jitml eval`, `jitml
-inference run`, demo inference routes, RL evaluation/rollout, or AlphaZero game
-endpoints. Store establishes the exact persisted snapshot before final
+A checkpoint manifest can be loaded for inspection at any step, but serving
+requires Store-minted completed admission before `jitml eval`, `jitml inference
+run`, demo inference routes, RL evaluation/rollout, or AlphaZero game endpoints.
+Neural-only serving uses `AdmittedCompletedCheckpoint`; host-aware execution
+uses total neural-or-closed-host `AdmittedExecutionCheckpoint` and its actual
+manifest/completion/provenance fields through `markExecutionInferenceEligible`.
+Neither decoding manifest DATA nor parsing an ARS host reference creates an
+admitted value. Store establishes the exact persisted snapshot before final
 completion refinement: it validates the required immutable commit and its
 descriptor, reconstructs and re-derives snapshot identity, and binds every
-scoped payload object before `requireAdmittedCompletedCheckpoint` may construct
-the completed admitted value. A pure structural completion precheck may reject
+scoped payload object before a completed admission can be returned. The
+neural-only `requireAdmittedCompletedCheckpoint` keeps its narrower result;
+closed host admission separately validates its snapshot-bound trace. A pure structural completion precheck may reject
 an impossible manifest before payload-object I/O, but it is not persisted admission.
 Final completion refinement requires all of the following:
 
@@ -397,8 +601,9 @@ manifest key/SHA and admitted SHA are identical. A `StoredCheckpoint` exposes th
 exact outer SHA and `storedManifestBodySha :: Maybe Text`: supervised-graph
 writes return the embedded-body identity and weight-only writes return
 `Nothing`. This write result is useful identity evidence but is not persisted
-admission. Only
-`AdmittedCheckpoint` / `AdmittedCompletedCheckpoint` carry that claim. Store-level
+admission. Store-issued `AdmittedCheckpoint`, the narrower neural
+`AdmittedCompletedCheckpoint`, and total neural-or-closed-host
+`AdmittedExecutionCheckpoint` carry that physical admission claim. Store-level
 `checkpointObjectRef` adapts the bucket-prefixed key renderers to live
 `HasMinIO` calls by carrying bucket `jitml-checkpoints` separately and using
 keys relative to that bucket.
@@ -717,9 +922,13 @@ count must agree with that single origin-bound plan.
 target, observed kind/count/unit, typed finite criteria, non-empty passing
 measurements, and training evidence while retaining the TensorBoard metadata.
 Training evidence now includes the run's `DeviceExecutionWitness` — the
-substrate, the backend and executed identity read back out of the compiled
-artifact, the content-addressed cache key, the artifact path, and the SHA-256 of
-the artifact bytes. The cache key and the artifact digest are distinct identities
+substrate, execution-family backend identity, executed identity, content-addressed
+cache key, artifact path, and SHA-256 of the artifact bytes. Layer-graph loadable
+backends report their identity through `jitml_layer_training_backend`; the
+Apple layer graph identifies its fixed-bridge path. The MLP witness uses its
+selected engine's backend and reads its executed family from the loaded artifact
+or Metal source metadata. The exact supervised family binding is described
+[above](#compact-supervised-qualification). The cache key and the artifact digest are distinct identities
 and move independently — a toolchain-fingerprint change relocates an artifact
 without altering its bytes, and a renderer change alters its bytes at a new
 address — and both are stable across recompilation, per
@@ -741,7 +950,8 @@ execution witness rather than at CBOR with a field count that says nothing about
 why the artifact is inadmissible. Reading such a checkpoint is therefore
 possible; admitting it is not, and the live store must be re-issued from a
 witnessed run before its rows can become inference-eligible again.
-The current encoder emits V2, whose optional ProductScenario invocation binds
+Completions without a generic RL plan binding retain V2, whose optional
+ProductScenario invocation binds
 one exact command-owned run, row, plan, substrate, canonical checkpoint scope,
 executable digest, and fresh challenge. The exact V1 nine-field tuple remains
 decodable as a completion with no ProductScenario invocation; it stays
@@ -749,15 +959,16 @@ inspectable through the checkpoint and nested protocol boundaries but cannot
 satisfy the Phase `261` execution-evidence boundary, which requires equality
 with the current invocation.
 That persisted invocation is necessary but not independently sufficient for a
-cross-process ProductScenario report. Journal version `3` HMAC-authenticates the
+cross-process ProductScenario report. Current source-journal version `5`
+HMAC-authenticates the
 exact current-run aggregate and its projection-ordered row fields; the parent
 authenticates the journal before requiring invocation equality and re-admitting
 each recorded manifest address through Store. Thus neither a copied checkpoint
-carrying a V2 `RawCompletedTraining` DTO, an authenticated journal row naming a
+carrying a decoded `RawCompletedTraining` DTO, an authenticated journal row naming a
 different address, nor a
 successful child exit can substitute for the joined persisted identities.
 After this live admission succeeds, the portable lane-journal projection stores
-the canonical hexadecimal V2 `CompletedTraining` bytes and their SHA-256 beside
+the exact canonical hexadecimal `CompletedTraining` bytes and their SHA-256 beside
 the admitted manifest and execution identities. Its reader decodes and refines
 those bytes again and requires an externally pinned digest for the complete
 canonical JSON. It does not turn an archival record back into a live Store

@@ -1,0 +1,137 @@
+{
+  "scope": "Prospective compact criterion versions, exact arithmetic and independent reviews only. No qualifying training, implementation or phase closure claimed.",
+  "files": [
+    {
+      "path": "raw/proposal/analyze-rule.py.txt",
+      "bytes": 3390,
+      "sha256": "bbdf5c1fa5b147c40a311477f4e902e24b58d00a3d14ad87cb90e336a6bba608",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/analyze-rule.py"
+    },
+    {
+      "path": "raw/proposal/arithmetic-and-inputs.json",
+      "bytes": 3442,
+      "sha256": "f338ae001faf335431641cc44e69a7a4b0a88b0656d8485a593990207d12c124",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/arithmetic-and-inputs.json"
+    },
+    {
+      "path": "raw/proposal/manifest.json",
+      "bytes": 722,
+      "sha256": "bd9ce03d980877ecd537ad9e09e3d8edfea4f05fde5bc9a23532131a51cefb7e",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/manifest.json"
+    },
+    {
+      "path": "raw/proposal/primary-sources.json",
+      "bytes": 2153,
+      "sha256": "2c8dacc1f78a75e3b10ee0e007584e2a3079f99b531bae553d2109cedd00f08e",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/primary-sources.json"
+    },
+    {
+      "path": "raw/proposal/proposal.md.txt",
+      "bytes": 18485,
+      "sha256": "6886b07e25cdddded41702f2b15ceabb29788b42d1fd19108ef5f603fad1c2f9",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/proposal.md"
+    },
+    {
+      "path": "raw/proposal/revision-2/contract.md.txt",
+      "bytes": 14519,
+      "sha256": "9667039af1d4bdb216898c4988a190c731588edae8f84a2e1c91ebb07de57c94",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/revision-2/contract.md"
+    },
+    {
+      "path": "raw/proposal/revision-2/implementation-design.md.txt",
+      "bytes": 19108,
+      "sha256": "d9a1f657d4a356ac3d480c9148af0a1c0fa3aad7bd9b05a313f36e9117e46974",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/revision-2/implementation-design.md"
+    },
+    {
+      "path": "raw/proposal/revision-2/manifest.json",
+      "bytes": 2075,
+      "sha256": "f8f6f13055ec5bf41c98b2aa4b0165271d19c27ce2bd8565865ed71157f2ca57",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/revision-2/manifest.json"
+    },
+    {
+      "path": "raw/proposal/revision-2/prior-original/analyze-rule.py.txt",
+      "bytes": 3390,
+      "sha256": "bbdf5c1fa5b147c40a311477f4e902e24b58d00a3d14ad87cb90e336a6bba608",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/revision-2/prior-original/analyze-rule.py"
+    },
+    {
+      "path": "raw/proposal/revision-2/prior-original/arithmetic-and-inputs.json",
+      "bytes": 3442,
+      "sha256": "f338ae001faf335431641cc44e69a7a4b0a88b0656d8485a593990207d12c124",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/revision-2/prior-original/arithmetic-and-inputs.json"
+    },
+    {
+      "path": "raw/proposal/revision-2/prior-original/manifest.json",
+      "bytes": 722,
+      "sha256": "bd9ce03d980877ecd537ad9e09e3d8edfea4f05fde5bc9a23532131a51cefb7e",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/revision-2/prior-original/manifest.json"
+    },
+    {
+      "path": "raw/proposal/revision-2/prior-original/primary-sources.json",
+      "bytes": 2153,
+      "sha256": "2c8dacc1f78a75e3b10ee0e007584e2a3079f99b531bae553d2109cedd00f08e",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/revision-2/prior-original/primary-sources.json"
+    },
+    {
+      "path": "raw/proposal/revision-2/prior-original/proposal.md.txt",
+      "bytes": 18485,
+      "sha256": "6886b07e25cdddded41702f2b15ceabb29788b42d1fd19108ef5f603fad1c2f9",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/revision-2/prior-original/proposal.md"
+    },
+    {
+      "path": "raw/proposal/revision-2/prior-preservation.json",
+      "bytes": 1039,
+      "sha256": "ab7b29ffaf167a381dcb44a9aa5f719c9af308dc074ea26ce80e335c0672f44b",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/revision-2/prior-preservation.json"
+    },
+    {
+      "path": "raw/proposal/revision-2/review-decisions.json",
+      "bytes": 2046,
+      "sha256": "8b79f165126c03cf4e53657014a642ce66271e97dac0a0dbc8e92a793e9b83ef",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/revision-2/review-decisions.json"
+    },
+    {
+      "path": "raw/proposal/revision-2/verification-receipt.json",
+      "bytes": 583,
+      "sha256": "f16dd18120713c6d02ff38cf4517f3d7b35500bf93916a33c44d7c532d409f1d",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/revision-2/verification-receipt.json"
+    },
+    {
+      "path": "raw/proposal/revision-2/verification-stderr.txt",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/revision-2/verification-stderr.txt"
+    },
+    {
+      "path": "raw/proposal/revision-2/verification-stdout.json",
+      "bytes": 8837,
+      "sha256": "4e9fb06b768b7701f957f802d624ce46bda1e6d7ec3c44ca2b3cacdba7af2c1c",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/revision-2/verification-stdout.json"
+    },
+    {
+      "path": "raw/proposal/revision-2/verify-proposal.py.txt",
+      "bytes": 6629,
+      "sha256": "7486ab98aea90a5694a792fa7978d66a6e91656fe6e202b99af806517cfdf19b",
+      "original": ".build/phase278-mac-validation/compact-criterion-proposal/revision-2/verify-proposal.py"
+    },
+    {
+      "path": "raw/independent-review/detached-sidecar-binding.md.txt",
+      "bytes": 6126,
+      "sha256": "23ed9f34f781b66786c58c5039bebe203e7c8846a3dfc59311500ce9c8416058",
+      "original": ".build/phase278-mac-validation/compact-criterion-independent-review/detached-sidecar-binding.md"
+    },
+    {
+      "path": "raw/independent-review/independent-arithmetic-and-inputs.json",
+      "bytes": 2824,
+      "sha256": "177da7b73ab071bbfba89f86a7e07de80a81def4735dc38698bc4199bff3ced4",
+      "original": ".build/phase278-mac-validation/compact-criterion-independent-review/independent-arithmetic-and-inputs.json"
+    },
+    {
+      "path": "raw/independent-review/scope-review.md.txt",
+      "bytes": 9456,
+      "sha256": "c8108445ea4c84e34ca3e3062399f8b515cbc87156f7fded248a89f756cfbae1",
+      "original": ".build/phase278-mac-validation/compact-criterion-independent-review/scope-review.md"
+    }
+  ]
+}

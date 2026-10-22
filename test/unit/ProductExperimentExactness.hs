@@ -935,8 +935,8 @@ assertSupervisedSeedBoundary row = do
   assertExactSeedBoundary
     row
     ( case Product.rowClass row of
-        Product.SupervisedRegression _ _ -> 0
-        _ -> Architecture.architectureSeedHeadroomForProblem problem
+        Product.SupervisedRegression _ _ -> 4
+        _ -> 4 + Architecture.architectureSeedHeadroomForProblem problem
     )
 
 assertRlSeedBoundary :: Product.ProductRow 'Product.Declared -> IO ()

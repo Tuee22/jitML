@@ -1,0 +1,20 @@
+# Native Source 586 Helper Transition and Owned Gate Results
+
+**Status**: Supporting reference
+**Supersedes**: N/A
+**Referenced by**: [Runtime receipts](../README.md), [Mac validation](../../README.md), [Phase 278](../../../../phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md)
+**Generated sections**: none
+
+> **Purpose**: Retain the actual helper transition, successful backend lanes and genuine failed negative gate at their original source epoch.
+
+At the closed validated source `59872c11…` / **586** checkpoint, native `cc5fa74c…` was freshly rebound and synchronized to the existing CPU helper. The supported CPU library/CLI build exits **0**, inner **1,098.696715 s**, without compiler warnings and with empty inner stderr; outer capture is **1,137.743488 s** and its stderr contains receipt locations. Its recorded CPU CLI `4699e46f…` is kept distinct from the native binary. Four standalone direct-GHC helper compiles pass: CPU diagnostic/full55/registration and Apple full55. These compile/link results supply no helper execution, qualification or registered lane evidence.
+
+The real selected backend lanes pass **42 / 42 CPU** and **29 / 29 Apple** on that source. The first Apple LLVM-path failure occurred before test bodies and remains retained; its transient first candidate was not separately copied. The corrected Apple pass retains its genuine raw streams and candidate. These results do not upgrade historical395 records or claim that the whole transition passes all standing gates.
+
+The unfiltered CPU negative gate genuinely fails **3 / 2,683** bodies (**2,680** pass; body **858.50 s**). All original failure output remains lossless. Three isolated corrections concern a stale source-wire version expectation, a legacy-native reused-publication fixture and the non-ARS host-kind refusal expectation. Their proposals and independent peers retain their original **unapplied and untested** generations, alongside the historical prospective four-plan-doc cursor. That cursor is not selected as current documentation here. Later actual source application/cleanup belongs to separate evidence; no proposal is silently incorporated into source59872 or relabelled as a repaired pass.
+
+The closed transition retains all **133** actual local-command receipts: **112** original receipts plus **21** copied helper-step receipts. Exact source/full-host, native/helper/canonical records and service observations remain bound to their actual checkpoints. Separate compressed cold-HOST guest proof completes ordinary same-path readback of **253** files / **50,681,406,176** logical bytes, with no failed file; all **537** proof members were independently verified here. This verifies the captured readback proof without repeating that external50GB payload scan. It supplies no ML or qualification result.
+
+The byte bundle preserves **11** original views, including their original manifests, raw streams, source proposals and reviews. [facts.json](facts.json) gives exact receipt identities and scope; [index.json](index.json) maps every logical member to its retained object. Raw byte build and verification receipts are losslessly copied under `retention-provenance/`. The executing utility is the unchanged reviewed `817955a1…`. The original retention manifest and raw README remain separate literal members. The canonical-layout candidate is prepared for controlled installation; this text does not assert that installation occurred.
+
+Large binaries/libraries, full DIST caches and the source-sync archive retain their actual external FILE locations and identities. They are not falsely described as payloads copied into this small archive. Actual five-run qualification, the eleventh Store-loaded replay, full55 journals and append-only registration, owned daemon workflow, and remaining standing/quality gates remain open. No canonical gate record is promoted here. Phase278 remains Active, with279 CUDA/detector and280 aggregation/full CPU unit/integration ownership unchanged.

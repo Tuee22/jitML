@@ -41,6 +41,21 @@ Phase `234` supplied the oneDNN **batched** forward/backward path; the CUDA and
 Metal lowerings preserve that mini-batch device boundary with lane-specific
 deterministic kernels.
 
+RL final neural scoring routes frozen on-policy, DQN, QR-DQN, continuous,
+HER and AlphaZero policies through the same selected `MlpDevice` as training.
+Pure native environment/game dynamics remain distinct. A reported device
+failure propagates without selecting another scoring engine. Explicit malformed-
+data checks are family-specific: the newer QR-DQN/continuous/HER/arena and
+existing on-policy evaluators validate their device data, while DQN's stronger
+shape, finite-value, mask and overflow guards remain a separate pending repair.
+[Final-policy runtime scope](training_metrics_and_splits.md#current-final-policy-runtime-scope)
+states that boundary; selected-device routing alone proves none of those checks.
+The strict neural dispatcher queries and attaches its selected witness only
+after successful training/evaluation/evidence refinement. That one query does
+not include ProductPublisher's independent later query or prove host-linear ARS
+execution. Native provenance and qualification remain separate
+[Phase 278 work](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work).
+
 ## Cache Layout
 
 ```

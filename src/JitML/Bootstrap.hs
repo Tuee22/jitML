@@ -35,6 +35,7 @@ where
 
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (mapConcurrently)
+import Control.Exception.Safe (displayException, tryAny)
 import Control.Monad (filterM, when)
 import Data.Aeson
   ( FromJSON (..)
@@ -51,6 +52,7 @@ import Data.Aeson
   )
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KeyMap
+import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Char (isHexDigit)
 import Data.List (isPrefixOf, isSuffixOf, nub)
@@ -96,6 +98,8 @@ import JitML.Cluster.Kind
   , renderKindConfig
   , substrateKindNodeContainerNames
   )
+import JitML.Cluster.Lifecycle qualified as ClusterLifecycle
+import JitML.Cluster.PVSnapshotPosix qualified as PVSnapshotPosix
 import JitML.Cluster.PostgresRegistry
   ( PerconaPGCluster (..)
   , postgresRegistry
@@ -1676,7 +1680,13 @@ runRepoAppImageReconcileIO substrate = go [] (repoAppImageSpecs substrate)
 -- The App tier invokes this directly for a substrate bootstrap command after
 -- handling explicit plan/dry-run output.
 liveExecutePhasedRollout :: Substrate -> FilePath -> IO LiveExecutionResult
-liveExecutePhasedRollout substrate chartPath = do
+liveExecutePhasedRollout substrate chartPath =
+  PVSnapshotPosix.withPosixLifecycle "." $ \lifecycleLease ->
+    liveExecutePhasedRolloutWithLease lifecycleLease substrate chartPath
+
+liveExecutePhasedRolloutWithLease
+  :: PVSnapshotPosix.LifecycleLease -> Substrate -> FilePath -> IO LiveExecutionResult
+liveExecutePhasedRolloutWithLease lifecycleLease substrate chartPath = do
   resources <- loadClusterResourcesOrDefault "."
   presenceOutcome <- probeKindClusterPresenceIO substrate
   case presenceOutcome of
@@ -1700,41 +1710,59 @@ liveExecutePhasedRollout substrate chartPath = do
               , liveAlreadyConverged = False
               }
         Right (kindAction, lease, publication) -> do
-          let port = EdgePort.leasedPort lease
-          materializationChanged <-
-            materializeBootstrapFilesForPort "." substrate port
-          convergence <-
-            observeLiveConvergenceIO
-              "."
-              substrate
-              resources
-              kindAction
-              port
-              materializationChanged
-          case convergence of
-            LiveClusterAlreadyConverged currentPublication ->
-              pure $
+          reusable <- tryAny $ case kindAction of
+            CreateLiveKindCluster -> pure ()
+            ReuseLiveKindCluster -> ClusterLifecycle.assertClusterReusable lifecycleLease "." substrate resources
+          case reusable of
+            Left err ->
+              pure
                 LiveExecutionResult
                   { liveStepsExecuted =
-                      [ renderSubprocess kindGetClustersSubprocess
-                      , "cluster convergence observation: already converged"
+                      [renderSubprocess kindGetClustersSubprocess, "existing Kind node-local PV reuse guard"]
+                  , liveStepsFailed =
+                      [ LiveStepInvariantFailure
+                          "existing Kind node-local PV reuse guard"
+                          (Text.pack (displayException err))
                       ]
-                  , liveStepsFailed = []
-                  , livePublication = currentPublication
-                  , liveAlreadyConverged = True
+                  , livePublication = publication
+                  , liveAlreadyConverged = False
                   }
-            LiveClusterNeedsReconcile reason -> do
-              -- Invalidate prior live evidence only after retained coordinates,
-              -- port-aware materialization, and the read-only convergence
-              -- decision are complete. A failed apply retains retryable
-              -- coordinates without advertising stale readiness.
-              _ <- writeLivePublication "." publication
-              executeRequiredReconcile
-                resources
-                kindAction
-                lease
-                publication
-                reason
+            Right () -> do
+              let port = EdgePort.leasedPort lease
+              materializationChanged <-
+                materializeBootstrapFilesForPort "." substrate port
+              convergence <-
+                observeLiveConvergenceIO
+                  "."
+                  substrate
+                  resources
+                  kindAction
+                  port
+                  materializationChanged
+              case convergence of
+                LiveClusterAlreadyConverged currentPublication ->
+                  pure $
+                    LiveExecutionResult
+                      { liveStepsExecuted =
+                          [ renderSubprocess kindGetClustersSubprocess
+                          , "cluster convergence observation: already converged"
+                          ]
+                      , liveStepsFailed = []
+                      , livePublication = currentPublication
+                      , liveAlreadyConverged = True
+                      }
+                LiveClusterNeedsReconcile reason -> do
+                  -- Invalidate prior live evidence only after retained coordinates,
+                  -- port-aware materialization, and the read-only convergence
+                  -- decision are complete. A failed apply retains retryable
+                  -- coordinates without advertising stale readiness.
+                  _ <- writeLivePublication "." publication
+                  executeRequiredReconcile
+                    resources
+                    kindAction
+                    lease
+                    publication
+                    reason
  where
   executeRequiredReconcile resources kindAction lease publication reason = do
     let port = EdgePort.leasedPort lease
@@ -1758,16 +1786,25 @@ liveExecutePhasedRollout substrate chartPath = do
       kindSub : remainingPreGrantSubs -> do
         (kindExecuted, kindFailure) <-
           case kindAction of
-            CreateLiveKindCluster -> runStepList [kindSub]
-            ReuseLiveKindCluster ->
-              pure
-                (
-                  [ "kind cluster "
-                      <> substrateClusterName substrate
-                      <> " already present; create skipped"
-                  ]
-                , Nothing
-                )
+            CreateLiveKindCluster -> do
+              (created, createFailure) <- runStepList [kindSub]
+              case createFailure of
+                Just failure -> pure (created, Just failure)
+                Nothing -> do
+                  restored <- tryAny (ClusterLifecycle.restoreCreatedCluster lifecycleLease "." substrate resources)
+                  let label = "fresh Kind node-local PV restoration"
+                  pure $ case restored of
+                    Left err -> (created <> [label], Just (LiveStepInvariantFailure label (Text.pack (displayException err))))
+                    Right outcome -> (created <> [label <> ": " <> Text.pack (show outcome)], Nothing)
+            ReuseLiveKindCluster -> do
+              eligible <- tryAny (ClusterLifecycle.assertClusterReusable lifecycleLease "." substrate resources)
+              let label = "existing Kind node-local PV reuse guard"
+              pure $ case eligible of
+                Left err -> ([label], Just (LiveStepInvariantFailure label (Text.pack (displayException err))))
+                Right () ->
+                  ( ["kind cluster " <> substrateClusterName substrate <> " already present; create skipped", label]
+                  , Nothing
+                  )
         case kindFailure of
           Just failure ->
             pure $
@@ -2345,9 +2382,9 @@ readExistingPublicationState root = do
   exists <- doesFileExist path
   if exists
     then do
-      bytes <- LazyByteString.readFile path
+      bytes <- StrictByteString.readFile path
       pure $
-        case eitherDecode bytes of
+        case eitherDecode (LazyByteString.fromStrict bytes) of
           Left decodeError ->
             ExistingPublicationInvalid (Text.pack decodeError)
           Right publication ->

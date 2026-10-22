@@ -509,6 +509,7 @@ sprintFactIssues projection fact =
       NoPendingControls _ -> False
       LedgerClear -> False
       ExternalContext _ -> False
+      Phase278Prerequisite _ -> False
       UpstreamSprint _ -> False
 
   legacyIssues =

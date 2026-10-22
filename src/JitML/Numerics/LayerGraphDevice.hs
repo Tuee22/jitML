@@ -18,6 +18,7 @@ module JitML.Numerics.LayerGraphDevice
   , layerGraphDeviceHash
   , layerGraphDeviceRuntimeSource
   , layerTrainingBackendFor
+  , layerTrainingBackendIdentity
   , runLayerGraphForwardDevice
   , layerGraphSquaredErrorGradientDevice
   , layerGraphCrossEntropyGradientDevice
@@ -391,6 +392,13 @@ layerTrainingBackendSubstrate :: LayerTrainingBackend -> Cache.Substrate
 layerTrainingBackendSubstrate OneDnnLayerTraining = Cache.LinuxCPU
 layerTrainingBackendSubstrate CudaLayerTraining = Cache.LinuxCUDA
 layerTrainingBackendSubstrate MetalLayerTraining = Cache.AppleSilicon
+
+-- | Exact identity reported by the layer-training artifact or fixed bridge.
+-- These differ from the generic engine identities used by the MLP ABI.
+layerTrainingBackendIdentity :: LayerTrainingBackend -> Text
+layerTrainingBackendIdentity OneDnnLayerTraining = "linux-cpu-onednn"
+layerTrainingBackendIdentity CudaLayerTraining = "linux-cuda-cudnn"
+layerTrainingBackendIdentity MetalLayerTraining = "apple-metal-fixed-bridge"
 
 layerGraphDeviceKernelSpec :: LayerTrainingBackend -> Cache.KernelSpec
 layerGraphDeviceKernelSpec OneDnnLayerTraining =
@@ -790,7 +798,7 @@ withCompiledMetalLayerGraphBackend env useFunctions = do
                 tryAny
                   ( useFunctions
                       functions
-                      "apple-metal-fixed-bridge"
+                      (layerTrainingBackendIdentity MetalLayerTraining)
                       artifactPath
                       (kernelArtifactCompiled artifact)
                   )

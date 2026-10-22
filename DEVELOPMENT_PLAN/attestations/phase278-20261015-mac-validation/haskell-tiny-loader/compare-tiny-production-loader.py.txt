@@ -1,0 +1,44 @@
+"""Compare production decoder observations with the independent metadata review."""
+
+import hashlib
+import json
+import math
+from pathlib import Path
+
+
+HASKELL = Path('.build/phase278-mac-validation/tiny-production-loader-result.json')
+PYTHON = Path('DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/archive-label-baselines.json')
+OUTPUT = Path('.build/phase278-mac-validation/tiny-production-loader-comparison.json')
+observed = json.loads(HASKELL.read_bytes())
+reference = json.loads(PYTHON.read_bytes())['datasets']['Tiny ImageNet']['prospective_class_interleaved_rows'][0]
+comparisons = {}
+for actual, expected, values in [
+    ('gradient', 'training', 98304000),
+    ('selection', 'selection_validation', 19660800),
+    ('held_out', 'held_out_evaluation', 12288000),
+]:
+    assert observed['decoded'][actual] == reference[expected], actual
+    features = observed['decoded'][actual + '_features']
+    assert features['feature_values_forced'] == values, actual
+    assert features['feature_widths'] == [12288], actual
+    assert features['non_finite_feature_values'] == 0, actual
+    assert math.isfinite(features['ordered_feature_sum']) and math.isfinite(features['ordered_squared_feature_sum']), actual
+    comparisons[actual] = {'full_label_histogram_matches': True, 'forced_finite_feature_values': values}
+assert observed['decoded']['additional_minimum_correct'] == reference['proposed_additional_anti_trivial_minimum_correct'] == 15
+assert observed['source_before'] == observed['source_after']
+assert observed['source_files_before'] == observed['source_files_after']
+assert observed['pinned_mac_executable_before'] == observed['pinned_mac_executable_after']
+assert observed['archive']['sha256_before'] == observed['archive']['sha256_after'] == observed['archive']['production_sha256']
+result = {
+    'scope': 'dataset-only production Haskell decoder versus independent Python archive-label calculation; no training or GateTranscript',
+    'inputs': [{'path': str(path), 'bytes': path.stat().st_size, 'sha256': hashlib.sha256(path.read_bytes()).hexdigest()} for path in (HASKELL, PYTHON)],
+    'comparisons': comparisons,
+    'additional_minimum_correct_matches': 15,
+    'forced_finite_feature_values_total': 130252800,
+    'production_source_stamp_unchanged': observed['source_before'],
+    'archive_pin_unchanged': observed['archive']['production_sha256'],
+    'pinned_mac_executable_unchanged': True,
+    'pixel_aggregate_scope': 'Finite deterministic aggregate forces decoded pixel traversal; the independent Python calculation compares labels and does not supply a pixel oracle.',
+}
+OUTPUT.write_text(json.dumps(result, indent=2, sort_keys=True) + '\n')
+print(json.dumps(result, indent=2, sort_keys=True))

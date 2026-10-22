@@ -123,6 +123,7 @@ import JitML.Plan.Plan
   , validationToEither
   )
 import JitML.Plan.Workload qualified as WorkloadPlan
+import JitML.Product.ArsHostReference qualified as ArsHostReference
 import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.Evidence
   ( TrainingEvidence
@@ -130,6 +131,7 @@ import JitML.Product.Evidence
   , evidenceUpdateCount
   , mkTrainingEvidence
   )
+import JitML.Product.ExecutionProvenance (ExecutionProvenance (..))
 import JitML.Product.ExternalBars qualified as ExternalBars
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.SL.Canonicals qualified as Canonicals
@@ -147,6 +149,7 @@ import JitML.Training.Budget
   , completedTrainingDatasetShaAtRead
   , completedTrainingDeviceWitness
   , completedTrainingEvidence
+  , completedTrainingExecutionProvenance
   , completedTrainingFinalWeightHash
   , completedTrainingInitialWeightHash
   , completedTrainingMetrics
@@ -649,6 +652,8 @@ validateCompletedExternalBars manifest completed =
   canonicalRlIdentityErrors row
     | ProductMatrix.family row /= ProductMatrix.ReinforcementLearning =
         ["RL completion names a non-RL canonical ProductRow"]
+    | Right (Just (ArsHostLinearExecution reference)) <- completedTrainingExecutionProvenance completed =
+        canonicalArsHostIdentityErrors row reference
     | otherwise =
         case completedTrainingDeviceWitness completed of
           Left err -> ["canonical RL completion device witness rejected: " <> err]
@@ -664,6 +669,34 @@ validateCompletedExternalBars manifest completed =
                   <> [ "canonical RL completion budget differs from its row's device-substrate projection"
                      | completedTrainingBudget completed /= ProductMatrix.productProjectionTrainingBudget projection
                      ]
+
+  -- Recorded host identity is structural DATA here. Physical trace admission,
+  -- actual producer origin and authenticated native qualification are separate.
+  canonicalArsHostIdentityErrors row reference =
+    [ "ARS host completion names a non-ARS canonical ProductRow"
+    | not ("ARS/" `Text.isPrefixOf` ProductMatrix.rowId row)
+    ]
+      <> [ "ARS host reference PlanId differs from completed training"
+         | ArsHostReference.arsHostReferencePlanId reference /= completedTrainingPlanId completed
+         ]
+      <> case ArsHostReference.arsHostObjectKey
+        (manifestExperiment manifest)
+        (ArsHostReference.arsHostReferenceContentSha256 reference) of
+        Left reason -> ["ARS host completion reference address rejected: " <> reason]
+        Right expectedKey ->
+          [ "ARS host completion reference belongs to another experiment/content address"
+          | ArsHostReference.arsHostReferenceObjectKey reference /= expectedKey
+          ]
+      <> case validationToEither
+        (ProductMatrix.projectProductRow (ArsHostReference.arsHostReferenceLane reference) row) of
+        Left errors -> ["ARS host completion row projection rejected: " <> Text.pack (show errors)]
+        Right (ProductMatrix.SomeProductProjection _ projection) ->
+          [ "ARS host completion PlanId differs from its row's host-context lane projection"
+          | completedTrainingPlanId completed /= ProductMatrix.productProjectionPlanId projection
+          ]
+            <> [ "ARS host completion budget differs from its row's host-context lane projection"
+               | completedTrainingBudget completed /= ProductMatrix.productProjectionTrainingBudget projection
+               ]
 
 isInspectionOnlySupervisedV1 :: CheckpointManifest -> Bool
 isInspectionOnlySupervisedV1 manifest =

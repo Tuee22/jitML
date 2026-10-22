@@ -52,7 +52,7 @@ import JitML.Service.Capabilities
   , ObjectRef (..)
   )
 import JitML.Service.Retry (ServiceError)
-import JitML.Test.Report (ReportCardKnobs (knobAzGames, knobAzSims))
+import JitML.Test.ReportKnobs (ReportCardKnobs (knobAzGames, knobAzSims))
 
 data SelfPlayConfig = SelfPlayConfig
   { selfPlayGamesPerGeneration :: Int

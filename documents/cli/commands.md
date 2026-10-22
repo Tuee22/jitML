@@ -133,11 +133,15 @@ Start the Apple Silicon substrate cluster.
 
 Bring the cluster down.
 
-Preserves stateful data while stopping the local cluster.
+Verifies and preserves stateful data before stopping the exact local cluster.
 
 ```text
-jitml cluster down
+jitml cluster down [--substrate <substrate>]
 ```
+
+| Option | Kind | Required | Description |
+|--------|------|----------|-------------|
+| `--substrate <substrate>` | value | no | Exact lifecycle target; must match a retained publication when present. |
 
 Examples:
 
@@ -174,12 +178,14 @@ Destructively reset cluster state.
 Removes local cluster state after an explicit confirmation flag.
 
 ```text
-jitml cluster reset --yes
+jitml cluster reset --yes [--substrate <substrate>] [--full]
 ```
 
 | Option | Kind | Required | Description |
 |--------|------|----------|-------------|
 | `--yes` | flag | yes | Confirm destructive reset. |
+| `--substrate <substrate>` | value | no | Exact lifecycle target; must match a retained publication when present. |
+| `--full` | flag | no | Also remove .build; Linux additionally runs Compose cleanup. |
 
 Examples:
 

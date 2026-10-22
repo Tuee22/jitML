@@ -91,13 +91,18 @@ main() {
       "$script_dir/../.build/jitml" test all --apple-silicon "$@"
       ;;
     down)
+      [ "$#" -eq 0 ] || die 64 "down takes no additional arguments"
+      build
       kind_down "$substrate"
       ;;
     purge)
       full=false
-      if [ "${1:-}" = "--full" ]; then
+      if [ "$#" -eq 1 ] && [ "$1" = "--full" ]; then
         full=true
+      elif [ "$#" -ne 0 ]; then
+        die 64 "purge accepts only --full"
       fi
+      build
       purge_state "$substrate" "$full"
       ;;
     *)

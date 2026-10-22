@@ -15,6 +15,12 @@ module JitML.RL.Algorithms.Common
   , renderAlgorithmModule
   , renderHyperparameters
   , updateContract
+  , ObservedTrainerCounters
+  , RawTrainerResult (..)
+  , mkObservedTrainerCounters
+  , observedEnvironmentTransitionCount
+  , observedOptimizerUpdateCount
+  , refineObservedTrainerCounters
   )
 where
 
@@ -80,6 +86,47 @@ mkMeasuredTrainerCounters transitions updates = do
     | value <= 0 = Left (label <> " must be positive")
     | value > toInteger (maxBound :: Word64) = Left (label <> " exceeds the Word64 range")
     | otherwise = Right (fromInteger value)
+
+-- | Numerical observations only. Zero is retained; this does not establish
+-- training eligibility, producer identity, device execution or convergence.
+data ObservedTrainerCounters = ObservedTrainerCounters !Word64 !Word64
+  deriving stock (Eq, Show)
+
+observedEnvironmentTransitionCount :: ObservedTrainerCounters -> Word64
+observedEnvironmentTransitionCount (ObservedTrainerCounters transitions _) = transitions
+
+observedOptimizerUpdateCount :: ObservedTrainerCounters -> Word64
+observedOptimizerUpdateCount (ObservedTrainerCounters _ updates) = updates
+
+mkObservedTrainerCounters :: Integer -> Integer -> Either Text ObservedTrainerCounters
+mkObservedTrainerCounters transitions updates = do
+  t <- checkedNatural "RL measured environment-transition count" transitions
+  u <- checkedNatural "RL measured optimizer-update count" updates
+  pure (ObservedTrainerCounters t u)
+ where
+  checkedNatural label value
+    | value < 0 = Left (label <> " must be non-negative")
+    | value > toInteger (maxBound :: Word64) = Left (label <> " exceeds the Word64 range")
+    | otherwise = Right (fromInteger value)
+
+-- | Preserve the existing strict positive-count boundary for old callers.
+refineObservedTrainerCounters :: ObservedTrainerCounters -> Either Text MeasuredTrainerCounters
+refineObservedTrainerCounters counters =
+  mkMeasuredTrainerCounters
+    (toInteger (observedEnvironmentTransitionCount counters))
+    (toInteger (observedOptimizerUpdateCount counters))
+
+-- | Public raw DTO, deliberately not an authenticated or eligibility type.
+-- Initial parameters are the actual lexical value passed into the training
+-- loop. This is a policy snapshot, not complete resumable optimizer/RNG state.
+data RawTrainerResult params stat config = RawTrainerResult
+  { rawTrainerInitialParams :: !params
+  , rawTrainerFinalParams :: !params
+  , rawTrainerStats :: ![stat]
+  , rawTrainerCounters :: !ObservedTrainerCounters
+  , rawTrainerConfig :: !config
+  }
+  deriving stock (Eq, Show)
 
 data AlgorithmHyperparameter = AlgorithmHyperparameter
   { hyperName :: Text

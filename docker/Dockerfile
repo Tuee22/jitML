@@ -184,11 +184,16 @@ COPY . .
 # boundary under `-O2 -fexpose-all-unfoldings`, so the build failed with a GHC
 # `heap overflow` panic on some runs and succeeded on others. 6G restores the
 # headroom the guard was meant to leave while still bounding one process.
+# Keep CUDA enabled in the warning-clean build and later image-local tests.
+# Install the final validated artifact so both CLI paths have identical bytes.
 RUN printf 'jobs: 1\n' >> /root/.cabal/config \
+    && cabal configure --enable-append -fcuda \
     && cabal build -fcuda --jobs=1 --ghc-options="+RTS -M6G -RTS" exe:jitml \
     && cp "$(cabal list-bin -fcuda exe:jitml)" /usr/local/bin/jitml \
     && chmod 0755 /usr/local/bin/jitml \
-    && jitml check-code
+    && jitml check-code \
+    && cp "$(cabal list-bin -fcuda exe:jitml)" /usr/local/bin/jitml \
+    && chmod 0755 /usr/local/bin/jitml
 
 # Bake the compiled PureScript bundle into the image. `spago build
 # --output dist` emits per-module CommonJS CoreFn artifacts under
@@ -207,5 +212,13 @@ RUN cd /jitml/web \
         --global-name=jitmlDemo \
         --outfile=dist/Main/bundle.js \
     && printf 'jitmlDemo.main();\n' >> dist/Main/bundle.js
+
+# Lifecycle reset --full and a cold snapshot restore delegate Compose work
+# from the outer CLI. Install its plugin in the container; keep host tooling out
+# of this path and assert the capability in every canonical image build.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends docker-compose-v2 \
+    && docker compose version \
+    && rm -rf /var/lib/apt/lists/*
 
 CMD ["jitml", "--help"]

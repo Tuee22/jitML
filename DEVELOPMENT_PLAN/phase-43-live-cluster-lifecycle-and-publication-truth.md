@@ -11,6 +11,12 @@
 
 ✅ **Done**.
 
+The retained closure covers the original measured reconcile/publication
+surface. Phase `278` owns the later node-local PV preservation and fresh-restore
+handoff across cluster deletion, including readiness after restoration. This
+explicit [ownership transfer](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work)
+adds no backward dependency and does not make the current failed runtime ready.
+
 ## Sprint 43.1: Live Cluster Lifecycle and Publication Truth [✅ Done]
 
 **Status**: Done (reopened and re-closed 2026-07-15)

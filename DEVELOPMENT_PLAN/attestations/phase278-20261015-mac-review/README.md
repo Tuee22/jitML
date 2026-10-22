@@ -28,12 +28,16 @@ hardware limitation.
   upstream inputs match their production SHA-256 pins. An independent second
   invocation exits `0` and reproduces the JSON byte for byte. Partial downloads
   are excluded. No trained outputs determine the proposed controls.
-- [Raw host diagnostics](host-probes.json): command arguments, UTC timestamps,
+- Historical raw host diagnostics (local only): command arguments, UTC timestamps,
   stdout, stderr, and exit codes. Apple stage-0 doctor passes on the M1 Max;
   Docker reports ARM Linux with only `runc` runtimes. A Docker GPU capability
   request exits `125`. It is not a jitML CUDA test result.
-- [Review checks](review-checks.json): reproduction and working-tree whitespace
+- Historical review checks (local only): reproduction and working-tree whitespace
   checks. These are diagnostic checks, not standing GateTranscripts.
+
+The two diagnostic JSON payloads are preserved under ignored
+`.build/commit-hygiene-20261018/`; a clean checkout retains this summary and the
+deliberate review inputs and reproduction script, without the command logs.
 
 The existing CPU/CUDA journals remain admissible under the unchanged contracts.
 Correcting an affected row's bar changes that row's contract digest in every

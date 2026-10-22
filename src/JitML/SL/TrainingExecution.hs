@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE TupleSections #-}
 
@@ -11,6 +12,7 @@ module JitML.SL.TrainingExecution
   , hasCanonicalLabels
   , runDeviceMnistTraining
   , runDeviceMnistTrainingWithLimitsAndLearningRate
+  , runDeviceSupervisedSeedTraining
   , supervisedExecutionBudget
   , supervisedExecutionSeed
   )
@@ -41,16 +43,18 @@ import JitML.Numerics.LayerGraphMetadata
 import JitML.Numerics.Mlp
   ( MlpParams (paramShape)
   , MlpShape (..)
-  , mlpInit
   , mlpLayerGraph
   , mlpParamsToFlat
   )
 import JitML.Numerics.MlpDevice (MlpDevice (..))
 import JitML.Numerics.MlpDeviceSelect (mlpDeviceForSubstrate)
 import JitML.Plan.Plan (quantityValue, runPlanSeeds, seedCohortValues)
+import JitML.Plan.Plan qualified as Plan
 import JitML.Plan.Workload qualified as WorkloadPlan
 import JitML.Product.DeviceWitness qualified as DeviceWitness
+import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Product.ServedMetric qualified as ServedMetric
+import JitML.Product.SupervisedCohortPlan qualified as SupervisedCohort
 import JitML.SL.Architecture qualified as Architecture
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.Classifier qualified as Classifier
@@ -154,6 +158,11 @@ data TrainingMetrics = TrainingMetrics
   -- 'Architecture.slmDeviceWitness'; product-row completion binds it to the
   -- training evidence so the row's device-evidence cell is a measurement of the
   -- artifact that ran rather than a rendering of the row's declared substrate.
+  , tmInitialLayerGraphMetadata :: !LayerGraphMetadata
+  -- ^ Mandatory trainer-owned initial serving descriptor paired with the exact
+  -- tmInitialJmw1Bytes. Only parameter payload values differ from the final
+  -- graph; modes, operator geometry, names, activation and layout remain exact.
+  -- Both snapshots use tmSupervisedRuntimeProgram's same fitted transforms.
   , tmTrainedLayerGraphMetadata :: !(Maybe LayerGraphMetadata)
   -- ^ Phase 237/239: the trained typed 'LayerGraph.LayerGraph' projected into
   -- its serialisable checkpoint description.  This rides through the supervised
@@ -353,6 +362,10 @@ trainingMetricsFor completedEpochs datasetShaAtRead trained metrics heldOut metr
           }
       graphMeta =
         layerGraphMetadataFromGraph (Architecture.trainedArchGraph trained)
+  let initialGraphMeta = Architecture.slmInitialLayerGraphMetadata metrics
+  if initialGraphMeta == graphMeta
+    then Right ()
+    else Left "supervised initial and final graph descriptors differ"
   validateTrainingParityProbe runtime probeInput probeOutput
   let initialWeights = Architecture.slmInitialWeights metrics
       finalWeights = Architecture.trainedArchitectureWeights trained
@@ -383,6 +396,7 @@ trainingMetricsFor completedEpochs datasetShaAtRead trained metrics heldOut metr
       , tmVerifiedDatasetShaAtRead = datasetShaAtRead
       , tmParityProbeInput = VU.toList probeInput
       , tmParityProbeOutput = VU.toList probeOutput
+      , tmInitialLayerGraphMetadata = initialGraphMeta
       , tmTrainedLayerGraphMetadata = Just graphMeta
       , tmDeviceWitness = Architecture.slmDeviceWitness metrics
       }
@@ -525,6 +539,46 @@ runDeviceMnistTraining runtime substrate problem plan =
         batchSize
         Nothing
 {-# NOINLINE runDeviceMnistTraining #-}
+
+-- | Execute one opaque prescribed compact-cohort child. It remains a singleton
+-- run, with canonical data/graph/learning rate and the child's actual seed.
+-- Auxiliary seed overrides exist only in this typed qualification context;
+-- ordinary experiment matching and the generic one-seed boundary stay intact.
+runDeviceSupervisedSeedTraining
+  :: TrainingExecutionRuntime
+  -> SupervisedCohort.SupervisedSeedPlan
+  -> App (Either Text TrainingMetrics)
+runDeviceSupervisedSeedTraining runtime child =
+  case parameters of
+    Left err -> pure (Left err)
+    Right (problem, executionSeed, trainLimit, epochs, testLimit, batchSize, learningRate) ->
+      runDeviceMnistTrainingWithSeedAndLimitsAndLearningRate
+        runtime
+        (Plan.runPlanSubstrate (WorkloadPlan.supervisedPlanRunPlan plan))
+        problem
+        executionSeed
+        trainLimit
+        epochs
+        testLimit
+        batchSize
+        (Just learningRate)
+ where
+  plan = SupervisedCohort.supervisedSeedPlanWorkload child
+  projection = SupervisedCohort.supervisedSeedPlanBaseProjection child
+  parameters = do
+    problem <-
+      case filter ((== ProductMatrix.productProjectionRowId projection) . SL.problemName) SL.canonicalProblems of
+        [canonical] -> Right canonical
+        _ -> Left "supervised qualification child has no unique canonical problem"
+    (trainLimit, epochs, testLimit, batchSize) <- supervisedExecutionBudget plan
+    executionSeed <- supervisedExecutionSeed plan
+    if toInteger executionSeed == toInteger (SupervisedCohort.supervisedSeedPlanSeed child)
+      then Right ()
+      else Left "supervised qualification child seed differs from its singleton workload"
+    case ProductMatrix.productProjectionDescriptor projection of
+      ProductMatrix.SupervisedProductDescriptor _ _ _ learningRate ->
+        Right (problem, executionSeed, trainLimit, epochs, testLimit, batchSize, learningRate)
+{-# NOINLINE runDeviceSupervisedSeedTraining #-}
 
 -- | ProductRow/public exact-budget helper.  Product projections already bind
 -- the canonical problem seed, so this compatibility boundary deliberately
@@ -1032,19 +1086,15 @@ finishCaliforniaHousingTraining substrate problem executionSeed trainRef trainLi
                               Left err -> pure (Left err)
                               Right ((probeInput, probeOutput), regressionWitness) ->
                                 let examplesProcessed = length trainSet * epochs
-                                    initialShape =
-                                      MlpShape
-                                        { mlpInputs = Regression.regInputs config
-                                        , mlpHidden = Regression.regHidden config
-                                        , mlpOutputs = 1
-                                        }
                                     initialWeights =
-                                      mlpParamsToFlat (mlpInit initialShape (Regression.regSeed config))
+                                      mlpParamsToFlat (Regression.regressionInitialParams regressionMetrics)
                                     finalWeights =
                                       mlpParamsToFlat (Regression.trainedRegressorParams trained)
-                                 in case californiaHousingRuntimeProgram problem config standardization trained of
+                                 in case (,)
+                                      <$> californiaHousingRuntimeProgram problem config standardization trained
+                                      <*> regressionInitialAndFinalGraphMetadata regressionMetrics trained of
                                       Left err -> pure (Left err)
-                                      Right runtime ->
+                                      Right (runtime, (initialGraphMeta, finalGraphMeta)) ->
                                         case validateTrainingParityProbe runtime probeInput probeOutput of
                                           Left err -> pure (Left err)
                                           Right () ->
@@ -1098,13 +1148,8 @@ finishCaliforniaHousingTraining substrate problem executionSeed trainRef trainLi
                                                         , tmVerifiedDatasetShaAtRead = datasetShaAtRead
                                                         , tmParityProbeInput = VU.toList probeInput
                                                         , tmParityProbeOutput = VU.toList probeOutput
-                                                        , tmTrainedLayerGraphMetadata =
-                                                            either
-                                                              (const Nothing)
-                                                              (Just . layerGraphMetadataFromGraph)
-                                                              ( mlpLayerGraph
-                                                                  (Regression.trainedRegressorParams trained)
-                                                              )
+                                                        , tmInitialLayerGraphMetadata = initialGraphMeta
+                                                        , tmTrainedLayerGraphMetadata = Just finalGraphMeta
                                                         , tmDeviceWitness = regressionWitness
                                                         }
                                                   )
@@ -1142,6 +1187,25 @@ californiaHousingParityProbe _device standardization trained rawHeldOut standard
           , VU.singleton rawPrediction
           )
     _ -> pure (Left "supervised regression produced no held-out parity probe")
+
+-- | Compare the graph descriptors of the actual initial/final regression states.
+-- The initializer is not called here: params0 belongs to the successful trainer.
+-- MLP graph construction fixes its serving mode explicitly and retains all shape,
+-- operator, activation and tensor-name fields in the metadata comparison.
+regressionInitialAndFinalGraphMetadata
+  :: Regression.RegressionRunMetrics
+  -> Regression.TrainedRegressor
+  -> Either Text (LayerGraphMetadata, LayerGraphMetadata)
+regressionInitialAndFinalGraphMetadata metrics trained = do
+  initialGraph <-
+    Bifunctor.first Text.pack (mlpLayerGraph (Regression.regressionInitialParams metrics))
+  finalGraph <-
+    Bifunctor.first Text.pack (mlpLayerGraph (Regression.trainedRegressorParams trained))
+  let initialMeta = layerGraphMetadataFromGraph initialGraph
+      finalMeta = layerGraphMetadataFromGraph finalGraph
+  if initialMeta == finalMeta
+    then Right (initialMeta, finalMeta)
+    else Left "regression initial and final graph descriptors differ"
 
 californiaHousingRuntimeProgram
   :: SL.CanonicalProblem

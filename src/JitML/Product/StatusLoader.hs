@@ -40,6 +40,7 @@ module JitML.Product.StatusLoader
   , gateRequiresLiveRun
   , judgeAggregate
   , judgeLaneJournalBytes
+  , judgeLaneJournalBytesWithQualifications
   , judgeLedger
   , judgeTranscriptFile
   , laneErrorUnmet
@@ -50,6 +51,9 @@ module JitML.Product.StatusLoader
   , loadEvidenceIndex
   , loadEvidenceIndexIn
   , loadLaneJournalIn
+  , loadRegisteredLaneJournalIn
+  , judgeRegisteredLane
+  , registeredLaneErrorUnmet
   , loadProductAggregationIn
   , loadProductPhaseStatuses
   , loadProductStatusReport
@@ -68,6 +72,7 @@ import Data.Bifunctor (first)
 import Data.ByteString (ByteString)
 import Data.ByteString qualified as ByteString
 import Data.Char (isDigit, isSpace)
+import Data.Either.Combinators (mapLeft)
 import Data.Foldable (toList)
 import Data.List (sort)
 import Data.List.NonEmpty (NonEmpty (..))
@@ -81,12 +86,18 @@ import System.Directory (doesDirectoryExist, doesFileExist, listDirectory)
 import System.FilePath (takeFileName, (</>))
 
 import JitML.Plan.Plan (Validation (..))
+import JitML.Product.CriterionReview qualified as CriterionReview
+import JitML.Product.CriterionReviewData qualified as CriterionData
+import JitML.Product.LaneRegistration qualified as Registration
+import JitML.Product.LaneRegistrationData qualified as RegistrationData
 import JitML.Product.Matrix qualified as Product
+import JitML.Product.Phase278ContextResolution qualified as Context278
 import JitML.Product.PhaseStatus
   ( ProductPhaseStatus
   , productPhaseStatuses
   , projectProductStatus
   )
+import JitML.Product.QualificationObjects (readProductLaneQualificationObjects)
 import JitML.Product.SourceDigest (computeSourceStampIn)
 import JitML.Product.StatusEvidence
   ( Derived (..)
@@ -126,6 +137,7 @@ import JitML.Test.ProductAggregation
   )
 import JitML.Test.ProductAggregation qualified as Aggregate
 import JitML.Test.ProductLaneJournal qualified as Lane
+import JitML.Test.RegisteredLaneEvidence qualified as Registered
 import JitML.Test.Report (substrateTestInvocations)
 
 -- ---------------------------------------------------------------------------
@@ -139,6 +151,11 @@ laneErrorUnmet context err =
   case err of
     Lane.ProductLaneJournalContractStale row expected actual ->
       Stale (context <> " " <> row <> " contract_sha256") expected actual
+    Lane.ProductLaneJournalWireStale expected actual ->
+      Stale
+        (context <> " lane journal wire version")
+        (Text.pack (show expected))
+        (Text.pack (show actual))
     Lane.ProductLaneJournalSourceRejected detail ->
       Mismatched (context <> ": " <> detail)
     Lane.ProductLaneJournalMalformed detail ->
@@ -158,7 +175,17 @@ laneErrorUnmet context err =
 
 -- | Admit one pinned lane journal against the current projection.
 judgeLaneJournalBytes :: ProductLaneInput -> ByteString -> Derived
-judgeLaneJournalBytes input bytes =
+judgeLaneJournalBytes = judgeLaneJournalBytesWithQualifications []
+
+-- | Pure admission over explicitly captured qualification objects. The
+-- compatibility entrypoint above supplies no objects and cannot prove current
+-- supervised rows. Neither pure function loads files or invents missing data.
+judgeLaneJournalBytesWithQualifications
+  :: [(Text, ByteString)]
+  -> ProductLaneInput
+  -> ByteString
+  -> Derived
+judgeLaneJournalBytesWithQualifications qualifications input bytes =
   case Product.projectProductRows lane Product.allProductRows of
     Failure errors ->
       Unproven
@@ -171,7 +198,11 @@ judgeLaneJournalBytes input bytes =
             :| []
         )
     Success batch ->
-      case Lane.admitProductLaneJournal (productLaneInputSha256 input) batch bytes of
+      case Lane.admitProductLaneJournalWithQualifications
+        qualifications
+        (productLaneInputSha256 input)
+        batch
+        bytes of
         Left errors -> Unproven (fmap (laneErrorUnmet context) errors)
         Right _admitted ->
           Proven
@@ -190,12 +221,95 @@ judgeLaneJournalBytes input bytes =
 -- 'Aggregate.productLaneInputs'.
 loadLaneJournalIn :: FilePath -> ProductLaneInput -> IO (Substrate, Derived)
 loadLaneJournalIn root input = do
-  bytes <- tryIO (ByteString.readFile (underRoot root (productLaneInputPath input)))
+  let path = underRoot root (productLaneInputPath input)
+  bytes <- tryIO (ByteString.readFile path)
   derived <-
     case bytes of
       Left _ -> pure (Unproven (Missing (Text.pack (productLaneInputPath input)) :| []))
-      Right content -> evaluate (judgeLaneJournalBytes input content)
+      Right content
+        | sha256Hex content /= productLaneInputSha256 input ->
+            evaluate (judgeLaneJournalBytesWithQualifications [] input content)
+      Right content -> do
+        qualifications <- readProductLaneQualificationObjects path content
+        case qualifications of
+          Left err -> pure (Unproven (laneErrorUnmet (renderSubstrate (productLaneInputSubstrate input)) err :| []))
+          Right objects -> judgeCapturedLaneIO path objects input content
   pure (productLaneInputSubstrate input, derived)
+
+-- | Current registered loading is independent per lane: an absent CUDA
+-- generation cannot suppress the CPU or Apple judgement. Only the later
+-- aggregate requires all three. The explicit loadLaneJournalIn above remains
+-- a caller-pinned historical/mutation seam.
+loadRegisteredLaneJournalIn :: FilePath -> Substrate -> IO (Substrate, Derived)
+loadRegisteredLaneJournalIn root lane = do
+  actual <- Registered.loadRegisteredLaneEvidenceIn root lane
+  pure (lane, judgeRegisteredLane lane actual)
+
+judgeRegisteredLane
+  :: Substrate -> Either Registered.RegisteredLaneError Registered.RegisteredLaneEvidence -> Derived
+judgeRegisteredLane lane actual =
+  case actual of
+    Left err -> Unproven (registeredLaneErrorUnmet lane err)
+    Right loaded ->
+      let registration = Registered.registeredLaneRegistration loaded
+          generation = Registration.loadedLaneGeneration registration
+          refs =
+            Registration.loadedLaneSelectionFile registration
+              :| [ Registration.loadedLaneGenerationFile registration
+                 , RegistrationData.laneGenerationJournal generation
+                 ]
+       in Proven
+            ( fmap
+                ( \ref ->
+                    EvidenceRef
+                      (RegistrationData.selectedLaneFilePath ref)
+                      (Just (RegistrationData.selectedLaneFileSha256 ref))
+                )
+                refs
+            )
+
+registeredLaneErrorUnmet :: Substrate -> Registered.RegisteredLaneError -> NonEmpty Unmet
+registeredLaneErrorUnmet lane err =
+  case err of
+    Registered.RegisteredLaneJournalRejected failures -> fmap (laneErrorUnmet (renderSubstrate lane)) failures
+    _ -> one err :| []
+ where
+  one issue = case issue of
+    Registered.RegisteredLaneSelectionRejected failure -> case failure of
+      Registration.LaneRegistrationMissing path -> Missing (Text.pack path)
+      Registration.LaneRegistrationReadFailure path detail -> Mismatched (Text.pack path <> ": " <> detail)
+      Registration.LaneRegistrationRejected path detail -> Mismatched (Text.pack path <> ": " <> Text.pack (show detail))
+      Registration.LaneRegistrationFileMismatch path expected actual _ _ -> Stale (Text.pack path) expected actual
+      Registration.LaneRegistrationLaneMismatch expected actual ->
+        Mismatched
+          ("registration lane " <> renderSubstrate actual <> " differs from " <> renderSubstrate expected)
+    Registered.RegisteredLaneProjectionRejected _ -> Mismatched (renderSubstrate lane <> ": current registry cannot project")
+    Registered.RegisteredLaneContractsStale expected actual -> Stale (renderSubstrate lane <> " registered ordered55 contracts") expected actual
+    Registered.RegisteredLaneBindingRejected detail -> Mismatched (renderSubstrate lane <> ": " <> detail)
+    Registered.RegisteredLaneJournalRejected (firstIssue :| _) -> laneErrorUnmet (renderSubstrate lane) firstIssue
+
+-- Native admission performs only actual portable FILE/recorded-DATA audits.
+-- It never executes selected devices or same-host ARS numerical replay.
+judgeCapturedLaneIO
+  :: FilePath -> [(Text, ByteString)] -> ProductLaneInput -> ByteString -> IO Derived
+judgeCapturedLaneIO path objects input bytes =
+  case Product.projectProductRows (productLaneInputSubstrate input) Product.allProductRows of
+    Failure _ -> evaluate (judgeLaneJournalBytesWithQualifications objects input bytes)
+    Success batch -> do
+      actual <-
+        Lane.admitProductLaneJournalWithNativeBundles
+          path
+          objects
+          (productLaneInputSha256 input)
+          batch
+          bytes
+      pure
+        ( case actual of
+            Left errors -> Unproven (fmap (laneErrorUnmet (renderSubstrate (productLaneInputSubstrate input))) errors)
+            Right _ ->
+              Proven
+                (EvidenceRef (Text.pack (productLaneInputPath input)) (Just (productLaneInputSha256 input)) :| [])
+        )
 
 -- ---------------------------------------------------------------------------
 -- The three-lane aggregate
@@ -225,6 +339,8 @@ aggregateErrorUnmet err =
       [Missing (Text.pack path)]
     ProductAggregationReportDrift path ->
       [Mismatched (Text.pack path <> " differs from the recomputed aggregate")]
+    ProductAggregationRegisteredLaneRejected lane detail ->
+      toList (registeredLaneErrorUnmet lane detail)
 
 -- | Compare the pins a retained aggregate embeds with the current pins. The
 -- aggregate is a projection of the pinned lane journals, so an embedded pin that
@@ -314,33 +430,39 @@ judgeAggregate path pins loaded retained =
 loadProductAggregationIn
   :: FilePath
   -> IO (Either (NonEmpty ProductAggregationError) ProductAggregation)
-loadProductAggregationIn root = do
-  loaded <- traverse readInput Aggregate.productLaneInputs
-  pure (sequence loaded >>= Aggregate.aggregateProductLaneJournals)
- where
-  readInput input = do
-    result <- tryIO (ByteString.readFile (underRoot root (productLaneInputPath input)))
-    pure $ case result of
-      Left exception ->
-        Left
-          ( ProductAggregationIOFailure
-              (productLaneInputPath input)
-              (Text.pack (show exception))
-              :| []
-          )
-      Right bytes -> Right (input, bytes)
+loadProductAggregationIn = Aggregate.loadRegisteredProductAggregationIn
 
-loadAggregateIn :: FilePath -> IO Derived
-loadAggregateIn root = do
-  loaded <- loadProductAggregationIn root
+-- Reuse the same actually admitted observations for lane status, context and
+-- aggregate. Re-reading a changed selection cannot pair a prior admitted lane
+-- with a newly selected epoch or review.
+loadAggregateIn
+  :: FilePath
+  -> [(Substrate, Either Registered.RegisteredLaneError Registered.RegisteredLaneEvidence)]
+  -> IO Derived
+loadAggregateIn root captured = do
+  let joined =
+        sequence
+          [ mapLeft ((:| []) . ProductAggregationRegisteredLaneRejected lane) result
+          | (lane, result) <- captured
+          ]
+      aggregate = joined >>= Aggregate.aggregateRegisteredProductLaneEvidence
+      pins = [registeredInput value | (_, Right value) <- captured]
   retained <- readBytes (underRoot root Aggregate.productAggregatePath)
   evaluate
     ( judgeAggregate
         Aggregate.productAggregatePath
-        Aggregate.productLaneInputs
-        (Aggregate.productAggregationBytes <$> loaded)
+        pins
+        (Aggregate.productAggregationBytes <$> aggregate)
         retained
     )
+ where
+  registeredInput loaded =
+    let generation = Registration.loadedLaneGeneration (Registered.registeredLaneRegistration loaded)
+        journal = RegistrationData.laneGenerationJournal generation
+     in ProductLaneInput
+          (RegistrationData.laneGenerationSubstrate generation)
+          (Text.unpack (RegistrationData.selectedLaneFilePath journal))
+          (RegistrationData.selectedLaneFileSha256 journal)
 
 -- ---------------------------------------------------------------------------
 -- Gate transcripts
@@ -660,8 +782,22 @@ loadEvidenceIndex = loadEvidenceIndexIn "."
 -- ledger all come from that tree, and the pending-control list from the code.
 loadEvidenceIndexIn :: FilePath -> IO EvidenceIndex
 loadEvidenceIndexIn root = do
-  lanes <- traverse (loadLaneJournalIn root) Aggregate.productLaneInputs
-  aggregate <- loadAggregateIn root
+  captured <- traverse captureLane [LinuxCPU, LinuxCUDA, AppleSilicon]
+  let lanes = Map.fromList [(lane, judgeRegisteredLane lane actual) | (lane, actual) <- captured]
+      epochs =
+        Map.fromList
+          [ (lane, either (Left . registeredLaneErrorUnmet lane) (Right . capturedEpoch) actual)
+          | (lane, actual) <- captured
+          ]
+  aggregate <- loadAggregateIn root captured
+  supervisedReviews <-
+    traverse
+      (loadPhase278ReviewIn root CriterionData.SupervisedCriterionReview)
+      (filter ((`elem` [LinuxCPU, AppleSilicon]) . fst) captured)
+  nativeReviews <-
+    traverse
+      (loadPhase278ReviewIn root CriterionData.NativeCriterionReview)
+      (filter ((`elem` [LinuxCPU, AppleSilicon]) . fst) captured)
   transcripts <-
     traverse
       (loadTranscriptIn root)
@@ -670,13 +806,101 @@ loadEvidenceIndexIn root = do
   ledger <- loadLedgerIn root
   pure
     EvidenceIndex
-      { indexLanes = Map.fromList lanes
+      { indexLanes = lanes
       , indexAggregate = Just aggregate
       , indexTranscripts = Map.fromList transcripts
       , indexCurrentSource = source
       , indexPendingControls = Just pendingProductionControls
       , indexLedger = Just ledger
+      , indexPhase278Contexts =
+          Context278.derivePhase278Contexts
+            epochs
+            lanes
+            (Map.fromList transcripts)
+            (Map.fromList supervisedReviews)
+            (Map.fromList nativeReviews)
       }
+ where
+  captureLane lane = do
+    actual <- Registered.loadRegisteredLaneEvidenceIn root lane
+    pure (lane, actual)
+  capturedEpoch actual =
+    let registration = Registered.registeredLaneRegistration actual
+        generation = Registration.loadedLaneGeneration registration
+        selection = Registration.loadedLaneSelectionFile registration
+     in Context278.Phase278LaneEpoch
+          (RegistrationData.laneGenerationSource generation)
+          ( RegistrationData.selectedLaneFileSha256
+              (RegistrationData.laneReviewSelection (RegistrationData.laneGenerationSupervisedReview generation))
+          )
+          ( RegistrationData.selectedLaneFileSha256
+              (RegistrationData.laneReviewSelection (RegistrationData.laneGenerationNativeReview generation))
+          )
+          (selectedEvidenceRef selection)
+
+-- | Read the separately selected original review artifacts. This establishes
+-- their observed identity and scope, not reviewer independence by parsing a
+-- flag. The governed independent review selection and actual prelaunch chain
+-- remain required, and the complete lane has already admitted under that exact
+-- expected identity before this observation can contribute context evidence.
+loadPhase278ReviewIn
+  :: FilePath
+  -> CriterionData.CriterionReviewScope
+  -> (Substrate, Either Registered.RegisteredLaneError Registered.RegisteredLaneEvidence)
+  -> IO (Substrate, Either (NonEmpty Unmet) Context278.Phase278ReviewEvidence)
+loadPhase278ReviewIn root scope (lane, captured) =
+  case captured of
+    Left failure -> pure (lane, Left (registeredLaneErrorUnmet lane failure))
+    Right admitted -> do
+      let generation = Registration.loadedLaneGeneration (Registered.registeredLaneRegistration admitted)
+          originalSource = RegistrationData.laneGenerationSource generation
+          expected = case scope of
+            CriterionData.SupervisedCriterionReview -> RegistrationData.laneGenerationSupervisedReview generation
+            CriterionData.NativeCriterionReview -> RegistrationData.laneGenerationNativeReview generation
+      observed <- CriterionReview.captureCriterionReviewIn root originalSource lane scope
+      let checkedReview = do
+            review <- first (\failure -> criterionReviewUnmet failure :| []) observed
+            let identity = CriterionReview.capturedCriterionReviewIdentity review
+            if CriterionData.criterionReviewSelection identity /= RegistrationData.laneReviewSelection expected
+              || CriterionData.criterionReviewReceipt identity /= RegistrationData.laneReviewReceipt expected
+              || CriterionData.criterionReviewContractSetSha256 identity
+                /= RegistrationData.laneReviewContractSetSha256 expected
+              || CriterionData.criterionReviewSource identity /= originalSource
+              || CriterionData.criterionReviewSubstrate identity /= lane
+              || CriterionData.criterionReviewScope identity /= scope
+              then
+                Left
+                  ( Mismatched
+                      (renderSubstrate lane <> " observed criterion review differs from original admitted registration")
+                      :| []
+                  )
+              else
+                let references =
+                      selectedEvidenceRef (CriterionData.criterionReviewSelection identity)
+                        :| [selectedEvidenceRef (CriterionData.criterionReviewReceipt identity)]
+                 in Right
+                      ( Context278.Phase278ReviewEvidence
+                          (CriterionData.criterionReviewSource identity)
+                          (RegistrationData.selectedLaneFileSha256 (CriterionData.criterionReviewSelection identity))
+                          (Proven references)
+                      )
+      pure (lane, checkedReview)
+
+criterionReviewUnmet :: CriterionReview.CriterionReviewError -> Unmet
+criterionReviewUnmet failure =
+  case failure of
+    CriterionReview.CriterionReviewMissingFile _ -> Missing detail
+    CriterionReview.CriterionReviewReadFailure _ -> Missing detail
+    CriterionReview.CriterionReviewRejected _ -> Mismatched detail
+    CriterionReview.CriterionReviewIdentityMismatch _ -> Mismatched detail
+ where
+  detail = CriterionReview.renderCriterionReviewError failure
+
+selectedEvidenceRef :: RegistrationData.SelectedLaneFileData -> EvidenceRef
+selectedEvidenceRef selected =
+  EvidenceRef
+    (RegistrationData.selectedLaneFilePath selected)
+    (Just (RegistrationData.selectedLaneFileSha256 selected))
 
 -- | The projection of the catalogue over the evidence committed in this tree.
 loadProductStatusReport :: IO StatusReport

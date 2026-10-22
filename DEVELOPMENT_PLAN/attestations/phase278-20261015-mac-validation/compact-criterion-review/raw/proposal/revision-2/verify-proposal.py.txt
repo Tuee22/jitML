@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""Exact proposal arithmetic/source inventory; no training or product-gate run."""
+from fractions import Fraction
+import hashlib
+import itertools
+import json
+from math import comb
+from pathlib import Path
+import re
+
+
+def critical(n, classes, denominator):
+    weights = [comb(n, k) * (classes - 1) ** (n - k) for k in range(n + 1)]
+    total = classes**n
+    remaining = total
+    for k, weight in enumerate(weights):
+        if remaining * denominator <= total:
+            previous = remaining + weights[k - 1] if k else remaining
+            assert k > 0 and previous * denominator > total
+            return k, Fraction(previous, total), Fraction(remaining, total)
+        remaining -= weight
+    return n + 1, Fraction(weights[-1], total), Fraction(0)
+
+
+rows = []
+for classes, expected_old, expected_new in [(10, 135, 136), (100, 23, 24), (200, 15, 16)]:
+    old, _, _ = critical(1000, classes, 3000)
+    new, previous, current = critical(1000, classes, 5000)
+    assert (old, new) == (expected_old, expected_new)
+    assert previous > Fraction(1, 5000) >= current
+    assert new >= old
+    rows.append({
+        "n": 1000, "classes": classes,
+        "old_alpha_1_over_3000_minimum": old,
+        "new_alpha_1_over_5000_minimum": new,
+        "previous_tail_decimal_summary": float(previous),
+        "critical_tail_decimal_summary": float(current),
+        "exact_predecessor_fails_and_critical_passes": True,
+        "critical_exact_fraction_sha256": hashlib.sha256(str(current).encode()).hexdigest(),
+        "note": "Actual minimum is max(held-out-majority+1, binomial critical); labels are not measured here",
+    })
+
+alpha = Fraction(1, 5000)
+expected_n_bound = 5 * alpha
+cohort_bound = expected_n_bound / 3
+family_bound = 30 * cohort_bound
+assert expected_n_bound == Fraction(1, 1000)
+assert cohort_bound == Fraction(1, 3000)
+assert family_bound == Fraction(1, 100)
+patterns = list(itertools.product((0, 1), repeat=5))
+assert all(3 * int(sum(p) >= 3) <= sum(p) for p in patterns)
+# Sharp example for the indicator marginal bound alone: mass1/3000 spread
+# uniformly over all ten3-success patterns, otherwise zero successes.
+# This proves no hidden cross-seed independence was used, not that the exact
+# discrete binomial events attain equality in this construction.
+triples = [p for p in patterns if sum(p) == 3]
+mass_each_triple = Fraction(1, 3000 * len(triples))
+marginals = [sum(mass_each_triple * p[i] for p in triples) for i in range(5)]
+assert all(m == alpha for m in marginals)
+assert sum(mass_each_triple for _ in triples) == cohort_bound
+
+canonical_path = Path("src/JitML/SL/Canonicals.hs")
+canonical = re.findall(r'CanonicalProblem "([^"]+)" "[^"]+" "[^"]+" .*? (\d+)\s*$', canonical_path.read_text(), re.M)
+assert len(canonical) == 11
+pools = [{"row": name, "canonical_base_seed": int(base), "ordered_training_seeds": list(range(int(base), int(base) + 5)), "served_index": 0, "served_seed": int(base)} for name, base in canonical]
+assert all(len(set(p["ordered_training_seeds"])) == 5 and p["ordered_training_seeds"][0] == p["served_seed"] for p in pools)
+
+def toy_accept(signal, improves, final_metrics, index0_eligible=True, complete=None):
+    if complete is None:
+        complete = [True] * 5
+    return (len(signal) == len(improves) == len(final_metrics) == len(complete) == 5
+            and all(complete)
+            and sum(a and b for a, b in zip(signal, improves)) >= 3
+            and sorted(final_metrics)[2] >= 200
+            and index0_eligible)
+
+checks = {
+    "three_joint_successes_pass": toy_accept([1, 1, 1, 0, 0], [1, 1, 1, 0, 0], [210] * 5),
+    "two_joint_successes_fail": not toy_accept([1, 1, 0, 0, 0], [1] * 5, [210] * 5),
+    "different_signal_and_improvement_majorities_fail": not toy_accept([1, 1, 1, 0, 0], [0, 0, 1, 1, 1], [210] * 5),
+    "good_median_cannot_replace_ineligible_index0": not toy_accept([1] * 5, [1] * 5, [210] * 5, False),
+    "allfive_belowbar_median_is_not_filtered": not toy_accept([1] * 5, [1] * 5, [190, 190, 190, 300, 300]),
+    "missing_budget_completion_fails": not toy_accept([1] * 5, [1] * 5, [210] * 5, complete=[1, 1, 1, 1, 0]),
+}
+assert all(checks.values())
+
+source_paths = [
+    "src/JitML/SL/Canonicals.hs", "src/JitML/SL/ConvergenceThresholds.hs",
+    "src/JitML/Product/LearningSignal.hs", "src/JitML/Product/Convergence.hs",
+    "src/JitML/Product/Matrix.hs", "src/JitML/Plan/Workload.hs",
+    "src/JitML/SL/Architecture.hs", "src/JitML/SL/Regression.hs",
+    "src/JitML/SL/TrainingExecution.hs", "src/JitML/SL/RuntimeArtifact.hs",
+    "src/JitML/Product/Publisher/Runtime.hs", "src/JitML/Product/Publisher/Supervised.hs",
+    "src/JitML/Product/Publisher/Common.hs", "src/JitML/Product/Publisher/Audit.hs",
+    "src/JitML/App.hs", "src/JitML/Product/ServedMetric.hs",
+    "src/JitML/Checkpoint/WeightCodec.hs", "src/JitML/Checkpoint/Store.hs",
+    "src/JitML/Test/Report.hs", "src/JitML/Test/ProductLaneJournal.hs",
+    "src/JitML/Test/ModelEvidence.hs",
+]
+root = Path(__file__).resolve().parent
+prior = json.loads((root / "prior-preservation.json").read_text())
+for f in prior["files"]:
+    assert hashlib.sha256((root.parent / f["path"]).read_bytes()).hexdigest() == f["sha256"]
+    assert (root / "prior-original" / f["path"]).read_bytes() == (root.parent / f["path"]).read_bytes()
+
+print(json.dumps({
+    "scope": "Exact mathematical and synthetic acceptance checks of an unimplemented proposal; no training/runtime/product gate",
+    "binomial_boundaries": rows,
+    "markov_union_argument": {
+        "per_seed_joint_probability_upper_bound": str(alpha),
+        "expected_joint_count_upper_bound": str(expected_n_bound),
+        "three_of_five_all_null_cohort_upper_bound": str(cohort_bound),
+        "thirty_all_null_cohorts_union_upper_bound": str(family_bound),
+        "all_32_indicator_patterns_satisfy_pointwise_bound": True,
+        "sharp_indicator_example_marginals": [str(m) for m in marginals],
+        "requires_cross_seed_independence": False,
+        "requires_within_seed_independent_uniform_predictions_against_fixed_targets": True,
+        "covers_mixed_null_or_regression_or_adaptive_attempts": False,
+    },
+    "canonical_seed_pools": pools,
+    "synthetic_semantic_checks": checks,
+    "planned_work_not_runtime": {"sl_runs_per_lane": 55, "classification_runs_all_three_lanes": 150, "regression_runs_all_three_lanes": 15, "updates_per_lane": 30375, "examples_processed_per_lane": 3850000},
+    "original_revision_files_preserved": len(prior["files"]),
+    "read_source_pins": [{"path": p, "sha256": hashlib.sha256(Path(p).read_bytes()).hexdigest()} for p in source_paths],
+}, indent=2))

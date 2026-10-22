@@ -34,6 +34,7 @@ import Crypto.Hash.SHA256 qualified as SHA256
 import Data.Aeson
   ( FromJSON (..)
   , ToJSON (..)
+  , Value (..)
   , eitherDecode
   , encode
   , object
@@ -43,10 +44,11 @@ import Data.Aeson
   )
 import Data.Aeson.Key qualified as AesonKey
 import Data.Aeson.KeyMap qualified as AesonKeyMap
-import Data.Aeson.Types (Object, Parser)
+import Data.Aeson.Types (Object, Parser, parseEither)
 import Data.ByteString qualified as ByteString
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Char (isControl, ord)
+import Data.Either.Combinators (mapLeft)
 import Data.List qualified as List
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.List.NonEmpty qualified as NonEmpty
@@ -64,11 +66,16 @@ import System.FilePath (isAbsolute, normalise, takeDirectory, takeFileName)
 import System.IO (Handle, hClose, hFlush, openBinaryTempFile)
 import System.IO.Error (isDoesNotExistError)
 
+import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Plan.Plan (planIdText)
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.Product.SupervisedCohortPlan qualified as Cohort
+import JitML.Product.SupervisedQualificationReceipt qualified as Receipt
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Subprocess (subprocess)
 import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
+import JitML.Test.NativeScenarioJournalBindingData qualified as NativeBinding
+import JitML.Test.NativeScenarioRetention qualified as Native
 import JitML.Test.ProductScenarioAuthorization
   ( ProductScenarioAuthorizationError (..)
   , ProductScenarioJournalKey
@@ -112,11 +119,12 @@ authenticatedProductScenarioReportSourceDigest
   (AuthenticatedProductScenarioReport token _) =
     Authorization.authenticatedProductScenarioJournalMaterialDigest token
 
--- | Version of the strict JSON shape below.  Version 3 authenticates the
--- canonical checkpoint scope, full execution receipt, executable identity,
--- and every other persisted field with a fresh per-run HMAC capability.
+-- | Version of the strict JSON shape below. Version5 adds the mandatory
+-- native receipt scalar to both aggregate and semantic-row authentication.
+-- Exact checkpoint scope, execution receipt, executable identity and every
+-- other persisted field remain bound by the command-owned per-run HMAC.
 productScenarioJournalWireVersion :: Word64
-productScenarioJournalWireVersion = 3
+productScenarioJournalWireVersion = 5
 
 productScenarioJournalFormat :: Text
 productScenarioJournalFormat = "jitml-product-scenario-journal"
@@ -158,6 +166,7 @@ data ProductScenarioJournalError
   | ProductScenarioJournalEvidenceRejected
       !Text
       !Report.ProductScenarioEvidenceError
+  | ProductScenarioJournalNativeQualificationRejected !Text !Text
   | ProductScenarioJournalReportRejected
       !Report.ProductScenarioReportError
   deriving stock (Eq, Show)
@@ -196,6 +205,8 @@ data ProductScenarioJournalRowWire = ProductScenarioJournalRowWire
   , wireRowPreconditionRejected :: !Bool
   , wireRowPreconditionSequence :: !Word64
   , wireRowInferenceSequence :: !Word64
+  , wireRowQualificationReceipt :: !Text
+  , wireRowNativeQualificationReceipt :: !Text
   , wireRowCompletionSequence :: !Word64
   }
   deriving stock (Eq, Show)
@@ -260,6 +271,8 @@ instance ToJSON ProductScenarioJournalRowWire where
       , "precondition_rejected" .= wireRowPreconditionRejected row
       , "precondition_sequence" .= wireRowPreconditionSequence row
       , "inference_sequence" .= wireRowInferenceSequence row
+      , "supervised_qualification_receipt" .= wireRowQualificationReceipt row
+      , "native_qualification_receipt" .= wireRowNativeQualificationReceipt row
       , "completion_sequence" .= wireRowCompletionSequence row
       ]
 
@@ -287,6 +300,8 @@ instance FromJSON ProductScenarioJournalRowWire where
         , "precondition_rejected"
         , "precondition_sequence"
         , "inference_sequence"
+        , "supervised_qualification_receipt"
+        , "native_qualification_receipt"
         , "completion_sequence"
         ]
         record
@@ -310,6 +325,8 @@ instance FromJSON ProductScenarioJournalRowWire where
         <*> record .: "precondition_rejected"
         <*> record .: "precondition_sequence"
         <*> record .: "inference_sequence"
+        <*> record .: "supervised_qualification_receipt"
+        <*> record .: "native_qualification_receipt"
         <*> record .: "completion_sequence"
 
 requireExactFields :: String -> [Text] -> Object -> Parser ()
@@ -375,17 +392,9 @@ writeProductScenarioJournalAtomic key path checkpointRoot runId batch report = d
     case NonEmpty.nonEmpty validationErrors of
       Just errors -> pure (Left errors)
       Nothing ->
-        case rowsForReport batch evidence of
-          Nothing ->
-            pure
-              ( Left
-                  ( ProductScenarioJournalMalformed
-                      path
-                      "validated report could not be ordered by the current projection batch"
-                      :| []
-                  )
-              )
-          Just rows -> do
+        case rowsForReport path batch evidence of
+          Left failure -> pure (Left (failure :| []))
+          Right rows -> do
             let unsignedJournal =
                   ProductScenarioJournalWire
                     { wireFormat = productScenarioJournalFormat
@@ -534,14 +543,8 @@ readProductScenarioJournalAtCanonicalRoot
                   )
               )
       Right payload ->
-        case eitherDecode payload of
-          Left detail ->
-            pure
-              ( Left
-                  ( ProductScenarioJournalMalformed path (Text.pack detail)
-                      :| []
-                  )
-              )
+        case decodeCurrentSourceJournal path payload of
+          Left failure -> pure (Left (failure :| []))
           Right journal ->
             case Authorization.authenticateProductScenarioJournal
               key
@@ -660,42 +663,56 @@ rehydrateProjection
                     checkpointRoot
                     projection
                     (wireRowManifestSha row)
-                pure $ do
-                  addressed <-
-                    case addressedResult of
-                      Left completionErrors ->
-                        Left
-                          ( fmap
-                              (ProductScenarioJournalCompletionRejected rowId)
-                              completionErrors
-                          )
-                      Right value -> Right value
-                  case Report.journaledProductScenarioEvidence
-                    authenticatedRow
-                    projection
-                    (wireRowRunId row)
-                    (wireRowExecutablePath row)
-                    (wireRowExecutableSha row)
-                    (wireRowInvocationDigest row)
-                    (wireRowExperimentHash row)
-                    (wireRowManifestSha row)
-                    (wireRowCommand row)
-                    (wireRowContractSha row)
-                    checkpointScopeSha
-                    (wireRowExecutionJournalReceipt row)
-                    (wireRowExecutionJournalSha row)
-                    (wireRowInferenceManifestSha row)
-                    (wireRowPreconditionRejected row)
-                    (wireRowPreconditionSequence row)
-                    (wireRowInferenceSequence row)
-                    (wireRowCompletionSequence row)
-                    addressed of
-                    Left evidenceError ->
-                      Left
-                        ( ProductScenarioJournalEvidenceRejected rowId evidenceError
-                            :| []
-                        )
-                    Right evidence -> Right evidence
+                case addressedResult of
+                  Right addressed
+                    | nativeProjection projection ->
+                        readNativeJournalRow authenticatedRow checkpointRoot checkpointScopeSha projection row addressed
+                  _ -> do
+                    qualificationResult <- case addressedResult of
+                      Left _ -> pure (Right Nothing)
+                      Right addressed -> readJournalQualification checkpointRoot projection row addressed
+                    pure $ do
+                      addressed <-
+                        case addressedResult of
+                          Left completionErrors ->
+                            Left
+                              ( fmap
+                                  (ProductScenarioJournalCompletionRejected rowId)
+                                  completionErrors
+                              )
+                          Right value -> Right value
+                      qualification <-
+                        either
+                          (\detail -> Left (ProductScenarioJournalMalformed "<detached-supervised-qualification>" detail :| []))
+                          Right
+                          qualificationResult
+                      case Report.journaledProductScenarioEvidenceWithQualification
+                        qualification
+                        authenticatedRow
+                        projection
+                        (wireRowRunId row)
+                        (wireRowExecutablePath row)
+                        (wireRowExecutableSha row)
+                        (wireRowInvocationDigest row)
+                        (wireRowExperimentHash row)
+                        (wireRowManifestSha row)
+                        (wireRowCommand row)
+                        (wireRowContractSha row)
+                        checkpointScopeSha
+                        (wireRowExecutionJournalReceipt row)
+                        (wireRowExecutionJournalSha row)
+                        (wireRowInferenceManifestSha row)
+                        (wireRowPreconditionRejected row)
+                        (wireRowPreconditionSequence row)
+                        (wireRowInferenceSequence row)
+                        (wireRowCompletionSequence row)
+                        addressed of
+                        Left evidenceError ->
+                          Left
+                            ( ProductScenarioJournalEvidenceRejected rowId evidenceError
+                                :| []
+                            )
+                        Right evidence -> Right evidence
           _ ->
             pure
               ( Left
@@ -712,27 +729,33 @@ authenticatedEvidenceMaterial
   :: Text
   -> ProductScenarioJournalRowWire
   -> Text
-authenticatedEvidenceMaterial checkpointScopeSha row =
-  Authorization.productScenarioJournalEvidenceMaterial
-    (wireRowId row)
-    (wireRowRunId row)
-    (wireRowPlanId row)
-    (wireRowSubstrate row)
-    (wireRowExecutablePath row)
-    (wireRowExecutableSha row)
-    (wireRowInvocationDigest row)
-    (wireRowExperimentHash row)
-    (wireRowManifestSha row)
-    (wireRowCommand row)
-    (wireRowContractSha row)
-    checkpointScopeSha
-    (wireRowExecutionJournalReceipt row)
-    (wireRowExecutionJournalSha row)
-    (wireRowInferenceManifestSha row)
-    (wireRowPreconditionRejected row)
-    (wireRowPreconditionSequence row)
-    (wireRowInferenceSequence row)
-    (wireRowCompletionSequence row)
+authenticatedEvidenceMaterial checkpointScopeSha row
+  | not (Text.null (wireRowNativeQualificationReceipt row)) =
+      NativeBinding.nativeScenarioJournalBindingMaterial
+        (nativeJournalBinding checkpointScopeSha row)
+        (wireRowNativeQualificationReceipt row)
+  | otherwise =
+      Authorization.productScenarioJournalEvidenceMaterialWithQualification
+        (wireRowQualificationReceipt row)
+        (wireRowId row)
+        (wireRowRunId row)
+        (wireRowPlanId row)
+        (wireRowSubstrate row)
+        (wireRowExecutablePath row)
+        (wireRowExecutableSha row)
+        (wireRowInvocationDigest row)
+        (wireRowExperimentHash row)
+        (wireRowManifestSha row)
+        (wireRowCommand row)
+        (wireRowContractSha row)
+        checkpointScopeSha
+        (wireRowExecutionJournalReceipt row)
+        (wireRowExecutionJournalSha row)
+        (wireRowInferenceManifestSha row)
+        (wireRowPreconditionRejected row)
+        (wireRowPreconditionSequence row)
+        (wireRowInferenceSequence row)
+        (wireRowCompletionSequence row)
 
 validateJournal
   :: FilePath
@@ -864,6 +887,7 @@ validateWireRow
              | wireRowRunId row /= expectedRunId
              ]
           <> validateRowSubstrateMismatch rowId expectedSubstrate (wireRowSubstrate row)
+          <> validateNativeJournalReceipt projection row
           <> [ ProductScenarioJournalExperimentMismatch
                  rowId
                  expectedExperiment
@@ -1296,10 +1320,11 @@ validateDigest path label maybeRowId value =
       <> " must be exactly 64 lowercase hexadecimal characters"
 
 rowsForReport
-  :: ProductMatrix.ProductProjectionBatch
+  :: FilePath
+  -> ProductMatrix.ProductProjectionBatch
   -> [Report.CompletedProductScenarioEvidence]
-  -> Maybe [ProductScenarioJournalRowWire]
-rowsForReport batch evidence =
+  -> Either ProductScenarioJournalError [ProductScenarioJournalRowWire]
+rowsForReport path batch evidence =
   traverse rowFor (ProductMatrix.productProjectionBatchProjections batch)
  where
   rowFor someProjection =
@@ -1310,47 +1335,83 @@ rowsForReport batch evidence =
              , Report.completedProductScenarioRowId completed
                  == ProductMatrix.productProjectionRowId projection
              ] of
-          [completed] -> Just (wireRowFromEvidence someProjection completed)
-          _ -> Nothing
+          [completed] -> wireRowFromEvidence someProjection completed
+          _ ->
+            Left
+              ( ProductScenarioJournalMalformed
+                  path
+                  "validated report could not be ordered by the current projection batch"
+              )
 
 wireRowFromEvidence
   :: ProductMatrix.SomeProductProjection
   -> Report.CompletedProductScenarioEvidence
-  -> ProductScenarioJournalRowWire
-wireRowFromEvidence someProjection evidence =
-  ProductScenarioJournalRowWire
-    { wireRowId = Report.completedProductScenarioRowId evidence
-    , wireRowRunId = Report.completedProductScenarioRunId evidence
-    , wireRowPlanId = planIdText (Report.completedProductScenarioPlanId evidence)
-    , wireRowSubstrate = renderSubstrate (Report.completedProductScenarioLane evidence)
-    , wireRowExecutablePath =
-        Report.completedProductScenarioExecutablePath evidence
-    , wireRowExecutableSha =
-        Report.completedProductScenarioExecutableSha256 evidence
-    , wireRowInvocationDigest =
-        Report.completedProductScenarioInvocationDigest evidence
-    , wireRowExperimentHash = Report.completedProductScenarioExperimentHash evidence
-    , wireRowManifestSha = Report.completedProductScenarioManifestSha evidence
-    , wireRowProjectionSha = projectionSha someProjection
-    , wireRowCommand = Report.completedProductScenarioCommand evidence
-    , wireRowContractSha = Report.completedProductScenarioContractDigest evidence
-    , wireRowExecutionJournalReceipt =
-        Report.completedProductScenarioJournalReceipt evidence
-    , wireRowExecutionJournalSha =
-        Report.completedProductScenarioJournalDigest evidence
-    , wireRowInferenceExperimentHash =
-        Report.completedProductScenarioExperimentHash evidence
-    , wireRowInferenceManifestSha =
-        Report.completedProductScenarioInferenceManifestSha evidence
-    , wireRowPreconditionRejected =
-        Report.completedProductScenarioPreconditionRejected evidence
-    , wireRowPreconditionSequence =
-        Report.completedProductScenarioPreconditionSequence evidence
-    , wireRowInferenceSequence =
-        Report.completedProductScenarioInferenceSequence evidence
-    , wireRowCompletionSequence =
-        Report.completedProductScenarioCompletionSequence evidence
-    }
+  -> Either ProductScenarioJournalError ProductScenarioJournalRowWire
+wireRowFromEvidence someProjection evidence = do
+  nativeReceipt <- case someProjection of
+    ProductMatrix.SomeProductProjection _ projection ->
+      case (nativeProjection projection, Report.completedProductScenarioNativeReceipt evidence) of
+        (True, Just actual) -> case Native.renderNativeScenarioReceiptData actual of
+          Left failure ->
+            Left
+              ( ProductScenarioJournalNativeQualificationRejected
+                  (Report.completedProductScenarioRowId evidence)
+                  (Text.pack (show failure))
+              )
+          Right rendered -> Right rendered
+        (True, Nothing) ->
+          Left
+            ( ProductScenarioJournalNativeQualificationRejected
+                (Report.completedProductScenarioRowId evidence)
+                "native evidence has no actual owned or authenticated-retained receipt"
+            )
+        (False, Nothing) -> Right ""
+        (False, Just _) ->
+          Left
+            ( ProductScenarioJournalNativeQualificationRejected
+                (Report.completedProductScenarioRowId evidence)
+                "non-native evidence carries a native receipt"
+            )
+  pure
+    ProductScenarioJournalRowWire
+      { wireRowId = Report.completedProductScenarioRowId evidence
+      , wireRowRunId = Report.completedProductScenarioRunId evidence
+      , wireRowPlanId = planIdText (Report.completedProductScenarioPlanId evidence)
+      , wireRowSubstrate = renderSubstrate (Report.completedProductScenarioLane evidence)
+      , wireRowExecutablePath =
+          Report.completedProductScenarioExecutablePath evidence
+      , wireRowExecutableSha =
+          Report.completedProductScenarioExecutableSha256 evidence
+      , wireRowInvocationDigest =
+          Report.completedProductScenarioInvocationDigest evidence
+      , wireRowExperimentHash = Report.completedProductScenarioExperimentHash evidence
+      , wireRowManifestSha = Report.completedProductScenarioManifestSha evidence
+      , wireRowProjectionSha = projectionSha someProjection
+      , wireRowCommand = Report.completedProductScenarioCommand evidence
+      , wireRowContractSha = Report.completedProductScenarioContractDigest evidence
+      , wireRowExecutionJournalReceipt =
+          Report.completedProductScenarioJournalReceipt evidence
+      , wireRowExecutionJournalSha =
+          Report.completedProductScenarioJournalDigest evidence
+      , wireRowInferenceExperimentHash =
+          Report.completedProductScenarioExperimentHash evidence
+      , wireRowInferenceManifestSha =
+          Report.completedProductScenarioInferenceManifestSha evidence
+      , wireRowPreconditionRejected =
+          Report.completedProductScenarioPreconditionRejected evidence
+      , wireRowPreconditionSequence =
+          Report.completedProductScenarioPreconditionSequence evidence
+      , wireRowInferenceSequence =
+          Report.completedProductScenarioInferenceSequence evidence
+      , wireRowQualificationReceipt =
+          maybe
+            ""
+            Receipt.renderSupervisedQualificationPublication
+            (Report.completedProductScenarioQualification evidence)
+      , wireRowNativeQualificationReceipt = nativeReceipt
+      , wireRowCompletionSequence =
+          Report.completedProductScenarioCompletionSequence evidence
+      }
 
 matchedRows
   :: ProductMatrix.ProductProjectionBatch
@@ -1463,6 +1524,8 @@ runReceiptRowFields row =
   , receiptField "precondition_rejected" (showText (wireRowPreconditionRejected row))
   , receiptField "precondition_sequence" (showText (wireRowPreconditionSequence row))
   , receiptField "inference_sequence" (showText (wireRowInferenceSequence row))
+  , receiptField "supervised_qualification_receipt" (wireRowQualificationReceipt row)
+  , receiptField "native_qualification_receipt" (wireRowNativeQualificationReceipt row)
   , receiptField "completion_sequence" (showText (wireRowCompletionSequence row))
   ]
 
@@ -1535,3 +1598,179 @@ ignoreIOException action = do
 
 tryIO :: IO value -> IO (Either IOException value)
 tryIO = try
+
+-- | The row reference is already covered by both aggregate and per-row HMAC
+-- material. Read-time replay still verifies exact artifact bytes and index0's
+-- current physical Store admission. The original source identity is retained
+-- under that authentication, not reinterpreted as a new current-source run.
+readJournalQualification
+  :: FilePath
+  -> ProductMatrix.ProductProjection kind
+  -> ProductScenarioJournalRowWire
+  -> Report.AddressedProductScenarioCompletion kind
+  -> IO (Either Text (Maybe Receipt.SupervisedQualificationPublication))
+readJournalQualification checkpointRoot projection row addressed =
+  case ProductMatrix.productProjectionResolvedPlan projection of
+    ProductMatrix.ResolvedSupervisedProductPlan _ ->
+      case ( Cohort.mkSupervisedCohortPlan projection
+           , Receipt.parseSupervisedQualificationReference (wireRowQualificationReceipt row)
+           ) of
+        (Left failure, _) -> pure (Left failure)
+        (_, Left failure) -> pure (Left failure)
+        (Right cohort, Right reference) -> do
+          bytes <-
+            CheckpointStore.readObject checkpointRoot (Receipt.qualificationReferenceObjectKey reference)
+          pure $ do
+            payload <- bytes
+            neural <-
+              maybe
+                (Left "supervised source journal has a host execution admission")
+                Right
+                (Report.addressedProductScenarioAdmittedCompletion addressed)
+            publication <-
+              Receipt.validateSupervisedQualificationPublication
+                cohort
+                (Receipt.qualificationReferenceSourceSha256 reference)
+                (wireRowExecutableSha row)
+                (wireRowInvocationDigest row)
+                reference
+                (LazyByteString.toStrict payload)
+                neural
+            Right (Just publication)
+    _ ->
+      pure $
+        if Text.null (wireRowQualificationReceipt row)
+          then Right Nothing
+          else Left "non-supervised source journal carries supervised qualification"
+
+decodeCurrentSourceJournal
+  :: FilePath
+  -> LazyByteString.ByteString
+  -> Either ProductScenarioJournalError ProductScenarioJournalWire
+decodeCurrentSourceJournal path bytes = do
+  case (eitherDecode bytes :: Either String Value) of
+    Right (Object record) -> case parseEither (\value -> (,) <$> value .: "format" <*> value .: "version") record of
+      Right (format, version)
+        | format == productScenarioJournalFormat
+            && version >= 1
+            && version < productScenarioJournalWireVersion ->
+            Left (ProductScenarioJournalVersionMismatch productScenarioJournalWireVersion version)
+      _ -> Right ()
+    _ -> Right ()
+  journal <- mapLeft (ProductScenarioJournalMalformed path . Text.pack) (eitherDecode bytes)
+  -- Bound the native scalar before HMAC material construction. Aeson has
+  -- already decoded the envelope; this is not an overall JSON allocation cap.
+  case [ row
+       | row <- wireRows journal
+       , toInteger (Text.length (wireRowNativeQualificationReceipt row))
+           > Native.maximumNativeScenarioReceiptTextCharacters
+       ] of
+    row : _ ->
+      Left
+        ( ProductScenarioJournalNativeQualificationRejected
+            (wireRowId row)
+            "native receipt scalar exceeds its exact character cap"
+        )
+    [] -> Right journal
+
+-- Native receipt scalar validation is distinct from an overall JSON allocation
+-- bound. The legacy Aeson envelope reader is unchanged in this candidate.
+nativeProjection :: ProductMatrix.ProductProjection kind -> Bool
+nativeProjection projection =
+  ProductMatrix.productProjectionFamily projection
+    `elem` [ProductMatrix.ReinforcementLearning, ProductMatrix.AlphaZero]
+
+nativeJournalBinding
+  :: Text -> ProductScenarioJournalRowWire -> NativeBinding.NativeScenarioJournalBindingData
+nativeJournalBinding scope row =
+  NativeBinding.NativeScenarioJournalBindingData
+    { NativeBinding.nativeScenarioBindingRowId = wireRowId row
+    , NativeBinding.nativeScenarioBindingRunId = wireRowRunId row
+    , NativeBinding.nativeScenarioBindingPlanId = wireRowPlanId row
+    , NativeBinding.nativeScenarioBindingSubstrate = wireRowSubstrate row
+    , NativeBinding.nativeScenarioBindingExecutablePath = wireRowExecutablePath row
+    , NativeBinding.nativeScenarioBindingExecutableSha256 = wireRowExecutableSha row
+    , NativeBinding.nativeScenarioBindingInvocationDigest = wireRowInvocationDigest row
+    , NativeBinding.nativeScenarioBindingExperimentHash = wireRowExperimentHash row
+    , NativeBinding.nativeScenarioBindingManifestSha256 = wireRowManifestSha row
+    , NativeBinding.nativeScenarioBindingCommand = wireRowCommand row
+    , NativeBinding.nativeScenarioBindingContractSha256 = wireRowContractSha row
+    , NativeBinding.nativeScenarioBindingCheckpointScopeSha256 = scope
+    , NativeBinding.nativeScenarioBindingExecutionJournalReceipt = wireRowExecutionJournalReceipt row
+    , NativeBinding.nativeScenarioBindingExecutionJournalSha256 = wireRowExecutionJournalSha row
+    , NativeBinding.nativeScenarioBindingInferenceManifestSha256 = wireRowInferenceManifestSha row
+    , NativeBinding.nativeScenarioBindingPreconditionRejected = wireRowPreconditionRejected row
+    , NativeBinding.nativeScenarioBindingPreconditionSequence = wireRowPreconditionSequence row
+    , NativeBinding.nativeScenarioBindingInferenceSequence = wireRowInferenceSequence row
+    , NativeBinding.nativeScenarioBindingCompletionSequence = wireRowCompletionSequence row
+    }
+
+validateNativeJournalReceipt
+  :: ProductMatrix.ProductProjection kind
+  -> ProductScenarioJournalRowWire
+  -> [ProductScenarioJournalError]
+validateNativeJournalReceipt projection row
+  | nativeProjection projection =
+      [ rejected "native source row carries a supervised qualification"
+      | not (Text.null (wireRowQualificationReceipt row))
+      ]
+        <> case parseNativeReceiptRow row of
+          Left failure -> [failure]
+          Right _ -> []
+  | Text.null (wireRowNativeQualificationReceipt row) = []
+  | otherwise = [rejected "non-native source row carries a native qualification"]
+ where
+  rejected = ProductScenarioJournalNativeQualificationRejected (wireRowId row)
+
+parseNativeReceiptRow
+  :: ProductScenarioJournalRowWire
+  -> Either ProductScenarioJournalError Native.NativeScenarioReceiptData
+parseNativeReceiptRow row
+  | toInteger (Text.length actual) > Native.maximumNativeScenarioReceiptTextCharacters =
+      Left (rejected "native receipt scalar exceeds its exact character cap")
+  | otherwise = case Native.parseNativeScenarioReceiptData actual of
+      Left failure -> Left (rejected (Text.pack (show failure)))
+      Right receipt -> Right receipt
+ where
+  actual = wireRowNativeQualificationReceipt row
+  rejected = ProductScenarioJournalNativeQualificationRejected (wireRowId row)
+
+readNativeJournalRow
+  :: Authorization.AuthenticatedProductScenarioJournalRow
+  -> FilePath
+  -> Text
+  -> ProductMatrix.ProductProjection kind
+  -> ProductScenarioJournalRowWire
+  -> Report.AddressedProductScenarioCompletion kind
+  -> IO (Either (NonEmpty ProductScenarioJournalError) Report.CompletedProductScenarioEvidence)
+readNativeJournalRow authenticated checkpointRoot scope projection row addressed =
+  case parseNativeReceiptRow row of
+    Left failure -> pure (Left (failure :| []))
+    Right receipt -> do
+      let binding = nativeJournalBinding scope row
+      -- This concrete same-host re-audit never reruns selected-lane evaluation,
+      -- restores a RootOwned certificate, or treats signed history as a fresh run.
+      result <-
+        Native.reauditNativeScenarioQualification
+          authenticated
+          binding
+          projection
+          checkpointRoot
+          (Report.addressedProductScenarioAdmittedExecution addressed)
+          receipt
+      pure $ case result of
+        Left failure ->
+          Left
+            ( ProductScenarioJournalNativeQualificationRejected
+                (wireRowId row)
+                (Native.renderNativeScenarioRetentionFailure failure)
+                :| []
+            )
+        Right retained -> case Report.journaledProductScenarioEvidenceWithNativeQualification
+          retained
+          authenticated
+          projection
+          binding
+          addressed of
+          Left failure -> Left (ProductScenarioJournalEvidenceRejected (wireRowId row) failure :| [])
+          Right evidence -> Right evidence

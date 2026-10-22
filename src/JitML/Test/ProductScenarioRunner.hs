@@ -1,4 +1,5 @@
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -23,25 +24,44 @@ module JitML.Test.ProductScenarioRunner
   )
 where
 
+import Control.Monad.Reader (runReaderT)
 import Data.Either.Combinators (mapLeft)
 import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List.NonEmpty qualified as NonEmpty
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 import Data.Text qualified as Text
-import System.Directory (canonicalizePath, doesDirectoryExist)
+import System.Directory (canonicalizePath, doesDirectoryExist, getCurrentDirectory)
 import System.FilePath ((</>))
 
+import Data.ByteString.Lazy qualified as LBS
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
+import JitML.Env.Build qualified as Env
 import JitML.Plan.Plan (RunKind, Validation (..), planIdText)
+import JitML.Product.CriterionReview qualified as Review
+import JitML.Product.CriterionReviewData qualified as ReviewData
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.Product.NativeParentExecution qualified as NativeParent
+import JitML.Product.NativeRlCohortPlan qualified as NativeCohort
+import JitML.Product.Publisher.SourceAuthority
+  ( supervisedCriterionReviewEnvironment
+  , supervisedQualificationSourceEnvironment
+  )
+import JitML.Product.SourceDigest qualified as Source
+import JitML.Product.SupervisedCohortPlan qualified as Cohort
+import JitML.Product.SupervisedQualification qualified as Qualification
+import JitML.Product.SupervisedQualificationReceipt qualified as Receipt
 import JitML.Service.Retry (ServiceError (..))
 import JitML.Sub.Outcome
   ( ProcessOutcome (..)
   , processTranscriptCommand
+  , processTranscriptStdout
   , renderProcessFailure
   )
+import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (runStreaming, subprocessEnvOverrideAndRemove)
+import JitML.Sub.Stream qualified as Stream
 import JitML.Sub.Subprocess (Subprocess (..), subprocess)
 import JitML.Substrate (renderSubstrate)
 import JitML.Test.LiveWorkflow qualified as LiveWorkflow
@@ -112,6 +132,7 @@ runProductScenario
   -> ProductMatrix.ProductProjection kind
   -> IO (Either ProductScenarioRunError Report.CompletedProductScenarioEvidence)
 runProductScenario runId executablePath expectedExecutableSha256 rawWorkdir projection = do
+  sourceRoot <- getCurrentDirectory
   workdirExists <- doesDirectoryExist rawWorkdir
   if not workdirExists
     then pure (Left (ProductScenarioWorkingDirectoryMissing rawWorkdir))
@@ -134,13 +155,14 @@ runProductScenario runId executablePath expectedExecutableSha256 rawWorkdir proj
           pure (Left (ProductScenarioPreconditionFailed preconditionError))
         Right precondition ->
           runWithPrecondition
+            sourceRoot
             workdir
             rowId
             planId
             command
             precondition
  where
-  runWithPrecondition workdir rowId planId command precondition = do
+  runWithPrecondition sourceRoot workdir rowId planId command precondition = do
     let invocation = Report.productScenarioPreconditionInvocation precondition
         invocationDigest = TrainingBudget.productScenarioInvocationDigest invocation
         sourceName = "product-row-" <> rowId <> "-completion"
@@ -172,10 +194,15 @@ runProductScenario runId executablePath expectedExecutableSha256 rawWorkdir proj
             pure (Left (ProductScenarioPlacementInvalid placementError))
           Right handle -> do
             freshnessRef <- newIORef Nothing
+            qualificationRef <- newIORef Nothing
+            nativeQualificationRef <- newIORef Nothing
             outcome <-
               LiveWorkflow.runLiveWorkflow
                 (scenarioWorkflow projection command eventSource)
                 ( scenarioTransport
+                    sourceRoot
+                    qualificationRef
+                    nativeQualificationRef
                     workdir
                     command
                     projection
@@ -235,12 +262,24 @@ scenarioWorkflow expectedProjection command eventSource =
 
 scenarioTransport
   :: FilePath
+  -> IORef
+       ( Maybe
+           ( Maybe Source.SourceStamp
+           , Maybe Review.CapturedCriterionReview
+           , Maybe Receipt.SupervisedQualificationReference
+           )
+       )
+  -> IORef (Maybe (Source.SourceStamp, NativeParent.NativeParentExecutionCertificate))
+  -> FilePath
   -> Subprocess
   -> ProductMatrix.ProductProjection kind
   -> Report.ProductScenarioPrecondition kind
   -> IORef (Maybe (Report.ProductScenarioPrecondition kind))
   -> LiveWorkflow.LiveTransport Subprocess (ProductScenarioEvent kind)
 scenarioTransport
+  sourceRoot
+  qualificationRef
+  nativeQualificationRef
   workdir
   expectedCommand
   projection
@@ -293,50 +332,15 @@ scenarioTransport
                             )
                         )
                     )
-                Right () -> do
-                  let commandInScenarioDirectory =
-                        command
-                          { subprocessPath =
-                              Report.productScenarioPreconditionPinnedExecutablePath proof
-                          , subprocessWorkingDirectory = Just workdir
-                          }
-                      invocation =
-                        Report.productScenarioPreconditionInvocation proof
-                      childEnvironment =
-                        subprocessEnvOverrideAndRemove
-                          [
-                            ( "JITML_PRODUCT_SCENARIO_INVOCATION"
-                            , TrainingBudget.renderProductScenarioInvocation invocation
-                            )
-                          ]
-                          [ "JITML_PRODUCT_SCENARIO_JOURNAL_KEY_FILE"
-                          , "JITML_PRODUCT_SCENARIO_JOURNAL_PATH"
-                          , "JITML_PRODUCT_SCENARIO_RUN_ID"
-                          , "JITML_PRODUCT_SCENARIO_EXECUTABLE"
-                          , "JITML_PRODUCT_SCENARIO_EXECUTABLE_SHA256"
-                          ]
-                  processOutcome <-
-                    runStreaming childEnvironment commandInScenarioDirectory
-                  case processOutcome of
-                    ProcessFailed failure ->
-                      pure (Left (SETransient (renderProcessFailure failure)))
-                    ProcessSucceeded transcript -> do
-                      afterLaunch <-
-                        Report.revalidateProductScenarioPinnedExecutable proof
-                      pure $ case afterLaunch of
-                        Left failure ->
-                          Left
-                            ( SEConflict
-                                ( "ProductScenario pinned executable changed during execution: "
-                                    <> Text.pack (show failure)
-                                )
-                            )
-                        Right () ->
-                          Right
-                            ( Report.renderProductScenarioExecutionAcknowledgement
-                                proof
-                                (processTranscriptCommand transcript)
-                            )
+                Right () ->
+                  executeQualificationBoundCommand
+                    sourceRoot
+                    qualificationRef
+                    nativeQualificationRef
+                    workdir
+                    projection
+                    proof
+                    command
 
     resolve command
       | command /= expectedCommand =
@@ -379,6 +383,8 @@ scenarioTransport
                     manifestSha
                     projection
                     precondition
+                    qualificationRef
+                    nativeQualificationRef
 
 resolveAddressedScenario
   :: FilePath
@@ -386,8 +392,16 @@ resolveAddressedScenario
   -> Text
   -> ProductMatrix.ProductProjection kind
   -> Report.ProductScenarioPrecondition kind
+  -> IORef
+       ( Maybe
+           ( Maybe Source.SourceStamp
+           , Maybe Review.CapturedCriterionReview
+           , Maybe Receipt.SupervisedQualificationReference
+           )
+       )
+  -> IORef (Maybe (Source.SourceStamp, NativeParent.NativeParentExecutionCertificate))
   -> IO (Either ServiceError (ProductScenarioEvent kind))
-resolveAddressedScenario checkpointRoot pointerKey manifestSha projection precondition = do
+resolveAddressedScenario checkpointRoot pointerKey manifestSha projection precondition qualificationRef nativeQualificationRef = do
   addressedResult <-
     Report.admitAddressedProductScenarioCompletion
       checkpointRoot
@@ -415,12 +429,36 @@ resolveAddressedScenario checkpointRoot pointerKey manifestSha projection precon
                 )
             )
         Right (Just stableManifestSha)
-          | stableManifestSha == manifestSha ->
-              refineAddressedScenario
-                projection
-                precondition
-                manifestSha
-                addressedCompletion
+          | stableManifestSha == manifestSha -> do
+              if nativeProjection projection
+                then do
+                  qualified <- readIORef nativeQualificationRef
+                  pure $ do
+                    (source, certificate) <-
+                      maybe
+                        (Left (SEConflict "native resolution lacks the actual owned parent execution certificate"))
+                        Right
+                        qualified
+                    completion <-
+                      mapServiceErrors
+                        "ProductRow completion contract"
+                        (Report.executedProductScenarioCompletion precondition projection addressedCompletion)
+                    attached <-
+                      mapServiceErrors
+                        "ProductRow actual native parent qualification"
+                        (Report.attachExecutedProductScenarioNativeCertificate source certificate completion)
+                    Right (ProductScenarioEvent projection manifestSha attached)
+                else do
+                  qualified <- loadRunnerQualification projection precondition addressedCompletion qualificationRef
+                  case qualified of
+                    Left failure -> pure (Left (SEConflict failure))
+                    Right publication ->
+                      refineAddressedScenario
+                        projection
+                        precondition
+                        manifestSha
+                        addressedCompletion
+                        publication
         Right observed ->
           pure
             ( Left
@@ -436,8 +474,9 @@ refineAddressedScenario
   -> Report.ProductScenarioPrecondition kind
   -> Text
   -> Report.AddressedProductScenarioCompletion kind
+  -> Maybe Receipt.SupervisedQualificationPublication
   -> IO (Either ServiceError (ProductScenarioEvent kind))
-refineAddressedScenario projection precondition manifestSha addressedCompletion =
+refineAddressedScenario projection precondition manifestSha addressedCompletion qualification =
   pure $ do
     completion <-
       mapServiceErrors
@@ -447,11 +486,15 @@ refineAddressedScenario projection precondition manifestSha addressedCompletion 
             projection
             addressedCompletion
         )
+    qualifiedCompletion <-
+      mapServiceErrors
+        "ProductRow five-run qualification"
+        (Report.attachExecutedProductScenarioQualification qualification completion)
     Right
       ProductScenarioEvent
         { eventProjection = projection
         , eventManifestSha = manifestSha
-        , eventCompletion = completion
+        , eventCompletion = qualifiedCompletion
         }
 
 renderProductScenarioEvent :: Text -> Text -> ProductScenarioEvent kind -> Text
@@ -521,3 +564,238 @@ mapServiceErrors context =
         . show
         . NonEmpty.toList
     )
+
+-- | Capture the parent repository before launching the child in its isolated
+-- cache directory. A child-supplied source hash is compared to this observation,
+-- never treated as an authority. Incoming source overrides are always removed.
+executeLegacyQualificationBoundCommand
+  :: FilePath
+  -> IORef
+       ( Maybe
+           ( Maybe Source.SourceStamp
+           , Maybe Review.CapturedCriterionReview
+           , Maybe Receipt.SupervisedQualificationReference
+           )
+       )
+  -> FilePath
+  -> ProductMatrix.ProductProjection kind
+  -> Report.ProductScenarioPrecondition kind
+  -> Subprocess
+  -> IO (Either ServiceError Text)
+executeLegacyQualificationBoundCommand sourceRoot qualificationRef workdir projection proof command = do
+  sourceBefore <- captureSource
+  case sourceBefore of
+    Left failure -> pure (Left (SEConflict failure))
+    Right (before, reviewBefore, reviewText) -> do
+      let invocation = Report.productScenarioPreconditionInvocation proof
+          overrides =
+            [("JITML_PRODUCT_SCENARIO_INVOCATION", TrainingBudget.renderProductScenarioInvocation invocation)]
+              <> maybe
+                []
+                (\stamp -> [(Text.pack supervisedQualificationSourceEnvironment, Source.stampSha256 stamp)])
+                before
+              <> maybe [] (\encoded -> [(Text.pack supervisedCriterionReviewEnvironment, encoded)]) reviewText
+          childEnvironment =
+            subprocessEnvOverrideAndRemove
+              overrides
+              ( [ "JITML_PRODUCT_SCENARIO_JOURNAL_KEY_FILE"
+                , "JITML_PRODUCT_SCENARIO_JOURNAL_PATH"
+                , "JITML_PRODUCT_SCENARIO_RUN_ID"
+                , "JITML_PRODUCT_SCENARIO_EXECUTABLE"
+                , "JITML_PRODUCT_SCENARIO_EXECUTABLE_SHA256"
+                ]
+                  <> [Text.pack supervisedQualificationSourceEnvironment | isNothing before]
+                  <> [Text.pack supervisedCriterionReviewEnvironment | isNothing reviewBefore]
+              )
+          actualCommand =
+            command
+              { subprocessPath = Report.productScenarioPreconditionPinnedExecutablePath proof
+              , subprocessWorkingDirectory = Just workdir
+              }
+      outcome <- runStreaming childEnvironment actualCommand
+      case outcome of
+        ProcessFailed failure -> pure (Left (SETransient (renderProcessFailure failure)))
+        ProcessSucceeded transcript -> do
+          binaryAfter <- Report.revalidateProductScenarioPinnedExecutable proof
+          sourceAfter <- captureSource
+          case binaryAfter of
+            Left failure ->
+              pure
+                ( Left
+                    ( SEConflict
+                        ("ProductScenario pinned executable changed during execution: " <> Text.pack (show failure))
+                    )
+                )
+            Right () -> case sourceAfter of
+              Left failure -> pure (Left (SEConflict failure))
+              Right (after, reviewAfter, _)
+                | after /= before || reviewAfter /= reviewBefore ->
+                    pure (Left (SEConflict "ProductScenario repository source changed during supervised execution"))
+                | otherwise -> case parseQualificationLines projection (processTranscriptStdout transcript) of
+                    Left failure -> pure (Left (SEConflict failure))
+                    Right reference -> do
+                      writeIORef qualificationRef (Just (before, reviewBefore, reference))
+                      pure
+                        ( Right
+                            (Report.renderProductScenarioExecutionAcknowledgement proof (processTranscriptCommand transcript))
+                        )
+ where
+  captureSource = case ProductMatrix.productProjectionResolvedPlan projection of
+    ProductMatrix.ResolvedSupervisedProductPlan _ -> do
+      source <- Source.computeSourceStampIn sourceRoot
+      case source of
+        Left reason -> pure (Left reason)
+        Right stamp -> do
+          captured <-
+            Review.captureCriterionReviewIn
+              sourceRoot
+              stamp
+              (ProductMatrix.productProjectionSubstrate projection)
+              ReviewData.SupervisedCriterionReview
+          pure $ do
+            review <- mapLeft Review.renderCriterionReviewError captured
+            expectedContracts <-
+              Report.productScenarioReviewContractSetSha256 (ProductMatrix.productProjectionSubstrate projection)
+            if ReviewData.criterionReviewContractSetSha256 (Review.capturedCriterionReviewIdentity review)
+              == expectedContracts
+              then Right ()
+              else Left "prelaunch supervised review differs from current full55 contracts"
+            encoded <-
+              ReviewData.renderCriterionReviewIdentityData (Review.capturedCriterionReviewIdentity review)
+            pure (Just stamp, Just review, Just encoded)
+    _ -> pure (Right (Nothing, Nothing, Nothing))
+
+-- The native branch owns its actual process, full original physical cohort,
+-- independent parent checks and exact raw receipts. No callback result or
+-- separately parsed child reference can mint its private certificate.
+executeQualificationBoundCommand
+  :: FilePath
+  -> IORef
+       ( Maybe
+           ( Maybe Source.SourceStamp
+           , Maybe Review.CapturedCriterionReview
+           , Maybe Receipt.SupervisedQualificationReference
+           )
+       )
+  -> IORef (Maybe (Source.SourceStamp, NativeParent.NativeParentExecutionCertificate))
+  -> FilePath
+  -> ProductMatrix.ProductProjection kind
+  -> Report.ProductScenarioPrecondition kind
+  -> Subprocess
+  -> IO (Either ServiceError Text)
+executeQualificationBoundCommand sourceRoot supervisedRef nativeRef workdir projection proof command
+  | nativeProjection projection = do
+      actualSource <- Source.computeSourceStampIn sourceRoot
+      case ( actualSource
+           , NativeCohort.mkCanonicalNativeRlCohorts (ProductMatrix.productProjectionSubstrate projection)
+           , Report.productScenarioReviewContractSetSha256 (ProductMatrix.productProjectionSubstrate projection)
+           ) of
+        (Left failure, _, _) -> pure (Left (SEConflict failure))
+        (_, Left failure, _) -> pure (Left (SEConflict failure))
+        (_, _, Left failure) -> pure (Left (SEConflict failure))
+        (Right source, Right batch, Right expectedContracts) -> do
+          env <- Env.buildEnv (Env.defaultGlobalFlags {Env.globalCacheDir = Just (workdir </> ".build")})
+          let request =
+                NativeParent.NativeParentExecutionRequest
+                  sourceRoot
+                  source
+                  workdir
+                  (Report.productScenarioPreconditionPinnedExecutablePath proof)
+                  (Report.productScenarioPreconditionInvocation proof)
+          actual <-
+            runReaderT (NativeParent.executeNativeParentCohortForReview expectedContracts batch request) env
+          case actual of
+            Left failure ->
+              let report = NativeParent.nativeParentExecutionFailureReport failure
+               in pure
+                    ( Left
+                        ( SEConflict
+                            ("actual native parent refused at " <> Text.pack (show (NativeParent.parentExecutionStage report)))
+                        )
+                    )
+            Right completed -> do
+              let certificate = NativeParent.nativeParentExecutedCertificate completed
+                  spawn = NativeParent.nativeParentCertificateSpawn certificate
+                  actualCommand =
+                    (subprocess (Stream.nativeSpawnExecutablePath spawn) (Stream.nativeSpawnArguments spawn))
+                      { subprocessWorkingDirectory = Stream.nativeSpawnWorkingDirectory spawn
+                      }
+              writeIORef nativeRef (Just (source, certificate))
+              pure
+                (Right (Report.renderProductScenarioExecutionAcknowledgement proof (renderSubprocess actualCommand)))
+  | otherwise =
+      executeLegacyQualificationBoundCommand sourceRoot supervisedRef workdir projection proof command
+
+nativeProjection :: ProductMatrix.ProductProjection kind -> Bool
+nativeProjection projection =
+  ProductMatrix.productProjectionFamily projection
+    `elem` [ProductMatrix.ReinforcementLearning, ProductMatrix.AlphaZero]
+
+parseQualificationLines
+  :: ProductMatrix.ProductProjection kind
+  -> Text
+  -> Either Text (Maybe Receipt.SupervisedQualificationReference)
+parseQualificationLines projection stdout =
+  let candidates = filter (Text.isPrefixOf "product-supervised-qualification-") (Text.lines stdout)
+   in case ProductMatrix.productProjectionResolvedPlan projection of
+        ProductMatrix.ResolvedSupervisedProductPlan _ -> case candidates of
+          [line] -> Just <$> Receipt.parseSupervisedQualificationReference line
+          _ -> Left "supervised producer must emit exactly one strict detached qualification receipt"
+        _ ->
+          if null candidates
+            then Right Nothing
+            else Left "non-supervised producer emitted a supervised qualification receipt"
+
+loadRunnerQualification
+  :: ProductMatrix.ProductProjection kind
+  -> Report.ProductScenarioPrecondition kind
+  -> Report.AddressedProductScenarioCompletion kind
+  -> IORef
+       ( Maybe
+           ( Maybe Source.SourceStamp
+           , Maybe Review.CapturedCriterionReview
+           , Maybe Receipt.SupervisedQualificationReference
+           )
+       )
+  -> IO (Either Text (Maybe Receipt.SupervisedQualificationPublication))
+loadRunnerQualification projection precondition addressed qualificationRef = do
+  captured <- readIORef qualificationRef
+  case ProductMatrix.productProjectionResolvedPlan projection of
+    ProductMatrix.ResolvedSupervisedProductPlan _ ->
+      case (captured, Cohort.mkSupervisedCohortPlan projection) of
+        (Just (Just stamp, Just review, Just reference), Right cohort) -> do
+          bytes <-
+            CheckpointStore.readObject
+              (Report.productScenarioPreconditionCheckpointRoot precondition)
+              (Receipt.qualificationReferenceObjectKey reference)
+          pure $ do
+            payload <- bytes
+            let invocation = Report.productScenarioPreconditionInvocation precondition
+            publication <-
+              case Report.addressedProductScenarioAdmittedCompletion addressed of
+                Nothing -> Left "supervised resolution received host-linear actual admission"
+                Just admitted ->
+                  Receipt.validateSupervisedQualificationPublication
+                    cohort
+                    (Source.stampSha256 stamp)
+                    (Report.productScenarioPreconditionExecutableSha256 precondition)
+                    (TrainingBudget.productScenarioInvocationDigest invocation)
+                    reference
+                    (LBS.toStrict payload)
+                    admitted
+            let raw =
+                  Qualification.supervisedQualificationToRaw
+                    ( Qualification.qualifiedSupervisedCohortData
+                        (Receipt.supervisedQualificationPublicationData publication)
+                    )
+                producer = Qualification.rawQualificationProducer raw
+            observedReview <- Qualification.qualificationProducerReviewIdentity producer
+            if Qualification.qualificationProducerReviewWasSupplied producer
+              && observedReview == Just (Review.capturedCriterionReviewIdentity review)
+              then Right (Just publication)
+              else Left "supervised qualification differs from original parent prelaunch review observation"
+        (_, Left failure) -> pure (Left failure)
+        _ -> pure (Left "supervised resolution lacks the actual parent source/receipt observation")
+    _ -> pure $ case captured of
+      Just (Nothing, Nothing, Nothing) -> Right Nothing
+      _ -> Left "non-supervised resolution has missing or foreign qualification observations"

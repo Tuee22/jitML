@@ -1,0 +1,22 @@
+# Source 53ab Cold Storage and Helper Generation
+
+**Status**: Supporting reference
+**Supersedes**: N/A
+**Referenced by**: [Runtime receipts](../README.md), [Mac validation](../../README.md), [Phase 278](../../../../phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md)
+**Generated sections**: none
+
+> **Purpose**: Retain the actual corrected cold-storage maintenance, independent recovery and retirement proofs, full protection, and source53ab helper-generation compiles.
+
+The corrected pilot and fresh HOST-only unmount/recovery complete before the first holding retirement. That single retirement increases measured VM availability by **2,778,058,752** bytes. The separate frozen **27-root** batch then completes all original-path read-only HOST views and **27** fresh independent demo/recover pairs before its actual pre-retirement full barrier. All **27** duplicate holdings retire through their exact manifest-enumerated paths. Three real global full guards and **298** honestly current-only observations pass; full root-local readbacks, owner captures, durable mirror fsyncs, EROFS, once-per-registry markers and raw deletion progress remain retained.
+
+Batch VM availability at the first batch retirement is **21,060,104,192** bytes and the post-owner endpoint is **98,611,441,664** bytes. The **77,551,337,472-byte** endpoint increase equals the sum of the 27 actual local-statvfs increases. These are measured endpoints, not promised future headroom. Endpoint HOST availability is **27,030,323,200** bytes. Six fresh copies plus **21** verified reuses use seven physical mirrors; the fresh HOST copies allocate **4,124,512,256** bytes. Strict per-alias metadata, including root mtime, is preserved. All rejected candidates and failures remain raw history.
+
+The original program top manifest and its **81** nested manifests are byte-exact. The parent already covers **54** HOST child and **27** retirement closures. The **27** external cutover manifests and **301** external guard closures are separately retained. A separate owning closure keeps the actual outer four files, all **27** external marker copies, exact origin maps and actual HOST/VM endpoint. No original program tree or manifest was resealed to add later evidence. Root and Phase independently accept the closed raw graph, and Root explicitly releases the quiet pledge only after that acceptance.
+
+Three fresh direct helper compiles on unchanged **53ab7f12 / 586** source succeed with warning-free captures. Only their expected-source generation literals and label were rolled forward; numerical recipes, criteria, budgets, prescribed seeds, admission and qualification checks remain unchanged. Compiled helper executables and objects stay separately retained physical FILE outputs; this archive embeds their small source, metadata and actual capture lineage. The later exact owned public-GHC intermediate cleanup is retained with its literal failed pre-action diagnostic and successful exact-ID removal.
+
+The [earlier failed-and-restored pilot](../source53ab-storage-capacity-validation/README.md) remains failed in its original scope. The [canonical image attempt](../source53ab-image-engineering-validation/README.md) remains **FAILED 130** at the **4 GiB** floor before application COPY. Old archives and outcomes are not rewritten. Large native/CPU ELF, DIST and compressed mirror payloads remain physical external FILE trees under their complete original-path maps and durable recovery bindings; no such payload is embedded here.
+
+The byte archive retains **393** closed views and **32,775** logical entries, with **14,272** unique objects (**645,435,098** unique raw / **309,575,990** stored object bytes). Every raw member is below **32 MiB**. Exact original manifests, raw stdout/stderr including zero-byte streams, source/provider metadata and review/quiet-release records remain lossless. The unchanged `817955a1…` utility and [index.json](index.json) verify these DATA bytes without executing recovered code; actual build and raw verification receipts are retained in the bundle.
+
+Phase **278 remains Active**. A current canonical image, CPU/Apple bootstrap and twelve verified datasets, genuine prescribed five-run qualification and eleventh Store-loaded replay, full55 journals and append-only registration, owned live CLI/daemon evidence, machine-observable contexts and remaining quality/docs gates stay open. Capacity maintenance and helper compilation supply no training, qualification, registered lane or phase-completion pass.

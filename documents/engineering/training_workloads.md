@@ -451,6 +451,22 @@ status and dated gate evidence live in the development plan.
 
 ## RL Framework Primitives
 
+**Implemented prepared/data APIs.** Source `39547f58…` extracts a shared trainer
+configuration resolver from the legacy dispatcher. Lower opaque
+single-use preparations retain actual initial numerical state and continue the
+same allocation once; SAC separates cold state, the actual warm fold and
+effective state from scheduled counters. Uncensored raw returns precede strict
+completion and the separate fixed-case final scoring. Checked native five-child plans, fixed-case
+RETURN/HER/arena evaluators and mathematical references remain DATA; they do not
+acquire five qualifying models or authenticate initial ownership. Private
+existential simulator state is not a portable full-resume snapshot.
+The [native learning contract](training_metrics_and_splits.md#target-native-rl-learning-qualification)
+retains unchanged recipes/budgets/bars, strict effective-initial gain and only
+supported proved-optimum ties. [Phase evidence](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#private-compact-implementation-validation)
+records actual adoption/validation; coordinator/codec/durability and exact
+admitted policy replay remain separate.
+
+
 `src/JitML/RL/` owns the framework. `RLRunLifecycle` in
 `src/JitML/RL/Framework.hs` indexes the legal computation phases
 `RLCollect → RLComputeAdvantages → RLOptimise → RLEvaluate → RLCheckpoint`.
@@ -672,6 +688,50 @@ policy and final trained-policy evaluation also use the selected fail-closed
 loop. A device-trained DQN row therefore cannot select actions or publish its
 convergence metric from an unrecorded host-`Double` forward path.
 
+PPO, A2C, TRPO, MaskablePPO and RecurrentPPO likewise evaluate the frozen final
+policy through the same selected `MlpDevice` used for training. Evaluation keeps
+the deterministic environment start, leftmost greedy tie rule, applicable legal
+action mask, configured horizon and complete requested episode count. Invalid
+counts, malformed/non-finite parameters or observations, invalid masks, wrong
+output widths, non-finite outputs/rewards and device failures reject the entire
+evaluation cohort. The pure evaluator is retained for explicit reference use.
+QR-DQN final scoring computes quantile means through the selected device and
+chooses only original legal indices, so finite mask sentinels cannot overtake
+an extremely negative legal action. Continuous and HER final evaluators also
+use their selected device while preserving action transforms, goal domain,
+deterministic resets and the complete requested cohort. Invalid device data or
+failed dispatch rejects the evaluation. AlphaZero's arena uses selected-device
+network decisions with the actual role/order, pass and horizon rules, and its
+lower evaluator returns raw game outcomes before scalar aggregation.
+
+Raw trainer APIs retain actual initial/final state, configuration, statistics,
+counters and outcomes before learning eligibility; they query no witness and
+mint no completion or authenticated origin. Strict neural evidence attaches its
+selected witness after successful training/evaluation. That single local query
+does not cover a higher publisher query or establish host-linear ARS provenance.
+Durable prepared snapshots, native references, physical replay and actual
+five-run qualification remain separate
+[Phase 278 obligations](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work).
+
+Their rollout storage distinguishes `RolloutContinues`, `RolloutTerminated` and
+`RolloutTruncated successorValue`. A true terminal sets the next value to zero;
+a time limit uses the actual pre-reset successor value under the frozen rollout
+parameters. The device collector batches those successors through the same
+selected device and validates the outputs before constructing a rollout. Both
+reset boundaries stop the GAE lambda recurrence; advantages cannot flow from a
+reset episode into its predecessor. Continuing rollout cuts retain their own
+endpoint values, and ended slots never substitute a reset-state value. Extra
+value forwards change neither the horizon/reset RNG rule nor the count of
+physical environment transitions.
+
+Canonical on-policy ProductRows bind `on-policy-greedy-selected-device-v1` as
+`evaluation-recipe` and `on-policy-gae-time-limit-bootstrap-v1` as `rollout-recipe`
+in their semantic subject. The same 22 rows per lane carry both fields; the TRPO
+Fisher version remains an additional independent field. Generic historical
+manifest decoding remains possible, while canonical completed-checkpoint
+refinement rejects the former projected PlanIds before idempotent publication.
+This identity scope is separate from report-only contract digests.
+
 The same host-residency rule applies to supervised training, tuning trial
 training, and AlphaZero value/policy evaluation whenever the selected substrate
 is `apple-silicon`: Pulsar carries typed commands/events, MinIO carries datasets,
@@ -761,6 +821,40 @@ identities, and ProductRow publisher evidence live in the authoritative
 and the legacy-to-new map entries for owning
 [Phase 12](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map) and
 [Phase 19](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map).
+The device Fisher operator forms the categorical product `Jᵀ C J v` using
+symmetric device forwards at a fixed `±0.001` perturbation of a unit direction.
+It first divides each direction component by the maximum absolute component,
+then normalizes that bounded vector by its Euclidean norm. This avoids raw
+sum-of-squares overflow/underflow and reciprocal overflow for subnormal
+components. The device's batched backward computes the unit-direction product;
+the host restores the original magnitude after averaging, then adds damping
+against the original direction. Shrinking CG directions therefore do not shrink
+the whole Float32 parameter perturbation toward zero. The operator still uses
+finite differences; it does not replace the selected backend with an analytic
+host MLP.
+
+Configuration, model shape, rollout-policy structure, and direction finiteness
+are validated before the exact-zero shortcut. A nonzero direction whose norm
+cannot be represented, a malformed/nonfinite device result, or a device error
+fails explicitly. The outer device line search admits the behavior policy
+against the current parameters once before CG; the standalone Fisher seam
+requires that admission and checks categorical structure itself. The unchanged
+line search still evaluates candidate policies and enforces strict surrogate
+improvement and the KL bound. The [Phase 278 baseline diagnostics](../../DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/focused-rl/trpo-prefix/README.md)
+retain the real Metal/Float32 perturbation collapse that motivated this repair.
+That shared precision defect is established independently of the still-unproven
+cause of the full Apple-versus-Linux TRPO reward difference.
+
+The producer-owned numerical recipe version
+`trpo-fisher-unit-direction-central-difference-1e-3-host-rescale-v1` is part of
+the semantic subject of all four TRPO ProductRows on each substrate. It changes
+only those rows' `PlanId`s. Generic manifest decoding still permits historical
+inspection; a checkpoint from the former perturbation path fails canonical RL
+completed-checkpoint refinement before Store can admit it for idempotent reuse.
+The report-only contract digest remains separate; lane-journal admission checks
+the projected `PlanId` directly. This version binds the repaired arithmetic
+without changing the seed, budget, hyperparameters, or convergence criterion.
+
 The ProductRow resolver explicitly tightens Lunar Lander to `max-kl = 0.002`;
 `JitML.RL.TrainerExecution` now derives that environment-specific choice from
 the compiled traditional-RL plan rather than an `App`-local override.

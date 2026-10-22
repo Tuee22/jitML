@@ -89,11 +89,11 @@ sourceDigestFileRoots = ["cabal.project", "jitml.cabal"]
 -- lint @files.static-jit-source@ rejects a checked-in file with any of them
 -- anywhere in the tree it lints, which includes @app/@, @src/@, and @test/@
 -- (compiler inputs are rendered from Haskell under @.build/jit-src/@), so those
--- roots hold none. It is not because the image's @.dockerignore@ strips them:
--- its patterns such as @*.cc@ match only at the root of the build context, never
--- below @src/@. A file type that is ever added under a root must be added here in
--- the same change, together with a bump of 'sourceDigestAlgorithm' (a unit test
--- pins this list).
+-- roots hold none. This guarantee does not depend on the image's recursive
+-- @.dockerignore@ exclusions: the source lint must reject those files before
+-- they can become unchecked compiler inputs. A file type added under a root
+-- must be added here in the same change, together with a bump of
+-- 'sourceDigestAlgorithm' (a unit test pins this list).
 sourceDigestExtensions :: [String]
 sourceDigestExtensions =
   [ ".hs"

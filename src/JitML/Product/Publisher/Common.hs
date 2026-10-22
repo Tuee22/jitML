@@ -141,14 +141,19 @@ productPublishEligible
   -> [ProductArtifactReceipt]
   -> Text
   -> ProductPublishResult
-productPublishEligible projection admitted artifacts message =
-  ProductPublishResult
-    { productPublishRowId = ProductMatrix.productProjectionRowId projection
-    , productPublishExperimentHash = ProductMatrix.productProjectionExperimentHash projection
-    , productPublishDisposition = ProductPublishEligible admitted
-    , productPublishArtifacts = artifacts
-    , productPublishMessage = message
-    }
+productPublishEligible projection admitted artifacts message
+  | ProductMatrix.productProjectionFamily projection
+      `elem` [ProductMatrix.ReinforcementLearning, ProductMatrix.AlphaZero] =
+      productPublishError projection "native ProductRow cannot use legacy callback checkpoint eligibility"
+  | otherwise =
+      ProductPublishResult
+        { productPublishRowId = ProductMatrix.productProjectionRowId projection
+        , productPublishExperimentHash = ProductMatrix.productProjectionExperimentHash projection
+        , productPublishDisposition = ProductPublishEligible admitted
+        , productPublishArtifacts = artifacts
+        , productPublishSupervisedQualification = Nothing
+        , productPublishMessage = message
+        }
 
 productPublishUnsupported :: ProductMatrix.ProductProjection kind -> Text -> ProductPublishResult
 productPublishUnsupported projection message =
@@ -157,6 +162,7 @@ productPublishUnsupported projection message =
     , productPublishExperimentHash = ProductMatrix.productProjectionExperimentHash projection
     , productPublishDisposition = ProductPublishUnsupported message
     , productPublishArtifacts = []
+    , productPublishSupervisedQualification = Nothing
     , productPublishMessage = message
     }
 
@@ -167,6 +173,7 @@ productPublishError projection message =
     , productPublishExperimentHash = ProductMatrix.productProjectionExperimentHash projection
     , productPublishDisposition = ProductPublishError message
     , productPublishArtifacts = []
+    , productPublishSupervisedQualification = Nothing
     , productPublishMessage = message
     }
 

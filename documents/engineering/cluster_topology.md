@@ -92,7 +92,7 @@ StorageClass and backed by a `hostPath` under
 `/jitml/.data/<namespace>/<StatefulSet-name>/pv_<replica-int>/` inside the
 Kind node. The host directory is repo-local
 `./.data/<namespace>/<StatefulSet-name>/pv_<replica-int>/`, mounted into the
-node at `/jitml/.data`; `.data` is strictly for these manual PV bind mounts.
+node at `/jitml/.data`. `.data` owns these registered manual PV bind mounts and the reserved `.jitml-pv-snapshots/<substrate>/` lifecycle snapshot namespace.
 Kind metadata, runtime coordinates, kubeconfig, generated Dhall, and JIT
 artifacts live under `./.build/`.
 
@@ -107,6 +107,58 @@ layout, but the live MinIO, Pulsar, and Postgres write paths use node-local
 storage on macOS/Colima to avoid host bind-mount ownership and I/O stalls.
 `linux-cuda` runs on a real Linux/NVIDIA host and uses the `.data` hostPath
 directly with Postgres ownership normalization.
+
+The node-local trees live inside each Kind node's anonymous `/var` volume;
+preserving the hidden host `.data` directories alone does not preserve these
+writes. `cluster down --substrate <name>` holds an exclusive lifecycle lease,
+clears readiness before quiescence, drains actual registered writers, archives
+every node's complete closed PV registry and verifies content and restorable
+metadata through an isolated Linux scratch restore. Only a durably selected,
+verified generation permits Kind deletion. Source CIDs and complete before/after
+manifests remain exact; cross-filesystem comparison permits only filesystem
+identity and directory-allocation differences. Snapshot archives and selectors
+are private, purge-owned files under `.data/.jitml-pv-snapshots/<substrate>/`.
+
+Extraction first preserves payload no-overwrite protection with GNU tar's
+`--keep-old-files`. A second `--no-recursion --overwrite-dir` pass selects only
+the first unique literal root-directory entry through the same held archive and
+destination descriptors. Root PAX metadata is validated before either pass,
+including exact decimal nanosecond times. This restores the root's numeric
+owner/group, permission and SGID bits, ACLs, xattrs and mtime. Complete archive
+hash/identity checks follow both passes, and the unchanged whole-tree comparison
+must include the root. A successful tar exit alone does not admit restoration.
+
+Fresh Kind creation restores the selected generation before overlays or Helm
+releases. Every destination must be empty, every archive exact, and all restored
+node manifests must match before a completed restore marker is written. Failed
+or cancelled restoration leaves a durable pending marker; reuse and normal down
+refuse those partial roots. Existing admitted roots are not restored again.
+Snapshot verification does not publish live readiness: the normal bootstrap
+readiness gates remain authoritative.
+
+The permanent `.jitml-pv-lifecycle.lock` and exclusive
+`.jitml-pv-lifecycle.claim.lock/` live at the repository root, outside `.data`
+and `.build`, and are ignored by both Git and Docker. The shared claim is needed
+because the host and guest can each acquire `flock` on the same bridged file.
+Lease scope covers the complete bootstrap/down/reset operation. Claim creation
+is exclusive and fsynced; release requires the same held owner identity/token.
+An interrupted claim is not automatically reclaimed from a PID observation.
+
+Metadata-sensitive snapshot work also requires external permission writers to
+be inactive. Colima's optional inotify bridge can forward host writes by applying
+the existing permission mode in the guest, which changes ctime; see the
+[Colima 0.10.3 implementation](https://raw.githubusercontent.com/abiosoft/colima/v0.10.3/daemon/process/inotify/events.go).
+Use that environment with inotify forwarding disabled during this work. The
+snapshot reader retains its complete identity checks and refuses a changed file;
+an external same-mode permission update does not justify omitting ctime.
+
+Destructive `cluster reset --yes` invalidates all snapshot selections durably
+before deletion, refuses another extant substrate cluster that shares `.data`,
+and clears retained readiness. Data is detached into an exclusive ignored
+`.data-preserved-purge-<token>-data/` quarantine before descriptor-relative cleanup.
+A cleanup failure retains detached bytes and cannot reselect them. `--full`
+removes `.build` only after data cleanup; both lifecycle guards survive it.
+
 
 Every PVC is created **only** by a StatefulSet's `volumeClaimTemplates`;
 freestanding PVCs are a chart-lint failure. StatefulSet PVs carry
@@ -140,8 +192,9 @@ values, and assertions remain listed in
 [legacy-tracking-for-deletion.md](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)
 until their owning phases remove them.
 
-`jitml lint files` rejects any path under `.data/` that does not match the
-`<namespace>/<StatefulSet>/pv_<int>` regex. `jitml lint chart`
+`jitml lint files` excludes runtime `.data` trees. The typed lifecycle API
+validates the reserved snapshot paths and closed `manualPVsFor` registry with
+no-follow traversal; it rejects unregistered payload paths. `jitml lint chart`
 rejects any StorageClass with a provisioner other than
 `kubernetes.io/no-provisioner`, any freestanding PVC, and any PV without either
 an explicit `claimRef` or a registered Percona `volumeName` binding.

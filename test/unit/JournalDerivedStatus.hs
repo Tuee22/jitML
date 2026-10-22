@@ -38,7 +38,8 @@ import Data.Text.Encoding qualified as Text.Encoding
 import Data.Text.IO qualified as Text.IO
 import Data.Vector qualified as Vector
 import System.Directory
-  ( copyFile
+  ( canonicalizePath
+  , copyFile
   , createDirectoryIfMissing
   , createFileLink
   , doesDirectoryExist
@@ -62,6 +63,8 @@ import JitML.App qualified as App
 import JitML.Docs.Check (DocsCheckEnvironment (..))
 import JitML.Docs.Check qualified as DocsCheck
 import JitML.Plan.Plan (Validation (..))
+import JitML.Product.LaneRegistration qualified as Registration
+import JitML.Product.LaneRegistrationData qualified as RegistrationData
 import JitML.Product.Matrix (ProductMatrixError (..))
 import JitML.Product.Matrix qualified as Product
 import JitML.Product.PhaseStatus qualified as PhaseStatus
@@ -82,6 +85,7 @@ import JitML.Product.StatusEvidence
   , EvidenceIndex (..)
   , EvidenceRef (..)
   , Obligation (..)
+  , Phase278Context (..)
   , PhaseEntry (..)
   , Refusal (..)
   , Scope (..)
@@ -127,6 +131,7 @@ import JitML.Test.ProductAggregation
   )
 import JitML.Test.ProductAggregation qualified as Aggregate
 import JitML.Test.ProductLaneJournal qualified as Lane
+import JitML.Test.RegisteredLaneEvidence qualified as Registered
 import JitML.Test.Report qualified as Report
 import JitML.Test.ValidationEvidence qualified as ValidationEvidence
 
@@ -211,6 +216,8 @@ allProvenIndex =
     , indexCurrentSource = Right fixtureStamp
     , indexPendingControls = Just []
     , indexLedger = Just (proven "ledger")
+    , indexPhase278Contexts =
+        Map.fromList [(context, proven "observed Phase 278 context") | context <- [minBound .. maxBound]]
     }
 
 -- | The evidence committed today, as fixtures: only the CUDA lane journal is
@@ -246,20 +253,6 @@ withoutExternalObligations = fmap stripPhase
       _ -> entry
   isExternal (ExternalContext _) = True
   isExternal _ = False
-
--- | Clear one named external prerequisite while retaining every other owned gap.
-withoutExternalContext :: Text -> [PhaseEntry] -> [PhaseEntry]
-withoutExternalContext description = fmap stripPhase
- where
-  stripPhase phase = phase {entrySprints = fmap stripSprint (entrySprints phase)}
-  stripSprint entry =
-    case entryClosure entry of
-      Evidence.Evidenced work upstream obligations
-        | Just kept <-
-            NonEmpty.nonEmpty
-              (filter (/= ExternalContext description) (NonEmpty.toList obligations)) ->
-            entry {entryClosure = Evidence.Evidenced work upstream kept}
-      _ -> entry
 
 -- | The projection of the external-free real catalogue over an index.
 projectClosable :: EvidenceIndex -> StatusReport
@@ -840,7 +833,7 @@ closureGuardTests =
           Evidence.statusCounts report
             @?= StatusCounts {countDone = 70, countActive = 0, countPlanned = 0, countBlocked = 0}
           Evidence.closureOutcome (reportVerdict report) @?= Right (Evidence.reportLegacy report)
-          length (Evidence.reportLegacy report) @?= 63
+          length (Evidence.reportLegacy report) @?= 62
           DocsCheck.checkDocumentClosureClaimsText (reportVerdict report) "docs.md" productionReadyClaim
             @?= []
           assertBool
@@ -1296,13 +1289,13 @@ planDocTests =
 -- The catalogue and its frozen legacy class
 -- ---------------------------------------------------------------------------
 
--- | The legacy-attested class as it stood when Phase 288 froze it, written here
--- independently of the catalogue so growing the class means editing two files.
+-- | The shrink-only legacy-attested class, written independently of the
+-- catalogue. Reopening the behavioral detector removes Phase 279 from both.
 frozenLegacyLiteral :: [Text]
 frozenLegacyLiteral =
   [ tshow phase <> ".1"
   | phase <- [220 .. 289 :: Int]
-  , phase `notElem` [278, 280, 281, 282, 285, 288, 289]
+  , phase `notElem` [278, 279, 280, 281, 282, 285, 288, 289]
   ]
 
 -- | What every evidenced sprint owes as this phase froze it: the declared work
@@ -1315,24 +1308,38 @@ pinnedEvidencedSprints =
     , []
     ,
       [ LaneJournal LinuxCPU
-      , LaneJournal LinuxCUDA
       , LaneJournal AppleSilicon
-      , Aggregate
-      , GateTranscript JitmlUnit LinuxCPU
+      , GateTranscript JitmlNegativeControls LinuxCPU
       , GateTranscript JitmlBackends LinuxCPU
-      , ExternalContext "Apple Silicon execution context"
-      , ExternalContext "Independent supervised convergence-anchor review"
-      , ExternalContext "Live generic RL CLI and daemon validation"
+      , GateTranscript JitmlBackends AppleSilicon
+      , GateTranscript JitmlDaemonLifecycle LinuxCPU
+      , Phase278Prerequisite AppleExecutionContext
+      , Phase278Prerequisite SupervisedCriterionContext
+      , Phase278Prerequisite NativeCriterionContext
+      , Phase278Prerequisite GenericRlLiveContext
+      ]
+    )
+  ,
+    ( "279.1"
+    , Started
+    , ["278.1"]
+    ,
+      [ LaneJournal LinuxCUDA
+      , GateTranscript JitmlBackends LinuxCUDA
+      , GateTranscript JitmlNegativeControls LinuxCPU
+      , ExternalContext "Behavioral output-dependence detector and positive/negative validation"
       ]
     )
   ,
     ( "280.1"
     , Started
-    , ["278.1"]
+    , ["279.1"]
     ,
       [ NoPendingControls 280
+      , Aggregate
       , GateTranscript JitmlNegativeControls LinuxCPU
       , GateTranscript JitmlUnit LinuxCPU
+      , GateTranscript JitmlIntegration LinuxCPU
       ]
     )
   ,
@@ -1392,9 +1399,9 @@ catalogueTests =
         PhaseStatus.productPhaseNumbers @?= [220 .. 289]
         PhaseStatus.productPhaseRange @?= (220, 289)
         PhaseStatus.validateProductStatusCatalogue @?= []
-    , testCase "the legacy-attested class is frozen: 63 sprints, exactly the historical Done set" $ do
+    , testCase "the legacy-attested class is frozen: 62 sprints after the behavioral-detector reopening" $ do
         PhaseStatus.frozenLegacyAttested @?= frozenLegacyLiteral
-        length frozenLegacyLiteral @?= 63
+        length frozenLegacyLiteral @?= 62
         legacyIds @?= frozenLegacyLiteral
     , testCase "the legacy class can shrink but never grow" $ do
         -- A legacy entry outside the frozen set is a catalogue problem.
@@ -1457,9 +1464,9 @@ catalogueTests =
           assertBool
             (Text.unpack sprint <> " has only external obligations, so it could never be Done")
             (not (all isExternalObligation (NonEmpty.toList obligations)))
-    , testCase "the open sprints are exactly 278, 280, 281, 282, 285, 288, and 289" $
+    , testCase "the open sprints are exactly 278, 279, 280, 281, 282, 285, 288, and 289" $
         fmap (\(sprint, _, _) -> sprint) evidencedEntries
-          @?= ["278.1", "280.1", "281.1", "282.1", "285.1", "288.1", "289.1"]
+          @?= ["278.1", "279.1", "280.1", "281.1", "282.1", "285.1", "288.1", "289.1"]
     , testCase "every pending production control is owned by a sprint that carries its obligation" $ do
         let covered =
               [ phase
@@ -1492,7 +1499,8 @@ catalogueTests =
         forM_ evidencedEntries $ \(sprint, upstream, _) ->
           upstream
             @?= case sprint of
-              "280.1" -> ["278.1"]
+              "279.1" -> ["278.1"]
+              "280.1" -> ["279.1"]
               "281.1" -> ["280.1"]
               "282.1" -> ["281.1"]
               "285.1" -> ["282.1"]
@@ -1593,6 +1601,7 @@ expectedLaneKind err =
   case err of
     Lane.ProductLaneJournalSourceRejected _ -> KMismatched
     Lane.ProductLaneJournalContractStale {} -> KStale
+    Lane.ProductLaneJournalWireStale _ _ -> KStale
     Lane.ProductLaneJournalMalformed _ -> KMismatched
     Lane.ProductLaneJournalNonCanonical -> KMismatched
     Lane.ProductLaneJournalDigestMismatch _ _ -> KMismatched
@@ -1602,6 +1611,7 @@ laneErrors :: [Lane.ProductLaneJournalError]
 laneErrors =
   [ Lane.ProductLaneJournalSourceRejected "row: plan_id differs from the current projection"
   , Lane.ProductLaneJournalContractStale "PPO/key-door-grid" (digestOf '1') (digestOf '2')
+  , Lane.ProductLaneJournalWireStale 2 1
   , Lane.ProductLaneJournalMalformed "unexpected end of input"
   , Lane.ProductLaneJournalNonCanonical
   , Lane.ProductLaneJournalDigestMismatch (digestOf '1') (digestOf '2')
@@ -1618,6 +1628,31 @@ expectedAggregateKinds err =
     ProductAggregationMissingRow _ _ -> [KIncomplete]
     ProductAggregationIOFailure _ _ -> [KMissing]
     ProductAggregationReportDrift _ -> [KMismatched]
+    ProductAggregationRegisteredLaneRejected _ failure -> expectedRegisteredKinds failure
+
+-- Keep every historical title unchanged; the longer new wrapper constructor
+-- would otherwise truncate all nine new nested failures to the same title.
+aggregateErrorCaseName :: ProductAggregationError -> String
+aggregateErrorCaseName err =
+  case err of
+    ProductAggregationRegisteredLaneRejected _ failure -> "registered " <> take 160 (show failure)
+    _ -> take 50 (show err)
+
+expectedRegisteredKinds :: Registered.RegisteredLaneError -> [Kind]
+expectedRegisteredKinds failure =
+  case failure of
+    Registered.RegisteredLaneSelectionRejected selection ->
+      [ case selection of
+          Registration.LaneRegistrationMissing _ -> KMissing
+          Registration.LaneRegistrationReadFailure _ _ -> KMismatched
+          Registration.LaneRegistrationRejected _ _ -> KMismatched
+          Registration.LaneRegistrationFileMismatch {} -> KStale
+          Registration.LaneRegistrationLaneMismatch _ _ -> KMismatched
+      ]
+    Registered.RegisteredLaneProjectionRejected _ -> [KMismatched]
+    Registered.RegisteredLaneContractsStale _ _ -> [KStale]
+    Registered.RegisteredLaneBindingRejected _ -> [KMismatched]
+    Registered.RegisteredLaneJournalRejected errors -> fmap expectedLaneKind (NonEmpty.toList errors)
 
 aggregateErrors :: [ProductAggregationError]
 aggregateErrors =
@@ -1629,6 +1664,26 @@ aggregateErrors =
   , ProductAggregationIOFailure "product-aggregate.json" "does not exist"
   , ProductAggregationReportDrift "product-aggregate.json"
   ]
+    <> [ ProductAggregationRegisteredLaneRejected LinuxCPU failure
+       | failure <-
+           [ Registered.RegisteredLaneSelectionRejected (Registration.LaneRegistrationMissing "selected.json")
+           , Registered.RegisteredLaneSelectionRejected
+               (Registration.LaneRegistrationReadFailure "selected.json" "unreadable selection")
+           , Registered.RegisteredLaneSelectionRejected
+               ( Registration.LaneRegistrationRejected
+                   "selected.json"
+                   (RegistrationData.LaneRegistrationDataError "malformed selection")
+               )
+           , Registered.RegisteredLaneSelectionRejected
+               (Registration.LaneRegistrationFileMismatch "snapshot.json" (digestOf '1') (digestOf '2') 1 2)
+           , Registered.RegisteredLaneSelectionRejected
+               (Registration.LaneRegistrationLaneMismatch LinuxCPU AppleSilicon)
+           , Registered.RegisteredLaneProjectionRejected (EmptyProductProjectionBatch :| [])
+           , Registered.RegisteredLaneContractsStale (digestOf '1') (digestOf '2')
+           , Registered.RegisteredLaneBindingRejected "substituted original review identity"
+           , Registered.RegisteredLaneJournalRejected (NonEmpty.fromList laneErrors)
+           ]
+       ]
 
 pinFixtures :: [ProductLaneInput]
 pinFixtures =
@@ -1707,7 +1762,7 @@ loaderMappingTests =
         )
     , testGroup
         "aggregate reader errors map by constructor"
-        [ testCase (take 50 (show err)) $
+        [ testCase (aggregateErrorCaseName err) $
             fmap kindOf (Loader.aggregateErrorUnmet err) @?= expectedAggregateKinds err
         | err <- aggregateErrors
         ]
@@ -3093,9 +3148,9 @@ statusReportRenderTests =
         let rendered = Evidence.renderStatusReport (PhaseStatus.projectProductStatus todayIndex)
             renderedLines = Text.lines rendered
         take 5 renderedLines
-          @?= [ "status: 63 Done / 1 Active / 0 Planned / 6 Blocked across 70 sprints"
-              , "legacy attested: 63 sprint(s), frozen and shrink-only; legacy attestation never mints a Done"
-              , "open chain: 278 -> 280 -> 281 -> 282 -> 285 -> 288 -> 289"
+          @?= [ "status: 62 Done / 1 Active / 0 Planned / 7 Blocked across 70 sprints"
+              , "legacy attested: 62 sprint(s), frozen and shrink-only; legacy attestation never mints a Done"
+              , "open chain: 278 -> 279 -> 280 -> 281 -> 282 -> 285 -> 288 -> 289"
               , "closure: refused (" <> countText rendered <> " unmet obligations)"
               , "docs check and check-code are computed when they run, never attested"
               ]
@@ -3107,8 +3162,8 @@ statusReportRenderTests =
           "stale CPU lane is listed as unmet"
           ("  unmet   lane-journal linux-cpu: stale: " `Text.isInfixOf` rendered)
         assertBool
-          "the external obligation is listed"
-          ("external: Apple Silicon execution context" `Text.isInfixOf` rendered)
+          "the unresolved machine-observable context is listed"
+          ("missing: Apple Silicon execution context" `Text.isInfixOf` rendered)
         assertBool
           "standing obligations are listed"
           ("standing obligations guard the closure verdict:" `Text.isInfixOf` rendered)
@@ -3119,7 +3174,7 @@ statusReportRenderTests =
         let rendered = Evidence.renderStatusReport (projectClosable allProvenIndex)
         assertBool
           "closed"
-          ( "closure: closed on machine evidence (63 legacy-attested sprints disclosed)"
+          ( "closure: closed on machine evidence (62 legacy-attested sprints disclosed)"
               `Text.isInfixOf` rendered
           )
         assertBool "no open chain" ("open chain: (none)" `Text.isInfixOf` rendered)
@@ -3230,24 +3285,25 @@ productPhaseStatusRegistryTests =
         PhaseStatus.validateProductPhaseStatuses
           (PhaseStatus.productPhaseStatuses (PhaseStatus.projectProductStatus todayIndex))
           @?= []
-    , testCase "the derived registry reproduces 63 Done / 1 Active / 0 Planned / 6 Blocked from evidence" $ do
+    , testCase "the derived registry reproduces 62 Done / 1 Active / 0 Planned / 7 Blocked from evidence" $ do
         let report = PhaseStatus.projectProductStatus todayIndex
         Evidence.statusCounts report
-          @?= StatusCounts {countDone = 63, countActive = 1, countPlanned = 0, countBlocked = 6}
+          @?= StatusCounts {countDone = 62, countActive = 1, countPlanned = 0, countBlocked = 7}
         [ status
           | (sprint, status) <- statuses report
-          , sprint `elem` ["278.1", "280.1", "281.1", "282.1", "285.1", "288.1", "289.1"]
+          , sprint `elem` ["278.1", "279.1", "280.1", "281.1", "282.1", "285.1", "288.1", "289.1"]
           ]
-          @?= [Active, Blocked, Blocked, Blocked, Blocked, Blocked, Blocked]
-    , testCase "the open chain 278 -> 280 -> 281 -> 282 -> 285 -> 288 -> 289 is derived, not typed" $ do
+          @?= [Active, Blocked, Blocked, Blocked, Blocked, Blocked, Blocked, Blocked]
+    , testCase "the open chain 278 -> 279 -> 280 -> 281 -> 282 -> 285 -> 288 -> 289 is derived, not typed" $ do
         let report = PhaseStatus.projectProductStatus todayIndex
-        Evidence.openChain report @?= ["278.1", "280.1", "281.1", "282.1", "285.1", "288.1", "289.1"]
+        Evidence.openChain report
+          @?= ["278.1", "279.1", "280.1", "281.1", "282.1", "285.1", "288.1", "289.1"]
         mapMaybe Evidence.sprintPhaseNumber (Evidence.openChain report)
-          @?= [278, 280, 281, 282, 285, 288, 289]
+          @?= [278, 279, 280, 281, 282, 285, 288, 289]
         -- With no evidence at all the chain is the same: nothing typed keeps it.
         Evidence.openChain (PhaseStatus.projectProductStatus Evidence.emptyEvidenceIndex)
           @?= Evidence.openChain report
-        -- And it moves with the evidence: proving 278.1 leaves 280.1 next.
+        -- And it moves with the evidence: proving 278.1 leaves 279.1 next.
         let progressed =
               PhaseStatus.projectProductStatus
                 todayIndex
@@ -3256,43 +3312,43 @@ productPhaseStatusRegistryTests =
                   , indexTranscripts =
                       Map.singleton (JitmlUnit, LinuxCPU) (TranscriptEvidence (proven "unit") (Just fixtureStamp))
                   }
-        -- 278.1 still owns an external prerequisite, so it stays open: the chain
+        -- 278.1 still lacks observed criterion/live evidence, so the chain
         -- head does not move on lane journals alone.
         take 1 (Evidence.openChain progressed) @?= ["278.1"]
+    , testCase "completing Phase 278 cannot close the reopened behavioral detector or start Phase 280" $ do
+        let report = PhaseStatus.projectProductStatus allProvenIndex
+        statusOf report "278.1" @?= Just Done
+        statusOf report "279.1" @?= Just Active
+        statusOf report "280.1" @?= Just Blocked
+        take 1 (Evidence.openChain report) @?= ["279.1"]
+        assertBool
+          "passing existing gates cannot prove the absent behavioral detector"
+          ( External "Behavioral output-dependence detector and positive/negative validation"
+              `elem` reasonsOf report "279.1"
+          )
     , testCase "fresh Apple evidence cannot close unresolved supervised anchors" $ do
-        let catalogue =
-              withoutExternalContext
-                "Apple Silicon execution context"
-                PhaseStatus.productStatusCatalogue
-            report =
-              Evidence.projectStatusReport
-                catalogue
-                PhaseStatus.productStandingObligations
+        let report =
+              PhaseStatus.projectProductStatus
                 allProvenIndex
+                  { indexPhase278Contexts = Map.delete SupervisedCriterionContext (indexPhase278Contexts allProvenIndex)
+                  }
         statusOf report "278.1" @?= Just Active
         statusOf report "280.1" @?= Just Blocked
         assertBool
           "the independent anchor review remains an owned unmet obligation"
-          ( External "Independent supervised convergence-anchor review"
+          ( Missing "Independent supervised convergence-anchor review"
               `elem` reasonsOf report "278.1"
           )
     , testCase "fresh journals do not replace generic RL live validation" $ do
-        let catalogue =
-              withoutExternalContext
-                "Independent supervised convergence-anchor review"
-                ( withoutExternalContext
-                    "Apple Silicon execution context"
-                    PhaseStatus.productStatusCatalogue
-                )
-            report =
-              Evidence.projectStatusReport
-                catalogue
-                PhaseStatus.productStandingObligations
+        let report =
+              PhaseStatus.projectProductStatus
                 allProvenIndex
+                  { indexPhase278Contexts = Map.delete GenericRlLiveContext (indexPhase278Contexts allProvenIndex)
+                  }
         statusOf report "278.1" @?= Just Active
         assertBool
           "the generic RL live validation remains an owned unmet obligation"
-          ( External "Live generic RL CLI and daemon validation"
+          ( Missing "Live generic RL CLI and daemon validation"
               `elem` reasonsOf report "278.1"
           )
     , testCase "reports incomplete while any product sprint is open" $ do
@@ -3498,7 +3554,7 @@ docsCheckCompositionTests =
     [ testCase "a tree whose plan documents agree with the projection has no status drift" $
         withPlanTree $ \root report -> do
           Evidence.statusCounts report
-            @?= StatusCounts {countDone = 63, countActive = 1, countPlanned = 0, countBlocked = 6}
+            @?= StatusCounts {countDone = 62, countActive = 1, countPlanned = 0, countBlocked = 7}
           length (planTreeFor report) @?= 70
           drifts <- DocsCheck.checkDocsWith (fixtureEnvironment root)
           driftKeysOf drifts @?= []
@@ -3658,26 +3714,96 @@ registeredLaneInput lane =
     input : _ -> input
     [] -> error ("no registered lane input for " <> show lane)
 
+-- | Ordinary checked selection/generation DATA with current full55 contracts.
+-- The journal marker is deliberately replaced by same-length different bytes,
+-- so actual registered loading must stop at FILE identity before journal or
+-- review admission. No successfully admitted lane capability is manufactured.
+writeRegisteredJournalMismatchFixture :: FilePath -> Substrate -> IO (Text, Text, Text)
+writeRegisteredJournalMismatchFixture root lane = do
+  batch <- case Product.projectProductRows lane Product.allProductRows of
+    Failure errors -> failTest (show errors)
+    Success projected -> pure projected
+  let contracts = Registered.currentLaneRowContracts batch
+      expectedJournal = "registered journal A\n"
+      actualJournal = "registered journal B\n"
+      expectedJournalSha = Record.sha256Hex expectedJournal
+      actualJournalSha = Record.sha256Hex actualJournal
+      journalPath = RegistrationData.laneGenerationJournalPath lane expectedJournalSha
+  contractSet <- either (failTest . show) pure (RegistrationData.laneRowContractsSha256 contracts)
+  let reviewForScope scope =
+        let prefix =
+              "DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/criterion-reviews/"
+                <> stampSha256 fixtureStamp
+                <> "/"
+                <> renderSubstrate lane
+                <> "/"
+                <> scope
+                <> "/"
+         in RegistrationData.LaneReviewIdentityData
+              (RegistrationData.SelectedLaneFileData (prefix <> "selection.cbor") (digestOf 'c') 1)
+              (RegistrationData.SelectedLaneFileData (prefix <> "receipt.cbor") (digestOf 'd') 1)
+              contractSet
+      fixtureGeneration =
+        RegistrationData.LaneGenerationData
+          lane
+          fixtureStamp
+          ( RegistrationData.SelectedLaneFileData
+              journalPath
+              expectedJournalSha
+              (fromIntegral (ByteString.length expectedJournal))
+          )
+          contracts
+          (reviewForScope "supervised")
+          (reviewForScope "native")
+  generationBytes <-
+    either (failTest . show) pure (RegistrationData.encodeLaneGenerationData fixtureGeneration)
+  let generationSha = Record.sha256Hex generationBytes
+      generationPath = RegistrationData.laneGenerationPath generationSha
+      fixtureSelection =
+        RegistrationData.LaneRegistrationData
+          lane
+          [ RegistrationData.LaneRegistrationEntryData
+              0
+              Nothing
+              ( RegistrationData.SelectedLaneFileData
+                  generationPath
+                  generationSha
+                  (fromIntegral (ByteString.length generationBytes))
+              )
+          ]
+  selectionBytes <-
+    either (failTest . show) pure (RegistrationData.encodeLaneRegistrationData fixtureSelection)
+  ByteString.length actualJournal @?= ByteString.length expectedJournal
+  assertBool "registered journal mutation changed SHA" (actualJournalSha /= expectedJournalSha)
+  writeTree
+    root
+    [ (RegistrationData.laneRegistrationPath lane, selectionBytes)
+    , (Text.unpack generationPath, generationBytes)
+    , (Text.unpack journalPath, actualJournal)
+    ]
+  pure (journalPath, expectedJournalSha, actualJournalSha)
+
 loaderDiskTests :: TestTree
 loaderDiskTests =
   testGroup
     "the loader reads committed evidence below a root"
     [ testCase "an empty tree: every lane, the aggregate, every transcript, and the ledger are Missing" $
-        withTree [] $ \root -> do
+        withTree [] $ \directory -> do
+          root <- canonicalizePath directory
           index <- Loader.loadEvidenceIndexIn root
           Map.toList (indexLanes index)
             @?= List.sortOn
               fst
-              [ ( productLaneInputSubstrate input
-                , unproven (Missing (Text.pack (productLaneInputPath input)))
+              [ ( lane
+                , unproven (Missing (Text.pack (RegistrationData.laneRegistrationPath lane)))
                 )
-              | input <- Aggregate.productLaneInputs
+              | lane <- allSubstrates
               ]
           case indexAggregate index of
             Just (Unproven reasons) ->
               NonEmpty.toList reasons
                 @?= [ Missing (Text.pack Aggregate.productAggregatePath)
-                    , Missing (Text.pack (productLaneInputPath (registeredLaneInput LinuxCPU)))
+                    , Missing (Text.pack (RegistrationData.laneRegistrationPath LinuxCPU))
                     ]
             other -> assertFailure ("expected an unproven aggregate, got " <> show other)
           Map.size (indexTranscripts index) @?= 30
@@ -3743,16 +3869,28 @@ loaderDiskTests =
         $ do
           let cuda = registeredLaneInput LinuxCUDA
               cpu = registeredLaneInput LinuxCPU
-          withTree [(productLaneInputPath cuda, "not the pinned journal\n")] $ \root -> do
-            index <- Loader.loadEvidenceIndexIn root
-            case Map.lookup LinuxCUDA (indexLanes index) of
-              Just (Unproven (Mismatched detail :| [])) ->
+          withTree [(productLaneInputPath cuda, "not the pinned journal\n")] $ \directory -> do
+            root <- canonicalizePath directory
+            -- The explicit historical reader retains the original pinned-byte
+            -- Mismatched/Missing contract; a legacy file is never a registration.
+            (_, legacyCuda) <- Loader.loadLaneJournalIn root cuda
+            case legacyCuda of
+              Unproven (Mismatched detail :| []) ->
                 assertBool
                   "the pin is named"
                   (productLaneInputSha256 cuda `Text.isInfixOf` detail)
               other -> assertFailure ("expected Mismatched, got " <> show other)
-            Map.lookup LinuxCPU (indexLanes index)
-              @?= Just (unproven (Missing (Text.pack (productLaneInputPath cpu))))
+            Loader.loadLaneJournalIn root cpu
+              >>= (@?= (LinuxCPU, unproven (Missing (Text.pack (productLaneInputPath cpu)))))
+            index <- Loader.loadEvidenceIndexIn root
+            forM_ [LinuxCPU, LinuxCUDA] $ \lane ->
+              Map.lookup lane (indexLanes index)
+                @?= Just (unproven (Missing (Text.pack (RegistrationData.laneRegistrationPath lane))))
+            (journalPath, expectedJournalSha, actualJournalSha) <-
+              writeRegisteredJournalMismatchFixture root LinuxCUDA
+            mismatched <- Loader.loadEvidenceIndexIn root
+            Map.lookup LinuxCUDA (indexLanes mismatched)
+              @?= Just (unproven (Stale journalPath expectedJournalSha actualJournalSha))
     , testCase
         "a retained aggregate is read from the tree: another pin is Stale, and nothing is proven without the lanes"
         $ do
@@ -3763,10 +3901,22 @@ loaderDiskTests =
                   , ("linux-cuda", digestOf '9')
                   , ("apple-silicon", pinOf AppleSilicon)
                   ]
-          withTree [(Aggregate.productAggregatePath, retained)] $ \root -> do
-            index <- Loader.loadEvidenceIndexIn root
-            case indexAggregate index of
-              Just (Unproven reasons) -> do
+          withTree [(Aggregate.productAggregatePath, retained)] $ \directory -> do
+            root <- canonicalizePath directory
+            -- Preserve the exact ordinary legacy-pin comparison without claiming
+            -- these DATA pins are actually admitted current registered lanes.
+            case Loader.judgeAggregate
+              Aggregate.productAggregatePath
+              Aggregate.productLaneInputs
+              ( Left
+                  ( ProductAggregationIOFailure
+                      (productLaneInputPath (registeredLaneInput LinuxCPU))
+                      "missing fixture lane"
+                      :| []
+                  )
+              )
+              (Right retained) of
+              Unproven reasons -> do
                 assertBool
                   "the embedded pin is stale against the registered one"
                   ( Stale
@@ -3784,6 +3934,19 @@ loaderDiskTests =
                   "the retained file itself was found"
                   (Missing (Text.pack Aggregate.productAggregatePath) `notElem` reasons)
               other -> assertFailure ("expected an unproven aggregate, got " <> show other)
+            index <- Loader.loadEvidenceIndexIn root
+            case indexAggregate index of
+              Just (Unproven reasons) -> do
+                assertBool
+                  "unadmitted legacy pins cannot replace current registrations"
+                  (Mismatched "retained aggregate names an unregistered lane linux-cuda" `elem` reasons)
+                assertBool
+                  "missing current CPU registration refuses the aggregate"
+                  (Missing (Text.pack (RegistrationData.laneRegistrationPath LinuxCPU)) `elem` reasons)
+                assertBool
+                  "the actual retained aggregate FILE was found"
+                  (Missing (Text.pack Aggregate.productAggregatePath) `notElem` reasons)
+              other -> assertFailure ("expected an unproven registered aggregate, got " <> show other)
     , testGroup
         "the legacy ledger"
         [ testCase "rows in Pending Removal keep the ledger Incomplete"
@@ -4084,10 +4247,10 @@ entryPointTests =
           cliExit run @?= ExitSuccess
           let outputLines = Text.lines (cliStdout run)
           take 1 outputLines
-            @?= ["status: 63 Done / 1 Active / 0 Planned / 6 Blocked across 70 sprints"]
+            @?= ["status: 62 Done / 1 Active / 0 Planned / 7 Blocked across 70 sprints"]
           assertBool
             "the open chain is derived and printed"
-            ("open chain: 278 -> 280 -> 281 -> 282 -> 285 -> 288 -> 289" `elem` outputLines)
+            ("open chain: 278 -> 279 -> 280 -> 281 -> 282 -> 285 -> 288 -> 289" `elem` outputLines)
           assertBool
             "an unmet obligation carries its evidence pointer"
             ( any

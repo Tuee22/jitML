@@ -7,6 +7,20 @@ module JitML.Sub.Stream
   , runStreamingObserved
   , subprocessEnvOverrideAndRemove
   , startDetached
+  , NativeProcessSpawnObservation
+  , NativeProcessSpawnResult
+  , runStreamingWithSpawnObservation
+  , nativeSpawnResultObservation
+  , nativeSpawnResultOutcome
+  , nativeSpawnResultStdoutBytes
+  , nativeSpawnResultStderrBytes
+  , nativeSpawnProcessId
+  , nativeSpawnParentProcessId
+  , nativeSpawnExecutablePath
+  , nativeSpawnArguments
+  , nativeSpawnWorkingDirectory
+  , nativeSpawnEnvironmentRemovals
+  , nativeSpawnEnvironmentOverrideNames
   )
 where
 
@@ -24,6 +38,7 @@ import System.Environment (getEnvironment)
 import System.FilePath ((</>))
 import System.IO (IOMode (WriteMode), hFlush, withBinaryFile)
 import System.IO.Temp (withSystemTempDirectory)
+import System.Posix.Process (getProcessID)
 import System.Process.Typed qualified as Typed
 
 import JitML.Sub.Outcome
@@ -215,3 +230,120 @@ showText = showStringValue
 
 showStringValue :: Text -> String
 showStringValue = Text.unpack
+
+-- | Actual launch observation, made only inside an owned typed-process
+-- bracket. It records the OS process-handle PID and actual parent PID plus
+-- the exact proc/working-directory/environment-edit CONFIGURATION supplied by
+-- this function. It is not an OS argv/environ inspection or source/build proof.
+-- There is no parser or ordinary-data observation factory.
+data NativeProcessSpawnObservation
+  = NativeProcessSpawnObservation
+      !Integer
+      !Integer
+      !FilePath
+      ![Text]
+      !(Maybe FilePath)
+      ![Text]
+      ![Text]
+  deriving stock (Eq, Show)
+
+data NativeProcessSpawnResult
+  = NativeProcessSpawnResult
+      !(Maybe NativeProcessSpawnObservation)
+      !ProcessOutcome
+      !ByteString
+      !ByteString
+  deriving stock (Eq, Show)
+
+nativeSpawnResultObservation :: NativeProcessSpawnResult -> Maybe NativeProcessSpawnObservation
+nativeSpawnResultObservation (NativeProcessSpawnResult actual _ _ _) = actual
+nativeSpawnResultOutcome :: NativeProcessSpawnResult -> ProcessOutcome
+nativeSpawnResultOutcome (NativeProcessSpawnResult _ actual _ _) = actual
+
+-- Exact actual bytes read and completely demanded before the temp directory
+-- closes. These are not a UTF8 re-encoding of the legacy Text transcript.
+nativeSpawnResultStdoutBytes :: NativeProcessSpawnResult -> ByteString
+nativeSpawnResultStdoutBytes (NativeProcessSpawnResult _ _ actual _) = actual
+nativeSpawnResultStderrBytes :: NativeProcessSpawnResult -> ByteString
+nativeSpawnResultStderrBytes (NativeProcessSpawnResult _ _ _ actual) = actual
+nativeSpawnProcessId :: NativeProcessSpawnObservation -> Integer
+nativeSpawnProcessId (NativeProcessSpawnObservation actual _ _ _ _ _ _) = actual
+nativeSpawnParentProcessId :: NativeProcessSpawnObservation -> Integer
+nativeSpawnParentProcessId (NativeProcessSpawnObservation _ actual _ _ _ _ _) = actual
+nativeSpawnExecutablePath :: NativeProcessSpawnObservation -> FilePath
+nativeSpawnExecutablePath (NativeProcessSpawnObservation _ _ actual _ _ _ _) = actual
+nativeSpawnArguments :: NativeProcessSpawnObservation -> [Text]
+nativeSpawnArguments (NativeProcessSpawnObservation _ _ _ actual _ _ _) = actual
+nativeSpawnWorkingDirectory :: NativeProcessSpawnObservation -> Maybe FilePath
+nativeSpawnWorkingDirectory (NativeProcessSpawnObservation _ _ _ _ actual _ _) = actual
+nativeSpawnEnvironmentRemovals :: NativeProcessSpawnObservation -> [Text]
+nativeSpawnEnvironmentRemovals (NativeProcessSpawnObservation _ _ _ _ _ actual _) = actual
+nativeSpawnEnvironmentOverrideNames :: NativeProcessSpawnObservation -> [Text]
+nativeSpawnEnvironmentOverrideNames (NativeProcessSpawnObservation _ _ _ _ _ _ actual) = actual
+
+-- | Additive actual spawn path; established capture/runStreaming bodies above
+-- remain literal. Missing getPid remains Nothing even if the command exits0;
+-- a native parent must refuse that missing observation. Synchronous exceptions
+-- propagate without inventing status/streams; the parent records an observed
+-- attempt failure. Typed's bracket retains asynchronous cancellation cleanup.
+-- Environment values are never added to the spawn observation.
+runStreamingWithSpawnObservation :: SubprocessEnv -> Subprocess -> IO NativeProcessSpawnResult
+runStreamingWithSpawnObservation env subprocessValue =
+  withSystemTempDirectory "jitml-native-subprocess" $ \dir -> do
+    let stdoutPath = dir </> "stdout"
+        stderrPath = dir </> "stderr"
+    startedAt <- getMonotonicTimeNSec
+    processConfig <- processConfigWithEnvironment env subprocessValue
+    (observation, exitCode) <-
+      withBinaryFile stdoutPath WriteMode $ \stdoutHandle ->
+        withBinaryFile stderrPath WriteMode $ \stderrHandle -> do
+          actual <- Typed.withProcessWait
+            ( Typed.setStdout (Typed.useHandleOpen stdoutHandle) $
+                Typed.setStderr (Typed.useHandleOpen stderrHandle) $
+                  applyStdin processConfig
+            )
+            $ \process -> do
+              processId <- Typed.getPid process
+              parentId <- getProcessID
+              let observation = case processId of
+                    Just pid
+                      | toInteger pid > 0 && toInteger parentId > 0 ->
+                          Just
+                            ( NativeProcessSpawnObservation
+                                (toInteger pid)
+                                (toInteger parentId)
+                                (subprocessPath subprocessValue)
+                                (subprocessArguments subprocessValue)
+                                (subprocessWorkingDirectory subprocessValue)
+                                (subprocessEnvRemovals env)
+                                [name | (name, _) <- subprocessEnvOverrides env, name `notElem` subprocessEnvRemovals env]
+                            )
+                    _ -> Nothing
+              code <- Typed.waitExitCode process
+              pure (observation, code)
+          hFlush stdoutHandle
+          hFlush stderrHandle
+          pure actual
+    finishedAt <- getMonotonicTimeNSec
+    stdoutBytes <- LazyByteString.readFile stdoutPath
+    stderrBytes <- LazyByteString.readFile stderrPath
+    _ <- evaluate (LazyByteString.length stdoutBytes)
+    _ <- evaluate (LazyByteString.length stderrBytes)
+    let transcript =
+          ProcessTranscript
+            { processTranscriptCommand = renderSubprocess subprocessValue
+            , processTranscriptStdout = decodeOutput stdoutBytes
+            , processTranscriptStderr = decodeOutput stderrBytes
+            , processTranscriptWorkingDirectory = subprocessWorkingDirectory subprocessValue
+            , processTranscriptDuration = ProcessDuration (finishedAt - startedAt)
+            }
+    pure
+      (NativeProcessSpawnResult observation (processOutcome exitCode transcript) stdoutBytes stderrBytes)
+ where
+  decodeOutput = Text.Encoding.decodeUtf8With lenientDecode . LazyByteString.toStrict
+  applyStdin config = case subprocessStdin subprocessValue of
+    Nothing -> config
+    Just payload ->
+      Typed.setStdin
+        (Typed.byteStringInput (LazyByteString.fromStrict (Text.Encoding.encodeUtf8 payload)))
+        config

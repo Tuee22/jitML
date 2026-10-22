@@ -21,6 +21,7 @@ module JitML.RL.CountExploration
   ( CountTable
   , newCountTable
   , countExplorationBonus
+  , countTableEntries
   )
 where
 
@@ -39,6 +40,10 @@ newtype CountTable = CountTable (IORef (Map (Int, Int) Int))
 
 newCountTable :: IO CountTable
 newCountTable = CountTable <$> newIORef Map.empty
+
+-- | Read-only initial/current visitation data; cannot construct or mutate a table.
+countTableEntries :: CountTable -> IO [((Int, Int), Int)]
+countTableEntries (CountTable ref) = Map.toAscList <$> readIORef ref
 
 -- | Novelty bonus @beta / sqrt(count + 1)@ for the observation's grid cell, and
 -- increment that cell's count. @beta@ is supplied by the caller because the

@@ -42,38 +42,146 @@ import System.Directory
   , copyFile
   , createDirectoryIfMissing
   , createDirectoryLink
+  , doesDirectoryExist
   , doesFileExist
   , getCurrentDirectory
   , getPermissions
+  , listDirectory
+  , pathIsSymbolicLink
   , removeFile
   , setCurrentDirectory
   , setOwnerExecutable
   , setPermissions
   )
-import System.Environment (getExecutablePath, lookupEnv, setEnv)
+import System.Environment (getArgs, getExecutablePath, lookupEnv, setEnv)
 import System.Exit (ExitCode (..))
-import System.FilePath (takeDirectory, (</>))
+import System.FilePath (takeDirectory, takeExtension, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Info qualified as SystemInfo
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, defaultMain, testGroup)
 import Test.Tasty.QuickCheck qualified as QuickCheck
 
+import AlphaZeroEvaluation qualified
+import ArsAppliedStep qualified
+import ArsHostPhysicalAdmission qualified
+import ArsHostRecordedData qualified
+import ArsRecordedEvidence qualified
+import ArsSingletonProducer qualified
+import BootstrapLifecycle qualified
+import CheckpointPublication qualified
 import CheckpointV1Admission qualified
+import ClusterLifecyclePublication qualified
+import ClusterLifecyclePurge qualified
+import ClusterLifecycleTarget qualified
+import CriterionReviewData qualified
+import DqnEvaluationControls qualified
 import DurableStateTopology (durableStateTopologyTests)
+import GenericArsHostPublication qualified
+import GenericRlDeviceWitness qualified
+import GenericRlPhysicalControls qualified
+import InitialComparison qualified
 import JournalDerivedStatus qualified
+import LaneRegistration qualified
+import LearningSignal qualified
+import NativeArenaEvaluation qualified
+import NativeArenaLearningPolicy qualified
+import NativeArenaReferences qualified
+import NativeArenaTape qualified
+import NativeCanonicalPublisher qualified
+import NativeChildAssociation qualified
+import NativeDetachedArtifactRead qualified
+import NativeHerEvaluation qualified
+import NativeHerLearningPolicy qualified
+import NativeHerReferences qualified
+import NativeLaneBundleAdmission qualified
+import NativeLaneBundleData qualified
+import NativeLaneBundleFiles qualified
+import NativeParentAttemptRetention qualified
+import NativeParentBindingData qualified
+import NativeParentCompletionData qualified
+import NativeParentEvaluationReplay qualified
+import NativeParentEvaluationSummaryData qualified
+import NativeParentExecution qualified
+import NativeParentPhysicalRead qualified
+import NativeParentPolicyData qualified
+import NativePhaseCodec qualified
+import NativePhaseContext qualified
+import NativePhaseFailure qualified
+import NativePhaseProducer qualified
+import NativePhaseProjection qualified
+import NativePhysicalRead qualified
+import NativePreparedAlphaZeroAttempt qualified
+import NativePreparedArsAttempt qualified
+import NativePreparedNeuralAttempt qualified
+import NativeProcessSpawn qualified
+import NativeQualificationGc qualified
+import NativeQualificationPublication qualified
+import NativeQualificationReceiptData qualified
+import NativeQualificationReference qualified
+import NativeRecordedCheckpointData qualified
+import NativeReferenceCalibration qualified
+import NativeReplayObjectData qualified
+import NativeReportExecution qualified
+import NativeRetention qualified
+import NativeRetentionReader qualified
+import NativeReturnCeiling qualified
+import NativeReturnEvaluation qualified
+import NativeReturnLearningPolicy qualified
+import NativeReturnReferences qualified
+import NativeRlAssessment qualified
+import NativeRlCohortPlan qualified
+import NativeRlExecution qualified
+import NativeRlProducer qualified
+import NativeRlReplayRetention qualified
+import NativeRlStoreLoadedReplay qualified
+import NativeRlStoredServing qualified
+import NativeScenarioReceiptData qualified
+import NativeSourceJournalV5 qualified
+import OffPolicyEvaluation qualified
+import OnPolicyEvaluation qualified
+import OnPolicyHorizon qualified
+import PVSnapshot qualified
+import PVSnapshotClaim qualified
+import PVSnapshotPosix qualified
+import Phase278ContextResolution qualified
+import PreparedContinuousAlphaZero qualified
+import PreparedNeuralAttempt qualified
+import PreparedTrainers qualified
+import ProducerObservation qualified
 import ProductAggregation qualified
 import ProductBarProvenance qualified
 import ProductExperimentExactness qualified
 import ProductTruthScanner qualified
 import ProductTuneTranscript qualified
+import QualificationObjects qualified
 import ReconcileStamp qualified
 import RegressionStandardization qualified
 import ReportMeasurements qualified
 import ServedMetricVerification qualified
 import SupervisedCheckpointV2 qualified
+import SupervisedCohortExecution qualified
+import SupervisedCohortPlan qualified
+import SupervisedQualification qualified
+import SupervisedQualificationPolicy qualified
+import SupervisedQualificationReceipt qualified
 import SupervisedTrainingSeed qualified
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase, (@?=))
+import TrainerConfiguration qualified
+import TrainerObservation qualified
+import TrpoFisherControls
+  ( assertLeftContains
+  , constantGradientLike
+  , deterministicGradientLike
+  , failingBatchGradientDevice
+  , failingForwardBatchDevice
+  , gradientAllFinite
+  , gradientDotForTest
+  , mapGradientForTest
+  , mkTrpoStep
+  , smallTrpoConfig
+  )
+import TrpoFisherControls qualified
 
 import Data.Vector qualified as Vector
 import Data.Vector.Unboxed qualified
@@ -98,6 +206,7 @@ import JitML.AppError.Render (renderError)
 import JitML.Bootstrap (materializeBootstrapFiles)
 import JitML.CLI.Help (renderCommandHelp, renderHelp)
 import JitML.CLI.Json (renderCommandJson)
+import JitML.CLI.Output qualified as CLIOutput
 import JitML.CLI.Parser (ParsedCommand (..), ParsedOption (..), parserInfo)
 import JitML.CLI.Spec
   ( CommandSpec (..)
@@ -217,13 +326,18 @@ import JitML.Prerequisite.Registry
 import JitML.Prerequisite.Types (PrerequisiteRemediation (..))
 import JitML.Product.Completion qualified as ProductCompletion
 import JitML.Product.Convergence qualified as ProductConvergence
+import JitML.Product.CriterionReview qualified as ProductCriterionReview
+import JitML.Product.CriterionReviewData qualified as ProductCriterionReviewData
 import JitML.Product.DeviceWitness qualified as DeviceWitness
 import JitML.Product.Evidence qualified as ProductEvidence
 import JitML.Product.ExternalBars qualified as ProductExternalBars
+import JitML.Product.LaneRegistrationData qualified as ProductLaneRegistrationData
 import JitML.Product.Matrix (ModelState (..), ProductRow (..))
 import JitML.Product.Matrix qualified as ProductMatrix
 import JitML.Product.Pipeline qualified as ProductPipeline
 import JitML.Product.Publisher qualified as Publisher
+import JitML.Product.SourceDigest qualified as ProductSource
+import JitML.Product.ValidationRecord qualified as ProductValidationRecord
 import JitML.Proto.Gc qualified as ProtoGc
 import JitML.Proto.Inference qualified as ProtoInference
 import JitML.Proto.Rl qualified as ProtoRl
@@ -341,6 +455,7 @@ import JitML.Test.ProductScenarioJournal qualified as ProductScenarioJournal
 import JitML.Test.ProductScenarioRunner qualified as ProductScenarioRunner
 import JitML.Test.PulsarBridge qualified as PulsarBridge
 import JitML.Test.PulsarTransport qualified as PulsarTransport
+import JitML.Test.RegisteredLaneEvidence qualified as RegisteredLaneEvidence
 import JitML.Test.Report qualified as Report
 import JitML.Test.RunContract qualified as RunContractTest
 import JitML.Test.RunPlan qualified as RunPlanTest
@@ -859,8 +974,8 @@ reportMeasurementJournalTests =
                   <> ": unavailable (not journaled: no completed "
                   <> ProductMatrix.renderRowFamily family
                   <> " row in the ProductScenario journal)"
-              expectedRlLine =
-                "  rl_final_reward: "
+              expectedTuningLine =
+                "  tune_best_objective: "
                   <> Text.intercalate
                     ", "
                     [ Report.completedProductScenarioRowId evidence
@@ -874,15 +989,15 @@ reportMeasurementJournalTests =
                           (Report.completedProductScenarioCompletedTraining evidence)
                     ]
               expectedCountsLine =
-                "  product_row_counts: completed=2/"
+                "  product_row_counts: completed=1/"
                   <> Text.pack (show ProductMatrix.productRowCount)
                   <> " supervised=0/"
                   <> denominator ProductMatrix.Supervised
-                  <> " rl=2/"
+                  <> " rl=0/"
                   <> denominator ProductMatrix.ReinforcementLearning
                   <> " alphazero=0/"
                   <> denominator ProductMatrix.AlphaZero
-                  <> " tuning=0/"
+                  <> " tuning=1/"
                   <> denominator ProductMatrix.Tuning
               -- The compact table and the issuable fragment are the unchanged
               -- committed renderers: the card must embed them byte-for-byte.
@@ -900,17 +1015,17 @@ reportMeasurementJournalTests =
                                )
                            )
                      )
-          length entries @?= 2
+          length entries @?= 1
           assertBool
-            ("the RL line is not the journal's own metrics: " <> Text.unpack expectedRlLine)
-            (expectedRlLine `elem` rendered)
+            ("the tuning line is not the journal's own metrics: " <> Text.unpack expectedTuningLine)
+            (expectedTuningLine `elem` rendered)
           assertBool
             "a family with no journal row is not reported unavailable"
             ( all
                 (`elem` rendered)
                 [ unavailableFamily "sl_final_loss" ProductMatrix.Supervised
                 , unavailableFamily "alphazero_arena_win_rate" ProductMatrix.AlphaZero
-                , unavailableFamily "tune_best_objective" ProductMatrix.Tuning
+                , unavailableFamily "rl_final_reward" ProductMatrix.ReinforcementLearning
                 ]
             )
           assertBool
@@ -929,50 +1044,95 @@ reportMeasurementJournalTests =
         withProductScenarioJournalFixture $ \fixture -> do
           let report = journalFixtureReport fixture
               entries = Report.completedProductScenarioReportEntries report
-              cartpole = find ((== "DQN/cartpole") . ProductMatrix.rowId) ProductMatrix.allProductRows
-              completedRl counts =
+              countsOf = TrainingMeasurement.deriveProductRowCounts . Report.completedProductScenarioRowViews
+              completedFamily family counts =
                 [ TrainingMeasurement.familyCountCompleted count
                 | count <- TrainingMeasurement.productRowCountsByFamily counts
-                , TrainingMeasurement.familyCountFamily count == ProductMatrix.ReinforcementLearning
+                , TrainingMeasurement.familyCountFamily count == family
                 ]
-              countsOf =
-                TrainingMeasurement.deriveProductRowCounts
-                  . Report.completedProductScenarioRowViews
-          case (cartpole, entries) of
-            (Just row, firstEvidence : _rest) -> do
-              oneRowBatch <-
-                case ProductMatrix.projectProductRows Substrate.LinuxCPU [row] of
-                  RunPlan.Success batch -> pure batch
-                  RunPlan.Failure errors -> assertFailure ("one-row projection failed: " <> show errors)
-              oneRowReport <-
-                either
-                  (assertFailure . ("one-row report was rejected: " <>) . show)
-                  pure
-                  (Report.projectCompletedProductScenarioReport oneRowBatch [firstEvidence])
-              completedRl (countsOf report) @?= [2]
-              completedRl (countsOf oneRowReport) @?= [1]
-              TrainingMeasurement.productRowCountsCompleted (countsOf oneRowReport)
-                @?= TrainingMeasurement.productRowCountsCompleted (countsOf report)
-                - 1
-              -- Claiming the two-row batch with one row of evidence is rejected
-              -- by the projection, so no report can carry a coverage total its
-              -- journal rows do not.
-              case Report.projectCompletedProductScenarioReport
-                (journalFixtureBatch fixture)
-                [firstEvidence] of
+          completedFamily ProductMatrix.Tuning (countsOf report) @?= [1]
+          completedFamily ProductMatrix.ReinforcementLearning (countsOf report) @?= [0]
+          -- These are explicitly ordinary legacy completion/count DATA, not a
+          -- native trained/Store/Report/parent/qualification capsule. They keep
+          -- the two-native-family arithmetic check without synthetic native
+          -- executed evidence. Real native positives require the full route.
+          views <- journalExpectRight ordinaryNativeCountViews
+          completedFamily
+            ProductMatrix.ReinforcementLearning
+            (TrainingMeasurement.deriveProductRowCounts views)
+            @?= [2]
+          completedFamily
+            ProductMatrix.ReinforcementLearning
+            (TrainingMeasurement.deriveProductRowCounts (take 1 views))
+            @?= [1]
+          TrainingMeasurement.productRowCountsCompleted
+            (TrainingMeasurement.deriveProductRowCounts (take 1 views))
+            @?= TrainingMeasurement.productRowCountsCompleted (TrainingMeasurement.deriveProductRowCounts views)
+            - 1
+          case entries of
+            [firstEvidence] -> do
+              case Report.projectCompletedProductScenarioReport (journalFixtureBatch fixture) [] of
                 Left errors ->
                   assertBool
-                    "the rejection does not name the missing row"
+                    "missing actual tuning row must be named"
                     ( any
-                        ( \case
-                            Report.MissingCompletedProductScenario missingRow _ -> missingRow == "DQN/mountain-car"
-                            _ -> False
-                        )
+                        (\case Report.MissingCompletedProductScenario row _ -> row == "hyperparameter-tuning"; _ -> False)
                         errors
                     )
                 Right _ -> assertFailure "a report with a missing row was constructed"
-            _ -> assertFailure "the journal fixture lost its DQN/cartpole row"
+              case Report.projectCompletedProductScenarioReport
+                (journalFixtureBatch fixture)
+                [firstEvidence, firstEvidence] of
+                Left errors ->
+                  assertBool
+                    "duplicated actual tuning evidence must be rejected"
+                    (any (\case Report.DuplicateCompletedProductScenario _ -> True; _ -> False) errors)
+                Right _ -> assertFailure "duplicate evidence fabricated coverage"
+            _ -> assertFailure "generic journal fixture must contain exactly one tuning row"
     ]
+
+-- Pure ordinary budget/evidence/count inputs. No Store write, actual device,
+-- executed scenario evidence, private native certificate or qualification is
+-- created, and these values never enter the report/admission positive fixture.
+ordinaryNativeCountViews :: Either Text [TrainingMeasurement.CompletedRowView]
+ordinaryNativeCountViews = traverse one ["DQN/cartpole", "DQN/mountain-car"]
+ where
+  one identity = do
+    row <-
+      maybe
+        (Left "ordinary native count row absent")
+        Right
+        (find ((== identity) . ProductMatrix.rowId) ProductMatrix.allProductRows)
+    case ProductMatrix.projectProductRow Substrate.LinuxCPU row of
+      RunPlan.Failure _ -> Left "ordinary native count projection failed"
+      RunPlan.Success (ProductMatrix.SomeProductProjection _ projection) -> do
+        let budget = ProductMatrix.productProjectionTrainingBudget projection
+            bar = ProductMatrix.productProjectionConvergenceBar projection
+        evidence <-
+          ProductEvidence.mkTrainingEvidence
+            (Text.replicate 64 "a")
+            (Text.replicate 64 "b")
+            1
+            (Text.replicate 64 "c")
+        observation <-
+          TrainingBudget.measureCriterion
+            (ProductConvergence.convergenceMetricName bar)
+            (ProductConvergence.convergenceMetricGoal bar)
+            (ProductConvergence.convergenceThreshold bar)
+            (ProductConvergence.convergenceThreshold bar)
+        completed <-
+          TrainingBudget.completedTraining
+            (ProductMatrix.productProjectionPlanId projection)
+            budget
+            (TrainingBudget.trainingBudgetTargetUnits budget)
+            evidence
+            [observation]
+            ( TrainingBudget.TensorBoardRunMetadata
+                "ordinary-native-count-data"
+                "ordinary-native-count-data/"
+                [TrainingBudget.coMetricName observation]
+            )
+        pure (TrainingMeasurement.CompletedRowView identity completed)
 
 browserExpectationOrFail
   :: Text
@@ -1174,7 +1334,7 @@ productScenarioJournalTests =
           let entries =
                 Report.completedProductScenarioReportEntries
                   (journalFixtureReport fixture)
-          assertBool "journal fixture must cover two ProductRows" (length entries == 2)
+          assertBool "generic journal fixture must cover one tuning ProductRow" (length entries == 1)
           traverse_
             ( \entry -> do
                 assertBool
@@ -1334,7 +1494,11 @@ productScenarioJournalTests =
             (journalFixturePath fixture)
             (setJournalField "version" (Aeson.toJSON (1 :: Word64)) original)
           assertProductScenarioJournalError
-            (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
+            ( \case
+                ProductScenarioJournal.ProductScenarioJournalVersionMismatch current observed ->
+                  current == ProductScenarioJournal.productScenarioJournalWireVersion && observed == 1
+                _ -> False
+            )
             =<< readJournalFixture fixture (journalFixtureRunId fixture)
           writeJournalValue (journalFixturePath fixture) original
           assertProductScenarioJournalError
@@ -1399,11 +1563,21 @@ productScenarioJournalTests =
                   (modifyJournalRows mutation original)
                 assertProductScenarioJournalError predicate
                   =<< readJournalFixture fixture (journalFixtureRunId fixture)
+          -- Reordering an ordinary additional foreign wire row is a byte/
+          -- HMAC refusal, not evidence of two qualified canonical rows.
           check
-            reverse
+            ( \case
+                Aeson.Object first : rest ->
+                  reverse
+                    ( Aeson.Object first
+                        : Aeson.Object (setObjectField "row_id" (Aeson.String "ordinary-wire-order-marker") first)
+                        : rest
+                    )
+                rows -> rows
+            )
             (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
           check
-            (take 1)
+            (take 0)
             (\case ProductScenarioJournal.ProductScenarioJournalAuthenticationRejected {} -> True; _ -> False)
           check
             (\case first : rest -> first : rest <> [first]; [] -> [])
@@ -1516,7 +1690,208 @@ productScenarioJournalTests =
               (journalFixtureExecutablePath fixture)
               (journalFixtureExecutableSha fixture)
               (journalFixtureBatch fixture)
+    , testCase "a legacy native scalar worker cannot mint native scenario qualification" $
+        withSystemTempDirectory "jitml-native-legacy-worker-refusal" $ \rawCacheRoot -> do
+          cacheRoot <- canonicalizePath rawCacheRoot
+          originalSourceRoot <- getCurrentDirectory >>= canonicalizePath
+          let workdir = cacheRoot </> "workspace"
+              sourceRoot = cacheRoot </> "source"
+              executablePath = cacheRoot </> "jitml-legacy-native-fixture"
+          createDirectoryIfMissing True workdir
+          unitExecutablePath <- getExecutablePath >>= canonicalizePath
+          writeProductScenarioFixtureExecutable executablePath unitExecutablePath
+          canonicalExecutablePath <- canonicalizePath executablePath
+          executableSha <- WeightCodec.jmw1ContentSha <$> ByteString.readFile canonicalExecutablePath
+          copyNativeLegacyRefusalSource originalSourceRoot sourceRoot
+          -- The cwd switch belongs only to this actual child process; the
+          -- ordinary suite never changes its process-global working directory.
+          let command =
+                ( subprocess
+                    unitExecutablePath
+                    [ "--jitml-native-legacy-refusal-runner"
+                    , Text.pack canonicalExecutablePath
+                    , executableSha
+                    , Text.pack workdir
+                    ]
+                )
+                  { subprocessWorkingDirectory = Just sourceRoot
+                  }
+          outcome <- runStreaming defaultSubprocessEnv command
+          case outcome of
+            ProcessSucceeded transcript ->
+              assertBool
+                "the isolated real runner verified the original legacy refusal boundary"
+                ("native legacy refusal boundary verified" `Text.isInfixOf` processTranscriptStdout transcript)
+            ProcessFailed _ -> assertFailure (Text.unpack (renderProcessOutcome outcome))
     ]
+
+-- Copy exact current code inputs using public SourceDigest roots/extensions.
+-- Review fixture files are never installed in the actual project under test.
+copyNativeLegacyRefusalSource :: FilePath -> FilePath -> IO ()
+copyNativeLegacyRefusalSource original target = do
+  expected <- journalExpectRight =<< ProductSource.computeSourceStampIn original
+  createDirectoryIfMissing True target
+  let copyDirectory relative = do
+        names <- List.sort <$> listDirectory (original </> relative)
+        for_ names $ \name ->
+          Control.Monad.unless ("." `List.isPrefixOf` name) $ do
+            let path = relative </> name
+            linked <- pathIsSymbolicLink (original </> path)
+            assertBool "fixture source must not follow symbolic links" (not linked)
+            directory <- doesDirectoryExist (original </> path)
+            if directory
+              then do
+                createDirectoryIfMissing True (target </> path)
+                copyDirectory path
+              else
+                Control.Monad.when (takeExtension path `elem` ProductSource.sourceDigestExtensions) $
+                  copyFile (original </> path) (target </> path)
+  for_ ProductSource.sourceDigestDirectoryRoots $ \directory -> do
+    createDirectoryIfMissing True (target </> directory)
+    copyDirectory directory
+  for_ ProductSource.sourceDigestFileRoots $ \file ->
+    copyFile (original </> file) (target </> file)
+  actual <- journalExpectRight =<< ProductSource.computeSourceStampIn target
+  unchanged <- journalExpectRight =<< ProductSource.computeSourceStampIn original
+  actual @?= expected
+  unchanged @?= expected
+
+-- Checked ordinary review FILEs satisfy prelaunch syntax/identity only. Their
+-- artifact explicitly claims no independence, approval or qualification.
+-- The real parent must still launch the legacy worker and reject its output.
+prepareNativeLegacyRefusalReview :: FilePath -> IO ()
+prepareNativeLegacyRefusalReview sourceRoot = do
+  source <- journalExpectRight =<< ProductSource.computeSourceStampIn sourceRoot
+  batch <- case ProductMatrix.projectProductRows Substrate.LinuxCPU ProductMatrix.allProductRows of
+    RunPlan.Failure errors -> assertFailure (show errors)
+    RunPlan.Success actual -> pure actual
+  let rows = RegisteredLaneEvidence.currentLaneRowContracts batch
+      scope = ProductCriterionReviewData.NativeCriterionReview
+      selectedPath = ProductCriterionReviewData.criterionReviewSelectionPath source Substrate.LinuxCPU scope
+      prefix = Text.pack (takeDirectory selectedPath) <> "/"
+      artifactBytes =
+        "ordinary unit legacy-refusal setup; no independent criterion approval, native execution or qualification"
+      artifactRef =
+        ProductLaneRegistrationData.SelectedLaneFileData
+          (prefix <> "unit-refusal-artifact.txt")
+          (ProductValidationRecord.sha256Hex artifactBytes)
+          (fromIntegral (StrictByteString.length artifactBytes))
+      receipt =
+        ProductCriterionReviewData.CriterionReviewReceiptData
+          scope
+          Substrate.LinuxCPU
+          source
+          rows
+          [artifactRef]
+  expectedContracts <-
+    journalExpectRight (Report.productScenarioReviewContractSetSha256 Substrate.LinuxCPU)
+  contracts <-
+    journalExpectRight (ProductCriterionReviewData.criterionReviewReceiptContractsSha256 receipt)
+  contracts @?= expectedContracts
+  receiptBytes <-
+    journalExpectRight (ProductCriterionReviewData.encodeCriterionReviewReceiptData receipt)
+  let receiptRef =
+        ProductLaneRegistrationData.SelectedLaneFileData
+          (prefix <> "receipt.cbor")
+          (ProductValidationRecord.sha256Hex receiptBytes)
+          (fromIntegral (StrictByteString.length receiptBytes))
+      selected =
+        ProductCriterionReviewData.CriterionReviewSelectionData scope Substrate.LinuxCPU source receiptRef
+  selectedBytes <-
+    journalExpectRight (ProductCriterionReviewData.encodeCriterionReviewSelectionData selected)
+  for_
+    [ (selectedPath, selectedBytes)
+    , (Text.unpack (ProductLaneRegistrationData.selectedLaneFilePath receiptRef), receiptBytes)
+    , (Text.unpack (ProductLaneRegistrationData.selectedLaneFilePath artifactRef), artifactBytes)
+    ]
+    $ \(relative, bytes) -> do
+      let path = sourceRoot </> relative
+      createDirectoryIfMissing True (takeDirectory path)
+      StrictByteString.writeFile path bytes
+  captured <-
+    journalExpectRight
+      =<< ProductCriterionReview.captureCriterionReviewIn sourceRoot source Substrate.LinuxCPU scope
+  let identity = ProductCriterionReview.capturedCriterionReviewIdentity captured
+  ProductCriterionReviewData.criterionReviewSource identity @?= source
+  ProductCriterionReviewData.criterionReviewScope identity @?= scope
+  ProductCriterionReviewData.criterionReviewSubstrate identity @?= Substrate.LinuxCPU
+  ProductCriterionReviewData.criterionReviewContractSetSha256 identity @?= expectedContracts
+
+-- Only the dedicated child argv enters this setup. The unit suite never
+-- changes global cwd or creates governed review files in the shared source.
+runNativeLegacyRefusalRunner :: FilePath -> Text -> FilePath -> IO ()
+runNativeLegacyRefusalRunner canonicalExecutablePath executableSha workdir = do
+  sourceRoot <- getCurrentDirectory >>= canonicalizePath
+  source <- journalExpectRight =<< ProductSource.computeSourceStampIn sourceRoot
+  missingReview <-
+    ProductCriterionReview.captureCriterionReviewIn
+      sourceRoot
+      source
+      Substrate.LinuxCPU
+      ProductCriterionReviewData.NativeCriterionReview
+  case missingReview of
+    Left (ProductCriterionReview.CriterionReviewMissingFile _) -> pure ()
+    other -> assertFailure ("expected typed missing native review FILE, got " <> show other)
+  row <-
+    maybe
+      (assertFailure "legacy native refusal row absent")
+      pure
+      (find ((== "DQN/cartpole") . ProductMatrix.rowId) ProductMatrix.allProductRows)
+  case ProductMatrix.projectProductRow Substrate.LinuxCPU row of
+    RunPlan.Failure errors -> assertFailure (show errors)
+    RunPlan.Success (ProductMatrix.SomeProductProjection _ projection) -> do
+      -- Missing review is an actual prelaunch refusal, not a launched legacy
+      -- worker result. A separate run id cannot consume the later fixed slot.
+      missing <-
+        ProductScenarioRunner.runProductScenario
+          "native-legacy-missing-review"
+          canonicalExecutablePath
+          executableSha
+          workdir
+          projection
+      case missing of
+        Left reason@(ProductScenarioRunner.ProductScenarioWorkflowFailed detail) -> do
+          CLIOutput.writeLineIO ("actual isolated missing-review refusal: " <> Text.pack (show reason))
+          assertBool
+            "missing review must refuse during native parent identity checks"
+            ("ParentExecutionIdentity" `Text.isInfixOf` detail)
+        other -> assertFailure ("expected actual missing-review workflow refusal, got " <> show other)
+      beforeLatest <-
+        journalExpectRight
+          =<< CheckpointStore.readCheckpointPointer
+            (workdir </> ".build" </> "checkpoints")
+            (Checkpoint.latestPointerKey (ProductMatrix.productProjectionExperimentHash projection))
+      beforeLatest @?= Nothing
+      reserved <- doesDirectoryExist (workdir </> ".build" </> "native-parent-attempts")
+      assertBool "missing review must not reserve any native parent attempt" (not reserved)
+      prepareNativeLegacyRefusalReview sourceRoot
+      result <-
+        ProductScenarioRunner.runProductScenario
+          "native-legacy-refusal"
+          canonicalExecutablePath
+          executableSha
+          workdir
+          projection
+      case result of
+        Left reason -> do
+          let detail = Text.toLower (Text.pack (show reason))
+          CLIOutput.writeLineIO ("actual isolated legacy refusal: " <> Text.pack (show reason))
+          assertBool
+            "the real legacy worker must fail at the native reference/certificate boundary"
+            ( "native" `Text.isInfixOf` detail
+                && ("reference" `Text.isInfixOf` detail || "certificate" `Text.isInfixOf` detail)
+            )
+          assertBool
+            "the actual parent reached reference parsing after its genuine successful worker launch"
+            ("parentexecutionreference" `Text.isInfixOf` detail)
+          latest <-
+            journalExpectRight
+              =<< CheckpointStore.readCheckpointPointer
+                (workdir </> ".build" </> "checkpoints")
+                (Checkpoint.latestPointerKey (ProductMatrix.productProjectionExperimentHash projection))
+          assertBool "the real legacy worker wrote its ordinary checkpoint pointer" (isJust latest)
+          CLIOutput.writeLineIO "native legacy refusal boundary verified"
+        Right _ -> assertFailure "legacy scalar native worker minted qualified evidence"
 
 data ProductScenarioJournalFixture = ProductScenarioJournalFixture
   { journalFixtureRoot :: !FilePath
@@ -1558,9 +1933,7 @@ withProductScenarioJournalFixture action =
             canonicalExecutablePath
             executableSha
         )
-        [ "DQN/cartpole"
-        , "DQN/mountain-car"
-        ]
+        ["hyperparameter-tuning"]
     let rows = fmap fst rowsAndEvidence
         evidence = fmap snd rowsAndEvidence
         batch =
@@ -1612,11 +1985,11 @@ journalProductScenarioEvidence workdir runId executablePath executableSha rowId 
     case ProductMatrix.projectProductRow Substrate.LinuxCPU row of
       RunPlan.Success
         ( ProductMatrix.SomeProductProjection
-            RunPlan.ReinforcementLearningWitness
+            RunPlan.HyperparameterTuningWitness
             exactProjection
           ) -> pure exactProjection
       RunPlan.Success _ ->
-        assertFailure ("journal fixture ProductRow is not RL: " <> Text.unpack rowId)
+        assertFailure ("journal fixture ProductRow is not tuning: " <> Text.unpack rowId)
       RunPlan.Failure errors ->
         assertFailure ("journal ProductRow projection failed: " <> show errors)
   evidence <-
@@ -1670,20 +2043,46 @@ runProductScenarioFixtureWorker = do
       (ioError (userError ("fixture worker has unknown ProductRow " <> Text.unpack rowId)))
       pure
       (find ((== rowId) . ProductMatrix.rowId) ProductMatrix.allProductRows)
-  projection <-
-    case ProductMatrix.projectProductRow
-      (TrainingBudget.productScenarioInvocationSubstrate invocation)
-      row of
-      RunPlan.Success
-        ( ProductMatrix.SomeProductProjection
-            RunPlan.ReinforcementLearningWitness
-            exactProjection
-          ) -> pure exactProjection
-      RunPlan.Success _ ->
-        ioError (userError "fixture worker ProductRow is not reinforcement learning")
-      RunPlan.Failure errors ->
-        ioError
-          (userError ("fixture worker projection failed: " <> show errors))
+  case ProductMatrix.projectProductRow
+    (TrainingBudget.productScenarioInvocationSubstrate invocation)
+    row of
+    RunPlan.Failure errors -> ioError (userError ("fixture worker projection failed: " <> show errors))
+    RunPlan.Success (ProductMatrix.SomeProductProjection _ projection) ->
+      case ProductMatrix.productProjectionResolvedPlan projection of
+        ProductMatrix.ResolvedTuningProductPlan plan ->
+          writeProductScenarioScalarFixtureCheckpoint
+            invocation
+            row
+            projection
+            (RunPlan.quantityValue (ResolvedWorkload.tuningPlanMaxPerTrialUpdates plan))
+            "tune-trials"
+            "tune-unit-weights"
+        ProductMatrix.ResolvedRlProductPlan _ ->
+          -- Used ONLY by the explicit negative native-legacy-worker control.
+          -- These old scalar bytes carry no Native producer/parent certificate.
+          writeProductScenarioScalarFixtureCheckpoint
+            invocation
+            row
+            projection
+            1
+            "rl-trajectory"
+            "rl-dqn-unit-weights"
+        _ ->
+          ioError
+            (userError "generic fixture worker accepts only tuning or explicit legacy-native refusal DATA")
+
+-- A test worker's ordinary legacy scalar completion is not actual training or
+-- native qualification. The native branch is exclusively a refused control;
+-- every generic journal positive selects the single canonical tuning row.
+writeProductScenarioScalarFixtureCheckpoint
+  :: TrainingBudget.ProductScenarioInvocation
+  -> ProductMatrix.ProductRow 'ProductMatrix.Declared
+  -> ProductMatrix.ProductProjection kind
+  -> Word64
+  -> Text
+  -> Text
+  -> IO ()
+writeProductScenarioScalarFixtureCheckpoint invocation row projection updateCount companionKind tensorName = do
   let experiment = ProductMatrix.productProjectionExperimentHash projection
       planId = ProductMatrix.productProjectionPlanId projection
       budget = ProductMatrix.productProjectionTrainingBudget projection
@@ -1712,7 +2111,7 @@ runProductScenarioFixtureWorker = do
           (Text.replicate 64 "d")
           experiment
           observedUnits
-          1
+          updateCount
           metrics
           initialSha
           finalSha
@@ -1729,13 +2128,15 @@ runProductScenarioFixtureWorker = do
     runReaderT
       ( CheckpointWriter.writeTextArtifact
           experiment
-          "rl-trajectory"
-          ("phase-261 journal trajectory " <> rowId)
+          companionKind
+          ( "ordinary scalar journal fixture; not actual native qualification: "
+              <> TrainingBudget.productScenarioInvocationRowId invocation
+          )
       )
       env
   let transcriptPointer =
         Checkpoint.ArtifactPointer
-          { Checkpoint.artifactPointerKind = "rl-trajectory"
+          { Checkpoint.artifactPointerKind = companionKind
           , Checkpoint.artifactPointerObjectKey =
               CheckpointWriter.storedArtifactObjectKey artifact
           , Checkpoint.artifactPointerSha =
@@ -1746,14 +2147,14 @@ runProductScenarioFixtureWorker = do
       ( CheckpointWriter.writeLocalCompletedProductWeightCheckpoint
           invocationBound
           experiment
-          "rl-dqn-unit-weights"
+          tensorName
           observedUnits
           metrics
           finalWeights
           [transcriptPointer]
       )
       env
-  pure ()
+  threadDelay 1_000_000
 
 readJournalFixture
   :: ProductScenarioJournalFixture
@@ -2694,14 +3095,27 @@ main :: IO ()
 main =
   lookupEnv "JITML_PRODUCT_SCENARIO_UNIT_FIXTURE_WORKER" >>= \case
     Just "1" -> runProductScenarioFixtureWorker
-    _ -> JournalDerivedStatus.withCliWorker unitTestMain
+    _ ->
+      getArgs >>= \case
+        ["--jitml-native-legacy-refusal-runner", executable, digest, workdir] ->
+          runNativeLegacyRefusalRunner executable (Text.pack digest) workdir
+        _ -> JournalDerivedStatus.withCliWorker unitTestMain
 
 unitTestMain :: IO ()
 unitTestMain =
   defaultMain $
     testGroup
       "jitml-unit"
-      [ CheckpointV1Admission.checkpointV1AdmissionTests
+      [ BootstrapLifecycle.tests
+      , PVSnapshot.tests
+      , PVSnapshotPosix.tests
+      , PVSnapshotClaim.tests
+      , ClusterLifecycleTarget.tests
+      , ClusterLifecyclePurge.tests
+      , ClusterLifecyclePublication.tests
+      , CheckpointV1Admission.checkpointV1AdmissionTests
+      , OnPolicyEvaluation.onPolicyEvaluationTests
+      , OnPolicyHorizon.onPolicyHorizonTests
       , durableStateTopologyTests
       , ProductAggregation.productAggregationTests
       , ProductBarProvenance.productBarProvenanceTests
@@ -2712,6 +3126,20 @@ unitTestMain =
       , ReconcileStamp.reconcileStampTests
       , RegressionStandardization.regressionStandardizationTests
       , ServedMetricVerification.servedMetricVerificationTests
+      , LearningSignal.learningSignalTests
+      , SupervisedQualificationPolicy.supervisedQualificationPolicyTests
+      , SupervisedCohortPlan.supervisedCohortPlanTests
+      , InitialComparison.initialComparisonTests
+      , SupervisedQualification.supervisedQualificationTests
+      , QualificationObjects.qualificationObjectsTests
+      , SupervisedCohortExecution.supervisedCohortExecutionTests
+      , SupervisedQualificationReceipt.supervisedQualificationReceiptTests
+      , GenericRlDeviceWitness.genericRlDeviceWitnessTests
+      , CheckpointPublication.checkpointPublicationTests
+      , GenericRlPhysicalControls.genericRlPhysicalControls
+      , OffPolicyEvaluation.offPolicyEvaluationTests
+      , TrainerObservation.trainerObservationTests
+      , AlphaZeroEvaluation.alphaZeroEvaluationTests
       , ReportMeasurements.reportMeasurementTests withProductJournalSource
       , SupervisedCheckpointV2.supervisedCheckpointV2Tests
       , SupervisedTrainingSeed.supervisedTrainingSeedTests
@@ -2725,6 +3153,36 @@ unitTestMain =
       , PerRowRegistration.perRowRegistrationTests NegativeControls.allNegativeControls
       , browserEvidenceJournalTests
       , productScenarioJournalTests
+      , NativeReportExecution.nativeReportExecutionTests
+      , NativeCanonicalPublisher.nativeCanonicalPublisherTests
+      , NativeRlStoredServing.nativeRlStoredServingTests
+      , NativeDetachedArtifactRead.nativeDetachedArtifactReadTests
+      , NativeQualificationReceiptData.nativeQualificationReceiptDataTests
+      , NativeScenarioReceiptData.nativeScenarioReceiptDataTests
+      , NativeParentPolicyData.nativeParentPolicyDataTests
+      , NativeParentCompletionData.nativeParentCompletionDataTests
+      , NativeParentEvaluationSummaryData.nativeParentEvaluationSummaryDataTests
+      , NativeSourceJournalV5.nativeSourceJournalV5Tests
+      , NativeParentBindingData.nativeParentBindingDataTests
+      , NativeParentPhysicalRead.nativeParentPhysicalReadTests
+      , NativeParentExecution.nativeParentExecutionTests
+      , NativeParentEvaluationReplay.nativeParentEvaluationReplayTests
+      , NativeProcessSpawn.nativeProcessSpawnTests
+      , NativeParentAttemptRetention.nativeParentAttemptRetentionTests
+      , NativeQualificationGc.nativeQualificationGcTests
+      , NativeRlExecution.nativeRlExecutionTests
+      , NativeRlReplayRetention.nativeRlReplayRetentionTests
+      , NativeQualificationPublication.nativeQualificationPublicationTests
+      , NativeQualificationReference.nativeQualificationReferenceTests
+      , NativeReplayObjectData.nativeReplayObjectDataTests
+      , NativeRecordedCheckpointData.nativeRecordedCheckpointDataTests
+      , NativeLaneBundleAdmission.nativeLaneBundleAdmissionTests
+      , NativeLaneBundleData.nativeLaneBundleDataTests
+      , NativeLaneBundleFiles.nativeLaneBundleFilesTests
+      , GenericArsHostPublication.genericArsHostPublicationTests
+      , Phase278ContextResolution.phase278ContextResolutionTests
+      , LaneRegistration.laneRegistrationTests
+      , CriterionReviewData.criterionReviewDataTests
       , reportMeasurementJournalTests
       , RunPlanTest.runPlanTests
       , WorkloadContractTest.workloadContractTests
@@ -2935,6 +3393,20 @@ unitTestMain =
           assertBool
             "integration ProductScenario rows must trigger the selected substrate runtime probe"
             ("jitml-integration" `elem` Report.substrateRuntimeStanzas)
+          assertBool
+            "daemon live GenericRL controls must trigger the selected substrate runtime probe"
+            ("jitml-daemon-lifecycle" `elem` Report.substrateRuntimeStanzas)
+          assertBool
+            "pure unit-only runs must retain their device-independent command semantics"
+            ("jitml-unit" `notElem` Report.substrateRuntimeStanzas)
+          -- The daemon suite is unfiltered in every explicitly selected lane.
+          -- Runtime preflight membership must not turn it into backend partitioning.
+          Report.substrateTestInvocations (Just Substrate.LinuxCPU) ["jitml-daemon-lifecycle"] Nothing
+            @?= [["test", "jitml-daemon-lifecycle"]]
+          Report.substrateTestInvocations (Just Substrate.AppleSilicon) ["jitml-daemon-lifecycle"] Nothing
+            @?= [["test", "jitml-daemon-lifecycle"]]
+          Report.substrateTestInvocations (Just Substrate.LinuxCUDA) ["jitml-daemon-lifecycle"] Nothing
+            @?= [["test", "-fcuda", "jitml-daemon-lifecycle"]]
           -- No substrate: one exact invocation per target, with the opaque
           -- --test-options forwarded verbatim.
           Report.substrateTestInvocations Nothing ["jitml-unit", "jitml-backends"] Nothing
@@ -6987,6 +7459,14 @@ unitTestMain =
               @?= CheckpointStore.preparedSnapshotId prepared
             CheckpointStore.preparedSnapshotManifestSha reordered
               @?= CheckpointStore.preparedSnapshotManifestSha prepared
+            Checkpoint.decodeManifestCbor
+              (CheckpointStore.preparedSnapshotManifestBytes prepared)
+              @?= Right (CheckpointStore.preparedSnapshotManifest prepared)
+            Checkpoint.manifestMetrics
+              (CheckpointStore.preparedSnapshotManifest prepared)
+              @?= [("a", 1), ("z", 2)]
+            CheckpointStore.preparedSnapshotManifest reordered
+              @?= CheckpointStore.preparedSnapshotManifest prepared
             let snapshotPrefix =
                   "jitml-checkpoints/"
                     <> experimentHash
@@ -10816,32 +11296,32 @@ unitTestMain =
                     [
                       ( "mnist-shallow-mlp"
                       , Substrate.AppleSilicon
-                      , "6d97fd41fec883305f3f3812892145e17dc364d0c84d6a0e2ba9e5afc335e637"
+                      , "7da4faeee152de78039933a7e42500e9cbd96597e257348bf91ff5ce3c35bf70"
                       )
                     ,
                       ( "mnist-shallow-mlp"
                       , Substrate.LinuxCPU
-                      , "374e1606c3f0accff486b4cfbad37f2c5a28f59fa3572bf3a1d9d3392e4d7661"
+                      , "8d0e685d27f8718a09aca8d9cde10246d8b46b300107a21c780a567482c1c3d2"
                       )
                     ,
                       ( "mnist-shallow-mlp"
                       , Substrate.LinuxCUDA
-                      , "e2cede27867023e454cbfb0a5f48a28ef745e1856808a27dc1ef861f5b786b85"
+                      , "12e98286d897c2bffa211e8dd545d052ccf38c30b17cf127ab16dafe176af056"
                       )
                     ,
                       ( "PPO/cartpole"
                       , Substrate.AppleSilicon
-                      , "bb0c9e378027e3884f5ba4f22d9ee5232147e28eccb8721789739e81486efb52"
+                      , "66ff26f1e3efeaf4cb0b7b6cb8b45c69fd9780793e428704f82b180fc11b713b"
                       )
                     ,
                       ( "PPO/cartpole"
                       , Substrate.LinuxCPU
-                      , "56ea69e1cdd088d5fb53c2da6dd144d32c83c0f7d4b5383c6d9af2cadf8cc193"
+                      , "4738f6852ded47b1d60c0f25934bace5cb7bfe14a71726815912ae88ca5482fd"
                       )
                     ,
                       ( "PPO/cartpole"
                       , Substrate.LinuxCUDA
-                      , "9237c8850b754aadc4603e2067303f4fc0daec21f0916e4deb03c7102d5cdb2e"
+                      , "924c09bdef6840188d2430e2a4b232d4a99aa8d8716b605b99438b8e1cb8ed13"
                       )
                     ,
                       ( "connect4"
@@ -11074,6 +11554,12 @@ unitTestMain =
                     SupervisedTrainingWitness -> do
                       ProductMatrix.productProjectionDescriptor projection
                         @?= ProductMatrix.SupervisedProductDescriptor 8000 1000 128 1.0e-3
+                      assertBool
+                        "Tiny ImageNet class-interleaved selection is part of the plan identity"
+                        ( "tiny-imagenet-training-class-interleaved-v1"
+                            `Text.isInfixOf` RunPlan.runPlanSubjectId
+                              (ProductMatrix.productProjectionRunPlan projection)
+                        )
                       RunPlan.runPlanBudgetSummary
                         (ProductMatrix.productProjectionRunPlan projection)
                         @?= [ ("epochs", 15)
@@ -14865,6 +15351,10 @@ unitTestMain =
                     <> show finiteDifferenceCurvature
                 )
                 (abs (curvature - finiteDifferenceCurvature) < 1.0e-5)
+          , TrpoFisherControls.fisherHomogeneityTest
+          , TrpoFisherControls.fisherDeviceDispatchTest
+          , TrpoFisherControls.fisherInvalidInputsTest
+          , TrpoFisherControls.fisherDeviceFailureTest
           , testCase "device TRPO CG truncates late curvature loss but rejects an invalid first direction" $ do
               let params = PpoTrainer.initialPpoParams smallTrpoConfig
                   rhs = deterministicGradientLike params
@@ -15394,6 +15884,45 @@ unitTestMain =
                   (fastHerDeviceConfig {HerTrainer.herUpdatesPerEpisode = 0})
               result @?= Left "HER updates per episode must be positive"
           ]
+      , PreparedTrainers.preparedTrainerTests
+      , DqnEvaluationControls.dqnEvaluationTests
+      , ArsAppliedStep.arsAppliedStepTests
+      , PreparedContinuousAlphaZero.preparedContinuousAlphaZeroTests
+      , ProducerObservation.producerObservationTests
+      , ArsHostRecordedData.arsHostRecordedDataTests
+      , ArsRecordedEvidence.arsRecordedEvidenceTests
+      , NativeChildAssociation.nativeChildAssociationTests
+      , ArsSingletonProducer.arsSingletonProducerTests
+      , TrainerConfiguration.trainerConfigurationTests
+      , NativeReturnReferences.nativeReturnReferencesTests
+      , NativeHerReferences.nativeHerReferencesTests
+      , NativeReturnEvaluation.nativeReturnEvaluationTests
+      , NativeHerEvaluation.nativeHerEvaluationTests
+      , NativeRlCohortPlan.nativeRlCohortPlanTests
+      , PreparedNeuralAttempt.preparedNeuralAttemptTests
+      , NativePreparedNeuralAttempt.nativePreparedNeuralAttemptTests
+      , NativePreparedArsAttempt.nativePreparedArsAttemptTests
+      , NativeArenaEvaluation.nativeArenaEvaluationTests
+      , NativePreparedAlphaZeroAttempt.nativePreparedAlphaZeroAttemptTests
+      , NativeRetention.nativeRetentionTests
+      , NativeReturnCeiling.nativeReturnCeilingTests
+      , NativeReturnLearningPolicy.nativeReturnLearningPolicyTests
+      , NativeArenaTape.nativeArenaTapeTests
+      , NativeArenaReferences.nativeArenaReferencesTests
+      , NativeHerLearningPolicy.nativeHerLearningPolicyTests
+      , NativeArenaLearningPolicy.nativeArenaLearningPolicyTests
+      , NativePhaseCodec.nativePhaseCodecTests
+      , NativePhaseProjection.nativePhaseProjectionTests
+      , NativePhaseContext.nativePhaseContextTests
+      , NativePhaseProducer.nativePhaseProducerTests
+      , NativePhaseFailure.nativePhaseFailureTests
+      , NativeRlProducer.nativeRlProducerTests
+      , NativeReferenceCalibration.nativeReferenceCalibrationTests
+      , NativeRlAssessment.nativeRlAssessmentTests
+      , NativeRetentionReader.nativeRetentionReaderTests
+      , ArsHostPhysicalAdmission.arsHostPhysicalAdmissionTests
+      , NativeRlStoreLoadedReplay.nativeRlStoreLoadedReplayTests
+      , NativePhysicalRead.nativePhysicalReadTests
       ]
 
 readmeProductParityFailures :: Text -> Either Text [Text]
@@ -16678,16 +17207,6 @@ layerShapeWidth shape =
     Right width -> width
     Left err -> error (Text.unpack err)
 
-assertLeftContains :: Text -> IO (Either Text a) -> Assertion
-assertLeftContains expected action = do
-  result <- action
-  case result of
-    Left err ->
-      assertBool
-        ("expected error to contain " <> Text.unpack expected <> ", got " <> Text.unpack err)
-        (expected `Text.isInfixOf` err)
-    Right _ -> assertFailure ("expected Left containing " <> Text.unpack expected)
-
 assertDecodeFailure :: String -> RunConfig.RunConfigLoadResult a -> Assertion
 assertDecodeFailure label result =
   case result of
@@ -16700,22 +17219,10 @@ assertDecodeFailure label result =
   showLoadResult (RunConfig.RunConfigDecodeFailed message) =
     "RunConfigDecodeFailed " <> Text.unpack message
 
-failingForwardBatchDevice :: Text -> MlpDevice
-failingForwardBatchDevice message =
-  pureReferenceMlpDevice
-    { mlpdForwardBatch = \_ _ -> pure (Left message)
-    }
-
 failingForwardDevice :: Text -> MlpDevice
 failingForwardDevice message =
   pureReferenceMlpDevice
     { mlpdForward = \_ _ -> pure (Left message)
-    }
-
-failingBatchGradientDevice :: Text -> MlpDevice
-failingBatchGradientDevice message =
-  pureReferenceMlpDevice
-    { mlpdBatchGradient = \_ _ -> pure (Left message)
     }
 
 failingInputGradientDevice :: Text -> MlpDevice
@@ -16742,51 +17249,6 @@ trpoGradientCallKind actionCount pairs
       "critic"
   | otherwise = "mixed"
 
-mkTrpoStep
-  :: PpoTrainer.PpoTrainConfig
-  -> Mlp.MlpParams
-  -> ([Double], Int, Double)
-  -> (PpoTrainer.RolloutStep, Double, Double)
-mkTrpoStep config params (observationValues, action, advantage) =
-  let observation = Data.Vector.Unboxed.fromList observationValues
-      output =
-        Mlp.policyValueForwardWith
-          Mlp.LinearValueHead
-          params
-          (PpoTrainer.ppoActionCount config)
-          observation
-      probability = Mlp.pvPolicy output Data.Vector.Unboxed.! action
-   in ( PpoTrainer.RolloutStep
-          { PpoTrainer.rsObs = observation
-          , PpoTrainer.rsAction = action
-          , PpoTrainer.rsLogProb = log probability
-          , PpoTrainer.rsValue = Mlp.pvValue output
-          , PpoTrainer.rsReward = 0.0
-          , PpoTrainer.rsDone = False
-          , PpoTrainer.rsPolicy = Mlp.pvPolicy output
-          , PpoTrainer.rsActionMask = Nothing
-          , PpoTrainer.rsRecurrentState = Data.Vector.Unboxed.empty
-          }
-      , advantage
-      , 0.0
-      )
-
-gradientVector :: Int -> Double -> Data.Vector.Unboxed.Vector Double
-gradientVector size scale =
-  Data.Vector.Unboxed.generate
-    size
-    (\index -> scale * fromIntegral ((index `mod` 7) - 3))
-
-smallTrpoConfig :: PpoTrainer.PpoTrainConfig
-smallTrpoConfig =
-  PpoTrainer.defaultPpoTrainConfig
-    { PpoTrainer.ppoSeed = 31
-    , PpoTrainer.ppoHiddenUnits = 4
-    , PpoTrainer.ppoActionCount = 2
-    , PpoTrainer.ppoObsSize = 4
-    , PpoTrainer.ppoVariant = PpoTrainer.VariantTRPO
-    }
-
 trpoActorSlicesChangedForTest
   :: PpoTrainer.PpoTrainConfig
   -> Mlp.MlpParams
@@ -16802,33 +17264,6 @@ trpoActorSlicesChangedForTest config before after =
  where
   actionCount = PpoTrainer.ppoActionCount config
   policyWeightCount = actionCount * Mlp.mlpHidden (Mlp.paramShape before)
-
-constantGradientLike :: Mlp.MlpParams -> Double -> Mlp.MlpGradient
-constantGradientLike params value =
-  Mlp.MlpGradient
-    { Mlp.gradW1 = Data.Vector.Unboxed.replicate (Data.Vector.Unboxed.length (Mlp.paramW1 params)) value
-    , Mlp.gradB1 = Data.Vector.Unboxed.replicate (Data.Vector.Unboxed.length (Mlp.paramB1 params)) value
-    , Mlp.gradW2 = Data.Vector.Unboxed.replicate (Data.Vector.Unboxed.length (Mlp.paramW2 params)) value
-    , Mlp.gradB2 = Data.Vector.Unboxed.replicate (Data.Vector.Unboxed.length (Mlp.paramB2 params)) value
-    }
-
-deterministicGradientLike :: Mlp.MlpParams -> Mlp.MlpGradient
-deterministicGradientLike params =
-  Mlp.MlpGradient
-    { Mlp.gradW1 = gradientVector (Data.Vector.Unboxed.length (Mlp.paramW1 params)) 0.01
-    , Mlp.gradB1 = gradientVector (Data.Vector.Unboxed.length (Mlp.paramB1 params)) 0.02
-    , Mlp.gradW2 = gradientVector (Data.Vector.Unboxed.length (Mlp.paramW2 params)) 0.015
-    , Mlp.gradB2 = gradientVector (Data.Vector.Unboxed.length (Mlp.paramB2 params)) 0.025
-    }
-
-mapGradientForTest :: (Double -> Double) -> Mlp.MlpGradient -> Mlp.MlpGradient
-mapGradientForTest f gradient =
-  Mlp.MlpGradient
-    { Mlp.gradW1 = Data.Vector.Unboxed.map f (Mlp.gradW1 gradient)
-    , Mlp.gradB1 = Data.Vector.Unboxed.map f (Mlp.gradB1 gradient)
-    , Mlp.gradW2 = Data.Vector.Unboxed.map f (Mlp.gradW2 gradient)
-    , Mlp.gradB2 = Data.Vector.Unboxed.map f (Mlp.gradB2 gradient)
-    }
 
 positiveDiagonalGradientForTest :: Mlp.MlpGradient -> Mlp.MlpGradient
 positiveDiagonalGradientForTest gradient =
@@ -16929,23 +17364,6 @@ selectedLogProbs config params =
                 )
          in log (policy Data.Vector.Unboxed.! PpoTrainer.rsAction step)
     )
-
-gradientDotForTest :: Mlp.MlpGradient -> Mlp.MlpGradient -> Double
-gradientDotForTest left right =
-  Data.Vector.Unboxed.sum (Data.Vector.Unboxed.zipWith (*) (Mlp.gradW1 left) (Mlp.gradW1 right))
-    + Data.Vector.Unboxed.sum (Data.Vector.Unboxed.zipWith (*) (Mlp.gradB1 left) (Mlp.gradB1 right))
-    + Data.Vector.Unboxed.sum (Data.Vector.Unboxed.zipWith (*) (Mlp.gradW2 left) (Mlp.gradW2 right))
-    + Data.Vector.Unboxed.sum (Data.Vector.Unboxed.zipWith (*) (Mlp.gradB2 left) (Mlp.gradB2 right))
-
-gradientAllFinite :: Mlp.MlpGradient -> Bool
-gradientAllFinite gradient =
-  all
-    (Data.Vector.Unboxed.all (\value -> not (isNaN value || isInfinite value)))
-    [ Mlp.gradW1 gradient
-    , Mlp.gradB1 gradient
-    , Mlp.gradW2 gradient
-    , Mlp.gradB2 gradient
-    ]
 
 addGradientToParams :: Double -> Mlp.MlpGradient -> Mlp.MlpParams -> Mlp.MlpParams
 addGradientToParams scale gradient params =

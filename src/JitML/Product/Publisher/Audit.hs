@@ -12,6 +12,8 @@ module JitML.Product.Publisher.Audit
   , validateAdmittedProductCheckpoint
   , validateAdmittedProjectionIdentity
   , validateProductCompletedTrainingPlanId
+  , validateNativePublishedProjection
+  , nativePublishedArtifactReceipt
   , validateProductPublishBatch
   )
 where
@@ -24,12 +26,19 @@ import Data.Text qualified as Text
 
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
+import JitML.Checkpoint.Writer qualified as CheckpointWriter
+import JitML.Plan.Plan (planIdText)
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.Product.NativePublishedArtifact qualified as NativePublished
+import JitML.Product.NativeQualificationReference qualified as NativeReference
+import JitML.Product.SupervisedQualificationReceipt qualified as QualificationReceipt
 import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
+import JitML.Substrate (renderSubstrate)
 import JitML.Training.Budget qualified as TrainingBudget
 
 data ProductPublishDisposition
   = ProductPublishEligible !CheckpointStore.AdmittedCompletedCheckpoint
+  | ProductPublishNativeEligible !NativePublished.NativePublishedArtifact
   | ProductPublishUnsupported !Text
   | ProductPublishError !Text
   deriving stock (Eq, Show)
@@ -47,6 +56,8 @@ data ProductPublishResult = ProductPublishResult
   , productPublishExperimentHash :: !Text
   , productPublishDisposition :: !ProductPublishDisposition
   , productPublishArtifacts :: ![ProductArtifactReceipt]
+  , productPublishSupervisedQualification
+      :: !(Maybe QualificationReceipt.SupervisedQualificationPublication)
   , productPublishMessage :: !Text
   }
   deriving stock (Eq, Show)
@@ -125,64 +136,55 @@ validateProductPublishBatch projectedBatch results = do
         (productPublishArtifacts result)
       case productPublishDisposition result of
         ProductPublishEligible admitted -> do
+          unlessEither
+            ( ProductMatrix.productProjectionFamily projection
+                `notElem` [ProductMatrix.ReinforcementLearning, ProductMatrix.AlphaZero]
+            )
+            "native ProductRow cannot use legacy callback checkpoint eligibility"
           validateAdmittedProjectionIdentity projection admitted
-          let manifest =
-                CheckpointStore.admittedCheckpointManifest
-                  (CheckpointStore.admittedCompletedCheckpoint admitted)
-              actualPointers =
-                List.sortOn
-                  artifactPointerIdentity
-                  (Checkpoint.manifestTranscriptPointers manifest)
-          -- The admitted manifest addresses every physical object inside its
-          -- deterministic storage-snapshot namespace, so the projected logical
-          -- pointer is rebased through the exact same derivation the writer
-          -- used before the inventories are compared. Equality then proves the
-          -- companion artifact is bound to this snapshot, not merely that some
-          -- object shares its payload SHA.
-          snapshotId <-
-            case CheckpointStore.checkpointStorageSnapshotId manifest of
-              Left reason ->
-                Left
-                  ( ProductMatrix.productProjectionRowId projection
-                      <> " admitted manifest has no single storage snapshot namespace: "
-                      <> reason
-                  )
-              Right resolved -> Right resolved
-          let expectedPointers =
-                List.sortOn
-                  artifactPointerIdentity
-                  ( fmap
-                      (snapshotScopedPointer manifest snapshotId . productArtifactPointer)
-                      (productPublishArtifacts result)
-                  )
+          case (ProductMatrix.productProjectionFamily projection, productPublishSupervisedQualification result) of
+            (ProductMatrix.Supervised, Just publication) -> do
+              let reference = QualificationReceipt.supervisedQualificationPublicationReference publication
+              requireProjectedValue
+                "supervised qualification row"
+                (ProductMatrix.productProjectionRowId projection)
+                (QualificationReceipt.qualificationReferenceRowId reference)
+              requireProjectedValue
+                "supervised qualification PlanId"
+                (planIdText (ProductMatrix.productProjectionPlanId projection))
+                (QualificationReceipt.qualificationReferencePlanId reference)
+              requireProjectedValue
+                "supervised qualification lane"
+                (renderSubstrate (ProductMatrix.productProjectionSubstrate projection))
+                (QualificationReceipt.qualificationReferenceSubstrate reference)
+              requireProjectedValue
+                "supervised qualification experiment"
+                (ProductMatrix.productProjectionExperimentHash projection)
+                (QualificationReceipt.qualificationReferenceExperimentHash reference)
+              requireProjectedValue
+                "supervised qualification admitted manifest"
+                (CheckpointStore.admittedCheckpointManifestSha (CheckpointStore.admittedCompletedCheckpoint admitted))
+                (QualificationReceipt.qualificationReferenceManifestSha256 reference)
+            (ProductMatrix.Supervised, Nothing) -> Left "supervised publisher result is missing its five-run qualification publication"
+            (_, Nothing) -> Right ()
+            (_, Just _) -> Left "non-supervised publisher result carries a supervised qualification"
+          validateProjectionArtifactInventory
+            projection
+            (CheckpointStore.admittedCompletedCheckpoint admitted)
+            (productPublishArtifacts result)
+        ProductPublishNativeEligible published -> do
+          validateNativePublishedProjection projection published
+          unlessEither
+            (case productPublishSupervisedQualification result of Nothing -> True; Just _ -> False)
+            "native publisher result carries a supervised qualification"
           requireProjectedValue
-            "admitted companion artifact inventory"
-            expectedPointers
-            actualPointers
-          let expectedArtifactKinds =
-                case ProductMatrix.productProjectionFamily projection of
-                  ProductMatrix.Supervised -> []
-                  ProductMatrix.ReinforcementLearning -> ["rl-trajectory"]
-                  ProductMatrix.AlphaZero -> ["alphazero-transcript"]
-                  ProductMatrix.Tuning -> ["tune-trials"]
-          requireProjectedValue
-            "projected companion artifact kinds"
-            expectedArtifactKinds
-            (fmap productArtifactKind (productPublishArtifacts result))
-          let tuningReceiptCount =
-                length
-                  [ ()
-                  | receipt <- productPublishArtifacts result
-                  , productArtifactKind receipt == "tune-trials"
-                  ]
-              expectedTuningReceiptCount =
-                if ProductMatrix.productProjectionFamily projection == ProductMatrix.Tuning
-                  then 1
-                  else 0
-          requireProjectedValue
-            "projected tuning transcript count"
-            expectedTuningReceiptCount
-            tuningReceiptCount
+            "actual native sole companion receipt"
+            [nativePublishedArtifactReceipt projection published]
+            (productPublishArtifacts result)
+          validateProjectionArtifactInventory
+            projection
+            (CheckpointStore.admittedExecutionCheckpoint (NativePublished.nativePublishedAdmitted published))
+            (productPublishArtifacts result)
         ProductPublishUnsupported reason ->
           Left
             ( ProductMatrix.productProjectionRowId projection
@@ -213,13 +215,75 @@ validateProductPublishBatch projectedBatch results = do
       "companion artifact object key"
       expectedKey
       (productArtifactObjectKey receipt)
+{-# NOINLINE validateProductPublishBatch #-}
 
+validateProjectionArtifactInventory
+  :: ProductMatrix.ProductProjection kind
+  -> CheckpointStore.AdmittedCheckpoint
+  -> [ProductArtifactReceipt]
+  -> Either Text ()
+validateProjectionArtifactInventory projection checkpoint receipts = do
+  let manifest = CheckpointStore.admittedCheckpointManifest checkpoint
+      actualPointers =
+        List.sortOn
+          artifactPointerIdentity
+          (Checkpoint.manifestTranscriptPointers manifest)
+  -- The admitted manifest addresses every physical object inside its
+  -- deterministic storage-snapshot namespace, so the projected logical
+  -- pointer is rebased through the exact same derivation the writer
+  -- used before the inventories are compared. Equality then proves the
+  -- companion artifact is bound to this snapshot, not merely that some
+  -- object shares its payload SHA.
+  snapshotId <-
+    case CheckpointStore.checkpointStorageSnapshotId manifest of
+      Left reason ->
+        Left
+          ( ProductMatrix.productProjectionRowId projection
+              <> " admitted manifest has no single storage snapshot namespace: "
+              <> reason
+          )
+      Right resolved -> Right resolved
+  let expectedPointers =
+        List.sortOn
+          artifactPointerIdentity
+          ( fmap
+              (snapshotScopedPointer manifest snapshotId . productArtifactPointer)
+              receipts
+          )
+  requireProjectedValue
+    "admitted companion artifact inventory"
+    expectedPointers
+    actualPointers
+  let expectedArtifactKinds =
+        case ProductMatrix.productProjectionFamily projection of
+          ProductMatrix.Supervised -> []
+          ProductMatrix.ReinforcementLearning -> ["rl-trajectory"]
+          ProductMatrix.AlphaZero -> ["alphazero-transcript"]
+          ProductMatrix.Tuning -> ["tune-trials"]
+  requireProjectedValue
+    "projected companion artifact kinds"
+    expectedArtifactKinds
+    (fmap productArtifactKind receipts)
+  let tuningReceiptCount =
+        length
+          [ ()
+          | receipt <- receipts
+          , productArtifactKind receipt == "tune-trials"
+          ]
+      expectedTuningReceiptCount =
+        if ProductMatrix.productProjectionFamily projection == ProductMatrix.Tuning
+          then 1
+          else 0
+  requireProjectedValue
+    "projected tuning transcript count"
+    expectedTuningReceiptCount
+    tuningReceiptCount
+ where
   artifactPointerIdentity pointer =
     ( Checkpoint.artifactPointerKind pointer
     , Checkpoint.artifactPointerObjectKey pointer
     , Checkpoint.artifactPointerSha pointer
     )
-{-# NOINLINE validateProductPublishBatch #-}
 
 validateProductCompletedTrainingPlanId
   :: ProductMatrix.ProductProjection kind
@@ -305,10 +369,19 @@ validateAdmittedProjectionIdentity
   :: ProductMatrix.ProductProjection kind
   -> CheckpointStore.AdmittedCompletedCheckpoint
   -> Either Text ()
-validateAdmittedProjectionIdentity projection admitted = do
-  let checkpoint = CheckpointStore.admittedCompletedCheckpoint admitted
-      manifest = CheckpointStore.admittedCheckpointManifest checkpoint
-      completed = CheckpointStore.admittedCompletedTraining admitted
+validateAdmittedProjectionIdentity projection admitted =
+  validateCheckpointProjectionIdentity
+    projection
+    (CheckpointStore.admittedCompletedCheckpoint admitted)
+    (CheckpointStore.admittedCompletedTraining admitted)
+
+validateCheckpointProjectionIdentity
+  :: ProductMatrix.ProductProjection kind
+  -> CheckpointStore.AdmittedCheckpoint
+  -> TrainingBudget.CompletedTraining
+  -> Either Text ()
+validateCheckpointProjectionIdentity projection checkpoint completed = do
+  let manifest = CheckpointStore.admittedCheckpointManifest checkpoint
       expectedExperiment = ProductMatrix.productProjectionExperimentHash projection
       expectedRowId = ProductMatrix.productProjectionRowId projection
       expectedPlanId = ProductMatrix.productProjectionPlanId projection
@@ -358,6 +431,63 @@ validateAdmittedProjectionIdentity projection admitted = do
         Nothing
         (Checkpoint.manifestSupervisedRuntime manifest)
 
+-- The compact input constructor is private to the actual CHILD publication
+-- route. This check is inventory identity only, never parent authentication.
+validateNativePublishedProjection
+  :: ProductMatrix.ProductProjection kind
+  -> NativePublished.NativePublishedArtifact
+  -> Either Text ()
+validateNativePublishedProjection projection published = do
+  unlessEither
+    ( ProductMatrix.productProjectionFamily projection
+        `elem` [ProductMatrix.ReinforcementLearning, ProductMatrix.AlphaZero]
+    )
+    "non-native ProductRow cannot carry native child publication eligibility"
+  let admitted = NativePublished.nativePublishedAdmitted published
+      checkpoint = CheckpointStore.admittedExecutionCheckpoint admitted
+      raw =
+        NativeReference.nativeQualificationReferenceData
+          (NativePublished.nativePublishedReference published)
+  validateCheckpointProjectionIdentity
+    projection
+    checkpoint
+    (CheckpointStore.admittedExecutionCompletedTraining admitted)
+  requireProjectedValue
+    "native child reference row"
+    (ProductMatrix.productProjectionRowId projection)
+    (NativeReference.nativeReferenceRow raw)
+  requireProjectedValue
+    "native child reference lane"
+    (ProductMatrix.productProjectionSubstrate projection)
+    (NativeReference.nativeReferenceLane raw)
+  requireProjectedValue
+    "native child reference whole PlanId"
+    (planIdText (ProductMatrix.productProjectionPlanId projection))
+    (NativeReference.nativeReferencePlan raw)
+  requireProjectedValue
+    "native child reference experiment"
+    (ProductMatrix.productProjectionExperimentHash projection)
+    (NativeReference.nativeReferenceExperiment raw)
+  requireProjectedValue
+    "native child reference admitted manifest"
+    (CheckpointStore.admittedCheckpointManifestSha checkpoint)
+    (NativeReference.nativeReferenceManifest raw)
+
+nativePublishedArtifactReceipt
+  :: ProductMatrix.ProductProjection kind
+  -> NativePublished.NativePublishedArtifact
+  -> ProductArtifactReceipt
+nativePublishedArtifactReceipt projection published =
+  let actual = NativePublished.nativePublishedCompanion published
+      kind = case ProductMatrix.productProjectionFamily projection of
+        ProductMatrix.AlphaZero -> "alphazero-transcript"
+        _ -> "rl-trajectory"
+   in ProductArtifactReceipt
+        (ProductMatrix.productProjectionExperimentHash projection)
+        kind
+        (CheckpointWriter.storedArtifactSha actual)
+        (CheckpointWriter.storedArtifactObjectKey actual)
+
 -- | Rebase a projected logical companion pointer into the admitted manifest's
 -- storage-snapshot namespace. A manifest without physical objects has no
 -- namespace, so its pointers keep their logical addresses.
@@ -389,6 +519,7 @@ productPublishStatus :: ProductPublishResult -> Text
 productPublishStatus result =
   case productPublishDisposition result of
     ProductPublishEligible _ -> "eligible"
+    ProductPublishNativeEligible _ -> "eligible"
     ProductPublishUnsupported _ -> "unsupported"
     ProductPublishError _ -> "error"
 {-# NOINLINE productPublishStatus #-}
@@ -400,6 +531,11 @@ productPublishManifestSha result =
       Just
         ( CheckpointStore.admittedCheckpointManifestSha
             (CheckpointStore.admittedCompletedCheckpoint admitted)
+        )
+    ProductPublishNativeEligible published ->
+      Just
+        ( CheckpointStore.admittedCheckpointManifestSha
+            (CheckpointStore.admittedExecutionCheckpoint (NativePublished.nativePublishedAdmitted published))
         )
     ProductPublishUnsupported _ -> Nothing
     ProductPublishError _ -> Nothing
@@ -432,6 +568,25 @@ renderProductInventoryEntry result =
               ]
           ]
             <> fmap renderArtifact (productPublishArtifacts result)
+            <> maybe
+              []
+              (pure . QualificationReceipt.renderSupervisedQualificationPublication)
+              (productPublishSupervisedQualification result)
+    ProductPublishNativeEligible published ->
+      let checkpoint = CheckpointStore.admittedExecutionCheckpoint (NativePublished.nativePublishedAdmitted published)
+       in [ Text.intercalate
+              "\t"
+              [ "product-inventory"
+              , productPublishRowId result
+              , productPublishExperimentHash result
+              , CheckpointStore.admittedCheckpointManifestSha checkpoint
+              , "admitted"
+              ]
+          ]
+            <> fmap renderArtifact (productPublishArtifacts result)
+            <> [ NativeReference.renderNativeQualificationReference
+                   (NativePublished.nativePublishedReference published)
+               ]
     ProductPublishUnsupported _ -> []
     ProductPublishError _ -> []
  where

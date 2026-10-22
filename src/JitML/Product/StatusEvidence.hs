@@ -66,6 +66,8 @@ module JitML.Product.StatusEvidence
   , Derived (..)
   , EvidenceRef (..)
   , Obligation (..)
+  , Phase278Context (..)
+  , phase278ContextDescription
   , Unmet (..)
   , renderObligation
   , renderUnmet
@@ -188,6 +190,22 @@ sprintKey sprint = (mapMaybe digitsToInt (Text.splitOn "." sprint), sprint)
 -- Obligations, proof, and unmet reasons
 -- ---------------------------------------------------------------------------
 
+-- | The four closed, machine-observable Phase 278 prerequisites.
+data Phase278Context
+  = AppleExecutionContext
+  | SupervisedCriterionContext
+  | NativeCriterionContext
+  | GenericRlLiveContext
+  deriving stock (Bounded, Enum, Eq, Ord, Show)
+
+phase278ContextDescription :: Phase278Context -> Text
+phase278ContextDescription context =
+  case context of
+    AppleExecutionContext -> "Apple Silicon execution context"
+    SupervisedCriterionContext -> "Independent supervised convergence-anchor review"
+    NativeCriterionContext -> "Independent RL convergence criteria and five-training-seed evidence"
+    GenericRlLiveContext -> "Live generic RL CLI and daemon validation"
+
 -- | Something a sprint owns that a machine can observe.
 data Obligation
   = -- | A committed transcript of the gate's standing invocation on the substrate,
@@ -214,6 +232,9 @@ data Obligation
     -- clear one is to delete it from the catalogue in a change that replaces it
     -- with machine-observable obligations.
     ExternalContext !Text
+  | -- | A closed Phase 278 prerequisite resolved from the selected original
+    -- lane generation, independent criterion selection and actual gate records.
+    Phase278Prerequisite !Phase278Context
   | -- | A declared dependency edge, expanded by the projection from the sprint's
     -- upstream list. It is not written in a catalogue obligation list.
     UpstreamSprint !SprintId
@@ -269,6 +290,7 @@ renderObligation obligation =
     NoPendingControls phase -> "no-pending-controls phase " <> tshow phase
     LedgerClear -> "pending-removal-ledger-clear"
     ExternalContext _ -> "external-context"
+    Phase278Prerequisite context -> "phase278-context " <> phase278ContextDescription context
     UpstreamSprint sprint -> "upstream-sprint " <> sprint
 
 renderUnmet :: Unmet -> Text
@@ -304,6 +326,7 @@ data EvidenceIndex = EvidenceIndex
   , indexCurrentSource :: !(Either Text SourceStamp)
   , indexPendingControls :: !(Maybe [Text])
   , indexLedger :: !(Maybe Derived)
+  , indexPhase278Contexts :: !(Map Phase278Context Derived)
   }
   deriving stock (Eq, Show)
 
@@ -317,6 +340,7 @@ emptyEvidenceIndex =
     , indexCurrentSource = Left "current source digest was not computed"
     , indexPendingControls = Nothing
     , indexLedger = Nothing
+    , indexPhase278Contexts = Map.empty
     }
 
 -- | The derived state of one obligation. Total: an obligation the index knows
@@ -359,6 +383,10 @@ observeObligation index obligation =
       fromMaybe (missing "the legacy ledger") (indexLedger index)
     ExternalContext description ->
       Unproven (External description :| [])
+    Phase278Prerequisite context ->
+      fromMaybe
+        (missing (phase278ContextDescription context))
+        (Map.lookup context (indexPhase278Contexts index))
     UpstreamSprint sprint ->
       Unproven
         ( Mismatched

@@ -78,9 +78,12 @@ different matter: it calls the host libm and is **not** aligned across
 substrates. That covers the simulator dynamics (the trigonometric functions
 `sin` and `cos` in the cart-pole, mountain-car, acrobot, pendulum, and
 lunar-lander physics), the softmax and log-probability (`exp` and `log`), the
-pure-Haskell MLP forward whose `tanh` produces the final RL policy evaluation,
-and the pure `Double` graph executor that serves supervised checkpoints. macOS
-libm and glibc are separate implementations that are not guaranteed to round
+explicit pure-Haskell MLP reference forward and the pure `Double` graph executor
+that serves supervised checkpoints. Production on-policy final reward evaluation
+uses the same selected `MlpDevice` as training; the pure evaluator remains an
+explicit reference API. Time-limit successor values also use the selected device
+before reset, while GAE arithmetic, physics and policy-head arithmetic retain
+their host semantics. macOS libm and glibc are separate implementations that are not guaranteed to round
 identically, and a rollout over many steps can amplify any such difference.
 Cross-lane bit identity of host-side
 `Double` math is therefore **not** claimed for Apple Silicon, and no test asserts
@@ -133,6 +136,14 @@ the runtime output, or a metric name that does not belong to the evidence kind i
 a typed rejection rather than a measurement. Those bounds apply to the
 device-trained versus pure-served evaluation of one artifact. They do not assert
 cross-substrate numerical equivalence.
+
+Supervised eligibility also requires the additional
+[held-out learning-signal policy](training_metrics_and_splits.md#additional-held-out-learning-signal-policy).
+Those predicates use actual integer served correct counts and exact rational
+squared-error comparisons over finite served predictions. The provenance
+allowances above do not loosen the majority, binomial, or strict positive-R²
+boundaries. Tiny ImageNet's class-interleaved prefix selection has its own
+versioned semantic recipe identity and preserves held-out annotation order.
 
 Reproducibility is an architectural invariant, not a debugging aid. The
 contract holds across:
@@ -352,6 +363,26 @@ the exact final outer-envelope bytes; the byte-frozen V1 golden that pinned a
 separate weight-only fingerprint is retired, and checkpoints are regenerated
 deterministically from current source rather than reinterpreted. See
 [Checkpoint Format → The Self-Describing Checkpoint Envelope](checkpoint_format.md#the-self-describing-checkpoint-envelope).
+
+The versioned compact qualification additionally binds the canonical base
+plus offsets `0..4` and predetermined served index `0`. Each child is a separate
+singleton plan with the exact unchanged per-run quantities and an explicit seed
+override; auxiliary children have distinct evidence namespaces. The source-bound
+cohort retains all five attempts and its ordered child identities. It does not
+replace one singleton's declared seed with a five-element list or select a
+winning seed by final held-out score. Strict initial/final snapshots and
+canonical detached qualification objects preserve those identities through
+source-journal version `4` and portable lane version `2`. Phase `278` owns final
+validation and actual five-run evidence; earlier singleton evidence remains
+historical for this new scope.
+
+Producer-owned evaluation recipes separately bind QR-DQN, continuous, HER and
+per-game AlphaZero scoring into canonical plan identity, preserving seeds,
+training work, physical dynamics, legal-action conventions and horizons.
+The historical compact identity fixture stays fixed. Separate actual compiled
+baseline and current-RL counterfactual fixtures isolate SL identity fields
+through the public request resolver. Removing those fields does not restore
+an older report policy or assert historical numerical parameter equality.
 
 That generic seed is executed, not merely hashed or persisted. The supervised
 entrypoint requires exactly one plan seed, rejects platform-`Int` overflow, and

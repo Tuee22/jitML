@@ -3,8 +3,10 @@
 module JitML.Product.Evidence
   ( TrainingEvidence
   , attachDeviceExecutionWitness
+  , attachRecordedArsHostReference
   , evidenceDatasetShaAtRead
   , evidenceDeviceWitness
+  , evidenceExecutionProvenance
   , evidenceFinalWeightHash
   , evidenceInitialWeightHash
   , evidenceObservationsMatch
@@ -17,10 +19,16 @@ import Codec.CBOR.Decoding qualified as Decoding
 import Codec.CBOR.Encoding qualified as Encoding
 import Codec.Serialise (Serialise (..))
 import Codec.Serialise qualified as Serialise
+import Control.Monad (when)
+import Data.ByteString qualified as ByteString
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word (Word64)
 import GHC.Generics (Generic)
+
+import JitML.Product.ArsHostReference (ArsHostReference)
+import JitML.Product.ArsHostReference qualified as ArsHostReference
+import JitML.Product.ExecutionProvenance (ExecutionProvenance (..))
 
 import JitML.Product.DeviceWitness
   ( DeviceExecutionWitness
@@ -29,42 +37,43 @@ import JitML.Product.DeviceWitness
   , refineRawDeviceExecutionWitness
   )
 
--- | Observed training evidence, optionally carrying the execution witness the
--- device call left behind.
---
--- The witness is 'Maybe' because RL replay fixtures and pure-reference training
--- legitimately produce evidence without a device dispatch. It is /not/ optional
--- where it matters: product-row checkpoint admission rejects a completion whose
--- evidence carries no witness, so every admitted product row's device-evidence
--- cell is minted from a real artifact rather than composed from its declaration.
+-- | Strict observations plus optional recorded execution provenance. This data
+-- is not actual producer origin, physical admission or parent authentication.
+-- The neural raw form is retained so legacy malformed witnesses keep their
+-- existing fail-closed accessor/refinement path.
+data StoredExecutionProvenance
+  = StoredNeuralExecution !(Maybe RawDeviceExecutionWitness)
+  | StoredArsHostExecution !ArsHostReference
+  deriving stock (Eq, Ord, Show)
+
 data TrainingEvidence = TrainingEvidence
   { trainingInitialWeightHashValue :: Text
   , trainingFinalWeightHashValue :: Text
   , trainingUpdateCountValue :: Word64
   , trainingDatasetShaAtReadValue :: Text
-  , trainingDeviceWitnessValue :: Maybe RawDeviceExecutionWitness
+  , trainingExecutionProvenanceValue :: StoredExecutionProvenance
   }
   deriving stock (Eq, Generic, Ord, Show)
 
--- | Sprint `229.1` added 'trainingDeviceWitnessValue'. A checkpoint persisted
--- before that field decodes one element short, and a generic instance rejects
--- it with @Wrong number of fields: expected=6 got=5@ — a deserialise crash that
--- says nothing about why the artifact is inadmissible.
---
--- The decoder therefore accepts the pre-witness shape and fills the witness
--- with 'Nothing'. This does not weaken the contract: an evidence value carrying
--- no witness is exactly what checkpoint admission rejects, so a legacy
--- checkpoint now fails at the admission gate with a message naming the missing
--- device witness instead of failing at CBOR with a field count.
+-- | Existing neural six/tag0 and historical pre-witness five/tag0 codecs
+-- remain byte/behaviour compatible. Host six/tag1 embeds one canonical definite
+-- byte string containing the lower canonical reference CBOR. This does not
+-- strengthen the preexisting outer Evidence/CompletedTraining decoder globally.
 instance Serialise TrainingEvidence where
   encode evidence =
     Encoding.encodeListLen 6
-      <> Encoding.encodeWord 0
+      <> Encoding.encodeWord
+        ( case trainingExecutionProvenanceValue evidence of
+            StoredNeuralExecution _ -> 0
+            StoredArsHostExecution _ -> 1
+        )
       <> Serialise.encode (trainingInitialWeightHashValue evidence)
       <> Serialise.encode (trainingFinalWeightHashValue evidence)
       <> Serialise.encode (trainingUpdateCountValue evidence)
       <> Serialise.encode (trainingDatasetShaAtReadValue evidence)
-      <> Serialise.encode (trainingDeviceWitnessValue evidence)
+      <> case trainingExecutionProvenanceValue evidence of
+        StoredNeuralExecution witness -> Serialise.encode witness
+        StoredArsHostExecution reference -> Encoding.encodeBytes (ArsHostReference.encodeArsHostReference reference)
 
   decode = do
     listLen <- Decoding.decodeListLen
@@ -76,15 +85,29 @@ instance Serialise TrainingEvidence where
           <*> Serialise.decode
           <*> Serialise.decode
           <*> Serialise.decode
-          <*> Serialise.decode
+          <*> (StoredNeuralExecution <$> Serialise.decode)
       (5, 0) ->
-        -- Pre-witness shape: witnessless, and admission rejects it as such.
+        -- Historical honest absence. Current admission still rejects absence.
         TrainingEvidence
           <$> Serialise.decode
           <*> Serialise.decode
           <*> Serialise.decode
           <*> Serialise.decode
-          <*> pure Nothing
+          <*> pure (StoredNeuralExecution Nothing)
+      (6, 1) -> do
+        initial <- Serialise.decode
+        final <- Serialise.decode
+        updates <- Serialise.decode
+        dataset <- Serialise.decode
+        encodedReference <- Decoding.decodeBytesCanonical
+        when (ByteString.length encodedReference > 8192) $
+          fail "TrainingEvidence: ARS host reference exceeds its byte limit"
+        reference <-
+          either
+            (fail . Text.unpack . ("TrainingEvidence: ARS host reference rejected: " <>))
+            pure
+            (ArsHostReference.decodeArsHostReference encodedReference)
+        pure (TrainingEvidence initial final updates dataset (StoredArsHostExecution reference))
       _ ->
         fail
           ( "TrainingEvidence: unsupported encoding (listLen="
@@ -108,18 +131,29 @@ evidenceUpdateCount = trainingUpdateCountValue
 evidenceDatasetShaAtRead :: TrainingEvidence -> Text
 evidenceDatasetShaAtRead = trainingDatasetShaAtReadValue
 
--- | The execution witness recorded for this evidence, refined back from the
--- wire.
---
--- @Right Nothing@ is an honest absence (pure-reference or replay training);
--- @Left@ is a stored witness that does not refine, which is a decode failure
--- rather than an absence, so a tampered journal row fails closed instead of
--- degrading to \"no device claimed\".
+-- | Checked recorded provenance only. Wire/refinement is not fresh execution.
+-- Malformed neural payloads fail instead of degrading to honest absence.
+evidenceExecutionProvenance
+  :: TrainingEvidence
+  -> Either Text (Maybe (ExecutionProvenance ArsHostReference))
+evidenceExecutionProvenance evidence =
+  case trainingExecutionProvenanceValue evidence of
+    StoredNeuralExecution Nothing -> Right Nothing
+    StoredNeuralExecution (Just raw) ->
+      fmap (Just . NeuralDeviceExecution) (refineRawDeviceExecutionWitness raw)
+    StoredArsHostExecution reference -> Right (Just (ArsHostLinearExecution reference))
+
+-- | Preserve the neural-only API. Host is an explicit wrong kind, never absence
+-- and never an invented device witness.
 evidenceDeviceWitness :: TrainingEvidence -> Either Text (Maybe DeviceExecutionWitness)
-evidenceDeviceWitness evidence =
-  case trainingDeviceWitnessValue evidence of
+evidenceDeviceWitness evidence = do
+  recorded <- evidenceExecutionProvenance evidence
+  case recorded of
     Nothing -> Right Nothing
-    Just raw -> fmap Just (refineRawDeviceExecutionWitness raw)
+    Just (NeuralDeviceExecution witness) -> Right (Just witness)
+    Just (ArsHostLinearExecution _) ->
+      Left
+        "training evidence records ARS host linear execution and does not carry a neural device witness"
 
 -- | Compare two evidence values on their observations alone.
 --
@@ -146,14 +180,31 @@ evidenceObservationsMatch left right =
 attachDeviceExecutionWitness
   :: DeviceExecutionWitness -> TrainingEvidence -> Either Text TrainingEvidence
 attachDeviceExecutionWitness witness evidence =
-  case trainingDeviceWitnessValue evidence of
-    Just existing
+  case trainingExecutionProvenanceValue evidence of
+    StoredArsHostExecution _ ->
+      Left "training evidence is already bound to ARS host linear execution"
+    StoredNeuralExecution (Just existing)
       | existing /= raw ->
           Left "training evidence is already bound to a different device execution witness"
       | otherwise -> Right evidence
-    _ -> Right evidence {trainingDeviceWitnessValue = Just raw}
+    StoredNeuralExecution Nothing ->
+      Right evidence {trainingExecutionProvenanceValue = StoredNeuralExecution (Just raw)}
  where
   raw = deviceExecutionWitnessToRaw witness
+
+-- | Attach checked recorded host data, not actual-origin or admission authority.
+-- No attachment can replace a different kind or a different recorded value.
+attachRecordedArsHostReference
+  :: ArsHostReference -> TrainingEvidence -> Either Text TrainingEvidence
+attachRecordedArsHostReference reference evidence =
+  case trainingExecutionProvenanceValue evidence of
+    StoredNeuralExecution (Just _) ->
+      Left "training evidence is already bound to neural device execution"
+    StoredNeuralExecution Nothing ->
+      Right evidence {trainingExecutionProvenanceValue = StoredArsHostExecution reference}
+    StoredArsHostExecution existing
+      | existing == reference -> Right evidence
+      | otherwise -> Left "training evidence is already bound to a different ARS host reference"
 
 mkTrainingEvidence
   :: Text
@@ -179,5 +230,5 @@ mkTrainingEvidence initialHash finalHash updateCount datasetSha
           , trainingFinalWeightHashValue = finalHash
           , trainingUpdateCountValue = updateCount
           , trainingDatasetShaAtReadValue = datasetSha
-          , trainingDeviceWitnessValue = Nothing
+          , trainingExecutionProvenanceValue = StoredNeuralExecution Nothing
           }
