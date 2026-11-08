@@ -1,0 +1,164 @@
+{
+  "format": "jitml-independent-current4958-four-scope-criterion-addendum-a-v1",
+  "reviewer": "resource_criterion_review_a",
+  "source": {"algorithm": 1, "sha256": "495822c97d55f15727615a0bab4a0b09e8fd8a833b1a0b14f98c91cb7c8d49f0", "files": 617},
+  "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+  "image": null,
+  "product_scientific_training_executed_for_this_review": false,
+  "code_blockers": [],
+  "packet": {
+    "path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-review-a/review-request.json",
+    "bytes": 9201,
+    "sha256": "65a2b967c99aa13af613c25a7635b94bc7f2847f34a36e6083881cd93d741157"
+  },
+  "independence_and_method": {
+    "authorship": "Actual independently authored current4958 four-scope judgment, not a relabeled dc00 judgment or Root-authored subject DATA.",
+    "inspection": "Verified packet, referenced subject/export/source/delta/baseline and structured receipt pins. Read both exact production changes and surrounding preparation/continuation/counter/summary code, the behavioral test, deliberate device/scalar probe source and relevant validation implementations. Compared old/current raw inventories, checked both changed bodies, reconstructed the exact unified diff from the copied dc00 files, compared every subject's scientific fields with dc00 and current export, compared complete actual export vectors with dc00 and recomputed both full55 digests. Inspected selected kernel/cgroup/node metadata and joined current compiled-library authority across build and fixture receipts.",
+    "boundaries": "No peer's new output inspected; no source/subject/criterion/config/cache/runtime edits, Docker/VM/build/test/training launches, delegation, staging/commit/push or private raw child/model/evaluation/proof/journal/key/config body reads. Public source, deliberate criterion/export/fixture DATA and selected structured validation/resource/kernel records only. This JSON is message output; I created no review file."
+  },
+  "historical_reasoning_refs": [
+    {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-frontend-criterion-review-a/reviewer-a/currentdc00-addendum.json",
+      "bytes": 31214,
+      "sha256": "851436bfd1f8478927f593270e543d00ad7f00fd9b6dc0dc4bf3d85c09dd4d4a",
+      "scope": "My detailed historical dc00 reasoning, independently reread and reassessed for the current delta. Its scientific restrictions remain cumulative; its execution/image facts retain their original source scope."
+    },
+    {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-criterion-review-a/reviewer-a/current-source225-four-scope-addendum-a.json",
+      "bytes": 46668,
+      "sha256": "7c82ee23ed248e9701257122dbff5638d15d17f719bce438101ea71ab79c29e6",
+      "scope": "My earlier detailed scientific policy reasoning for unchanged comparisons and original exclusions, historical only. No current producer or qualification authority is inherited."
+    }
+  ],
+  "source_and_retention_assessment": {
+    "freeze": {"path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-fix-a/candidate-source-a.json", "bytes": 111757, "sha256": "c58c02bba033c1ee5db785c97e992cf1db0f9a59421d029174ff30e7312b51ed"},
+    "delta": {"path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-review-a/delta-from-dc00.diff", "bytes": 5174, "sha256": "996c0342374b75acf449ff28d5047508b75634967b970072acaf0cdf98f0f702"},
+    "baseline_copy": {"path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-review-a/baseline-copy.json", "bytes": 1340, "sha256": "97786847135b76d422f748c3be11bd98b214563d6b07c838f30f506250530236"},
+    "changed_files": [
+      {"path": "src/JitML/RL/Algorithms/PpoTrainer.hs", "bytes": 108757, "sha256": "62a7f48ec82f738293a7af760cb9ffa71942817d002532695b896430d1f449b8"},
+      {"path": "test/unit/OnPolicyHorizon.hs", "bytes": 21309, "sha256": "e9d1c94a8dcb8a37989073a0c35ac1389a3bd02446baeedb6a9a2782c617e871"}
+    ],
+    "inventory_result": "Exactly these two raw-source rows differ from dc00;615 other inventory rows and the complete617 path set are equal. Both changed bodies match the freeze. The diff reconstructs exactly from the pinned public dc00 image copy. No other scientific/resource configuration change is proposed. I did not broadly reread/rehash615 unchanged bodies.",
+    "production_change": "Both scalar preparePpoInEnvironment and device preparePpoOnDeviceWithEnvironment iteration steps add bang strictness to the existing actorStepsAfter, transitionsAfter and stat bindings. Their expressions are unchanged. The same rollout collection, advantages/standardisation, triples, optimizer/device calls, counters, generator/state threading and stats append remain in the same logical order. No sampling, update count, minibatch, epoch, seed, initialization, reference, evaluation, quality-bar or cap change is introduced.",
+    "mechanism": "A deferred transition counter closes over rolloutSteps; a deferred summary closes over episode returns; a deferred actor counter may close over previous/current parameter roots. Eagerly obtaining the existing Int/Integer results consumes those thunks before advancing. PpoIterationStat already has strict Int/Double fields, so forcing its constructor also consumes its existing mean/median/max/count calculations. This changes evaluation timing and object lifetime, without changing the arithmetic expressions or selecting a different result. For TRPO the unchanged actor comparison is evaluated earlier. No forced GC, dropped statistic, censored result, shortened work or memory-limit increase is added to production.",
+    "behavioral_test": "The new four-iteration/two-slot test instruments the actual pure-reference device seam. It identifies the first rollout call after an optimizer pass, triggers GC, checks a previous parameter root only through a weak pointer, and requires three boundaries and four result statistics. The actual old compiled library fails the expected lifetime assertion, while the current library passes the complete12-case group. This is useful behavioral regression evidence rather than merely checking the new syntax.",
+    "limits": "Strictness can expose a bottom/exception earlier; it does not justify accepting an incomplete or invalid run. Static unchanged expressions plus the paired fixtures support numerical invariance for intended completed finite computations, not a universal bitwise theorem for every variant/backend/configuration. The paired device probe exercises VariantPPO on a synthetic pure-reference MlpDevice seam, not real oneDNN/Metal/CUDA training. The scalar probe supplies output equality only. Full result-statistic list retention and within-iteration peaks remain; no globally constant-space or product memory-fit claim is made."
+  },
+  "contract_invariance": {
+    "actual_export": {"path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-fix-a/export-work/export.stdout", "bytes": 21726, "sha256": "3b0ce293d746708ec4a5fe902eb23d23d0be002df081c31c6e25a8a01b3f0726"},
+    "receipt": {"path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-fix-a/export-work/result.json", "bytes": 1257, "sha256": "54ebe78f0c6f2e3351051d11b587f83c8fe5abb8a9039eef4edd19cd9fe3ba92"},
+    "finding": "Actual fresh current-library-linked export0, only Main compiled and library_rebuilt=false. Both complete ordered55 vectors are exactly dc00. Each subject's scientific rows/count, complete55 context/digest and preserved scientific limits are exactly dc00, and every complete55 row joins to the current export. Independently recomputed SHA256 of the domain-separated compact ordered row_id/plan_id/contract_sha256 triples confirms both digests. Contract equality preserves configuration identity; it does not by itself prove this production execution or a numerical/scientific pass.",
+    "linux_cpu_full55_digest": "8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7",
+    "apple_silicon_full55_digest": "a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c"
+  },
+  "reviews": [
+    {
+      "source": {"algorithm": 1, "sha256": "495822c97d55f15727615a0bab4a0b09e8fd8a833b1a0b14f98c91cb7c8d49f0", "files": 617},
+      "lane": "linux-cpu",
+      "scope": "supervised",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+      "subject": {"path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-review-a/linux-cpu-supervised-subject.json", "bytes": 22195, "sha256": "c8f14d2f80028ace8c5f84cd451bb54253278acc4da63e69a12235505e178547"},
+      "scientific_row_count": 11,
+      "complete_ordered55_contract_set_sha256": "8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7",
+      "scientific_reasoning": "I independently accept this exact current4958 supervised subject prospectively. Its11 supervised numerical/evaluation contracts and full55 context are unchanged; the production edit is in on-policy iteration bookkeeping/lifetime. Authentic same-input strict initial/final gains and exact classification chance/actual-majority or regression constant-baseline comparisons retain their finite observed-learning interpretation. The same original models must jointly satisfy every predicate; all original0..4, full-five bars and independently eligible served0 remain required. The conditional-null, held-out adaptivity, historical-bar and physical provenance restrictions below are cumulative. No current real CPU cohort, measured learning, qualified served model or image admission is established.",
+      "blocking_missing_facts_for_this_limited_scope": []
+    },
+    {
+      "source": {"algorithm": 1, "sha256": "495822c97d55f15727615a0bab4a0b09e8fd8a833b1a0b14f98c91cb7c8d49f0", "files": 617},
+      "lane": "linux-cpu",
+      "scope": "native",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+      "subject": {"path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-review-a/linux-cpu-native-subject.json", "bytes": 29437, "sha256": "14ddcdc3d49268c4e5dfa05cc2dc728e9ede163d03f70346309356a113920a45"},
+      "scientific_row_count": 43,
+      "complete_ordered55_contract_set_sha256": "8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7",
+      "scientific_reasoning": "I independently accept these exact43 current4958 native scientific rows prospectively. The changed shared on-policy loop preserves each arithmetic expression, scheduled work, selected-device update/evaluation boundary, initialization and counters; it consumes completed bookkeeping earlier. The bounded old/current paired output and lifetime evidence supports that correction at its stated scope. Every authentic effective-initial gain and complete fixed RETURN/HER/arena reference comparison remains unchanged, including narrow actual-optimum equality rules, same-original joint success, full-five bars and independently served0. ARS applied aggregate-step/host provenance and SAC preparation disclosures remain binding. The old Pod OOM is not a numerical non-convergence result; the fix still requires a new real supervised CPU run and full provenance before any scientific or qualification acceptance.",
+      "blocking_missing_facts_for_this_limited_scope": []
+    },
+    {
+      "source": {"algorithm": 1, "sha256": "495822c97d55f15727615a0bab4a0b09e8fd8a833b1a0b14f98c91cb7c8d49f0", "files": 617},
+      "lane": "apple-silicon",
+      "scope": "supervised",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+      "subject": {"path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-review-a/apple-silicon-supervised-subject.json", "bytes": 22199, "sha256": "a64f6117304828f0f7d3b89eb6629e867895fe81e4a12f16dbb96126c00e7d5c"},
+      "scientific_row_count": 11,
+      "complete_ordered55_contract_set_sha256": "a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c",
+      "scientific_reasoning": "I independently accept the exact11 Apple current4958 supervised scientific rows and their own lane-specific full55 context prospectively. No supervised mathematical/evaluation policy changes, so the unchanged strict same-input paired classification/regression criteria can retain finite observed-learning meaning with all original allocations, same-original joint success, full-five historical bars and independently eligible predetermined served0. All null/adaptivity/provenance qualifications below remain. Linux compilation, contract export and pure-reference synthetic fixtures supply no real host Metal execution or host containment. Actual Apple hardware/toolchain and separate native CPU/heap/memory-pressure supervision remain required; CPU evidence cannot substitute.",
+      "blocking_missing_facts_for_this_limited_scope": []
+    },
+    {
+      "source": {"algorithm": 1, "sha256": "495822c97d55f15727615a0bab4a0b09e8fd8a833b1a0b14f98c91cb7c8d49f0", "files": 617},
+      "lane": "apple-silicon",
+      "scope": "native",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+      "subject": {"path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-review-a/apple-silicon-native-subject.json", "bytes": 29441, "sha256": "6fdb4e3142e4e0985abaafa3e545d5d1176688c93b917089094275ce9feb82a3"},
+      "scientific_row_count": 43,
+      "complete_ordered55_contract_set_sha256": "a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c",
+      "scientific_reasoning": "I independently accept these exact43 current4958 Apple native scientific rows prospectively. Earlier consumption of unchanged on-policy counters/summaries does not alter the intended completed finite mathematical comparisons, original work allocations, effective-initial definitions, cases, reference families, bars or exclusions. The unchanged complete same-policy gain/reference predicates, all-five requirements and independent original served0 therefore retain only finite observed-learning meaning, with narrow tie rules and ARS/SAC disclosures preserved. No universal Metal bitwise-equivalence, host heap-fit, real GPU learning, full55 completion or native qualification claim is made from the synthetic fixture or this review.",
+      "blocking_missing_facts_for_this_limited_scope": []
+    }
+  ],
+  "scientific_restrictions": {
+    "claim": "Prospective applicability of exact finite observed-learning criteria on pinned cases only. No actual current learning, convergence, qualification, full-cohort, hardware, standing or phase pass.",
+    "allocation": "Complete and retain every original index0..4 in original order, with unchanged finite work and seeds: supervised canonical base+index and native42..46. Original index0 is predetermined for serving. Missing/incomplete/nonfinite/duplicate/reordered/substituted/wrong-budget children fail. Retain all attempts and finite failures. No selected retry, seed replacement, hidden attempt, cherry-picking, pooling episodes/coordinates as models, partial-row splicing, retry-to-score or budget/deadline extension.",
+    "joint_and_served": "At least3 SAME original models must each jointly satisfy strict authentic own-effective-initial gain and EVERY applicable reference predicate. Different-model/coordinate successes cannot be combined. Full-five statistics include every finite failure/below-floor member and meet every unchanged family bar. Served original index0 independently meets its own learning/reference, quality, completion, budget, actual selected device, full graph/search/head replay, exact Store bytes and authenticated qualification/journal/admission. Its metric is not the cohort median.",
+    "classification": "Require exact finalCorrect>initialCorrect and finalCorrect>=max(actual largest held-out class count+1, exact Binomial(n,1/C) upper-tail critical count at alpha1/5000). At n1000 the unchanged counts are136/24/16 for10/100/200 classes; actual majority can strengthen them. Every historical all-five median and independent served0 floor remains additional.",
+    "regression": "On the same retained finite binary64 targets/predictions require exact rational SSE_final<SSE_initial and SSE_final<SST, positive target variance and finite positive scale, plus unchanged standardized-RMSE ceilings for all-five median and served0. No epsilon/rounding creates strict improvement.",
+    "conditional_probability": "Only under prospective allocation and the stated all-five independent-uniform-per-example null: event probability<=1/5000, E[N]<=5/5000 and P[N>=3]<=1/3000 without between-seed independence; at most30 fixed classification cohorts have union bound<=0.01. Uniform marginals alone do not suffice. No automatic acquisition confidence or arbitrary-random-network, mixed-null, adaptive/repeated-attempt, regression, native-RL or population guarantee follows.",
+    "held_out_adaptivity": "Initial/final measurements require identical pinned inputs/descriptors/transforms and authentic before-update snapshots. Held-out reuse and outcome-guided development remain disclosed; every attempt stays retained. A new source/review freeze erases no selection/adaptivity bias or establishes generalization.",
+    "bars_and_exclusions": "Every original floor/ceiling/slack and exclusion remains exact, cumulative and honestly sourced. Policy names/slack do not establish a published-model anchor. Tiny binary64(0.64-0.632)=0.008000000000000007 was chosen after measured0.012 and retains that history. Three same-original joint Tiny successes require accuracy>=0.016, forcing full-five median>=0.016, and independently eligible served0 also>=0.016. Other bars may still reject learning. No failed bar is waived, rebaselined or relabeled as published parity.",
+    "return": "Keep the same20 addressed diagnostic starts/horizon, complete prescribed reference controllers evaluated once in order, exact paired-median arithmetic and all original quality evaluations. Final strictly improves authentic effective initial and beats EVERY reference. Reference equality only for supported KeyDoor when actual reference and final both equal the current complete-state/time legal-transition DP optimum. Historical/supplied bounds, epsilon, above-bound observations and other RETURN ties fail.",
+    "her": "Keep the same20 sampler-only goals at42+104729 and all46656 goal-blind six-step references. Each joint policy strictly improves BOTH success and exact normalized terminal distance from its effective initial and compares with both complete-family extrema. Reference equality only at actual reference/final20success or actual reference/final0distance respectively. Strict initial gain, both quality bars, full-five medians and served0 remain mandatory.",
+    "arena": "Keep all nine addressed row-owned tape cases at7961, actual player1/legal-uniform opponent, unchanged game-aware search/horizon/pass/draw and legality rules. Exact(2wins+draws)/18 strictly improves authentic initial and separately beats actual plain legal-uniform and neutral-prior zero-value MCTS controls. Reference equality only when actual reference and final both equal exact1 from complete outcomes. Preserve original quality bars and0.5 exclusion; no subsets or rounded equality.",
+    "ars_sac": "ARS remains honestly disclosed host-Double linear search with the entire actually applied aggregate-step lineage; a favorable perturbation or unrelated neural witness cannot substitute. SAC/pendulum preparation including340000 warm Adam applications remains separately retained/disclosed. Scheduled-learning gain begins at authentic effective initialization after preparation.",
+    "tuning": "hyperparameter-tuning remains context only in each complete55, seed1729/trials128, with unchanged original full-lane admission obligations. No tuning-learning endorsement or invented absent original code provenance.",
+    "physical_and_producer_boundary": "Mathematical comparisons, source/contract equality, parsed criterion DATA, pure-reference fixture parity and resource checks authenticate no numerical producer. Preserve actual before-dependent-work durable boundaries, source/process/invocation and prelaunch independent-review selection, complete attempts/references/children, original row disclosures/exclusions, real lane hardware/toolchain, exact served Store bytes and authenticated qualification/journal/lane admission. CPU and Apple cannot substitute for each other; NVIDIA/three-lane aggregate obligations remain separate."
+  },
+  "actual_engineering_evidence": {
+    "compile": {
+      "ref": {"path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-fix-a/compile-work/payload-result.json", "bytes": 3576, "sha256": "7f8126b753e23c3c0a3f5d82b64779b6d43b32d3f01ae904c28c243a66d070a6"},
+      "finding": "Actual current library/CLI compile0/132.934694716s, onlylib/exe requested. CLI238108400B/SHA5d2682b77cedcfc864ee57da1670569cc885505cff851dd10b3e384b8ea095bb; library279355458B/SHA58503c9c65f116caddd3df9a85eba0b0cb6ae0fdccc43be4a6cf243eadf37944. This new authority joins exactly to the current scoped, paired-device and component receipts; no new image or real scientific result is implied."
+    },
+    "style": {
+      "ref": {"path": "/Users/matthewnowak/jitML/.build/phase278-currentdc00-convergence-diagnosis-a/retention-style-b/result.json", "bytes": 28786, "sha256": "a8c114ff90f24f8ba753f4f368ed7fed355ba14973e3bfcbffab3726e4d10094"},
+      "finding": "Structured wrapper actual0/attached0, OOMKilled=false/problem=null,4.251897s at1CPU/3Gi/noSwap; container-only formatting/HLint scope. Earlier tuple-section style refusal remains literal. I inspected selected fields, not raw child streams."
+    },
+    "scoped_lifetime": {
+      "ref": {"path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-fix-a/regression-work/result.json", "bytes": 911, "sha256": "87dcccc6aa52ede83c95c9d2e94756d8f5d111d1b8a2dc1e2ad789061278a766"},
+      "finding": "Actual current regression0,12 listed/12 passed including lifetime case,3.46159335s; compiled library unchanged. Scoped OnPolicyHorizon group, not full unit/stanza, product cohort or qualification."
+    },
+    "old_negative_control": {
+      "ref": {"path": "/Users/matthewnowak/jitML/.build/phase278-currentdc00-convergence-diagnosis-a/old-regression-work/result.json", "bytes": 864, "sha256": "6046fae5cff54dbfaf53deeb9cebae936486753680f1948826509227ecd5bb71"},
+      "finding": "Negative-control harness0 with actual old-library regression exit1 and exact expected retention assertion observed. Old library stayed byte-identical. Its literal failing test is the evidence; harness0 is not an old test pass."
+    },
+    "paired_device_seam": {
+      "old": {"path": "/Users/matthewnowak/jitML/.build/phase278-currentdc00-convergence-diagnosis-a/old-retention-work/result.json", "bytes": 1961, "sha256": "ba89106e87e83b37b979a76caba25f681bf70b413ffbfbb8b375181981d3d4bc"},
+      "current": {"path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-fix-a/paired-retention-work/result.json", "bytes": 1952, "sha256": "63f436c297bb764ff4ce53757e2ded03116b9870f9e0e0f02c664adbc9a6bfd7"},
+      "finding": "Both actual compiled libraries run the same bounded12-iteration/6144-transition pure-reference-device synthetic fixture. Complete synthetic result13650B/SHAe8327540cdd89a943784ad4cc3473740807d5fe38b1c900c400b5a8224c65324 agrees exactly. At all11 between-iteration major-GC observations, old live heap rises1210792..12754208B and roots are retained after the first sampled boundary; current is59392..65256B with no previous sampled root alive. Production library is not recompiled by these probes. This demonstrates the sampled retention mechanism on this fixture only; it is neither numerical Pod peak nor real device/hardware/cohort evidence."
+    },
+    "scalar_parity": {
+      "ref": {"path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-fix-a/scalar-parity-result.json", "bytes": 1528, "sha256": "97482416da611f857dd7c70210d86b055c1bebbcb9ddeb97e0002754180c30e3"},
+      "finding": "Actual old/current scalar result records match the same probe source and both completed12 iterations/1536 planned transitions, complete synthetic result13649B/SHAcb66093aa10be38a847c0b178eedbdc5be245a346ae79ee99bf45d5d840a9c75. I inspected their structured result records and probe source, not parameter bodies. No scalar live-heap/weak-root measurement exists; inherited old wrapper prose claiming such heap observation is inapplicable."
+    },
+    "four_components": {
+      "ref": {"path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-fix-a/components-work/payload-result.json", "bytes": 5127, "sha256": "71713f363edbbe44278a73ad28297ec5468e1460eb055b405f9bd303ce9a1dbf"},
+      "finding": "Actual four requested test-component build0/219.424503306s for backends, daemon-lifecycle, integration and negative-controls. Current CLI/library authority and file frame unchanged, no application rewrite or large unit Main, tests_executed=false. Structured current ELF pins exist; compilation is not execution of those stanzas or a hardware lane."
+    }
+  },
+  "prior_failure_and_kernel_assessment": {
+    "oom_ref": {"path": "/Users/matthewnowak/jitML/.build/phase278-currentdc00-convergence-diagnosis-a/prior-boot-kernel-oom-metadata.json", "bytes": 3714, "sha256": "0968ae349f2e829bd855ed22a3416c5342b96c0d4f3f38bb886679fbd06572b5"},
+    "limit_ref": {"path": "/Users/matthewnowak/jitML/.build/phase278-currentdc00-convergence-diagnosis-a/prior-boot-kernel-memory-limit-metadata.json", "bytes": 1368, "sha256": "1996a43ff99278cb27042efec1b3a1576310d11fcd0fea1daeef5e4664b926e9"},
+    "retained_node_ref": {"path": "/Users/matthewnowak/jitML/.build/phase278-currentdc00-convergence-diagnosis-a/retained-node-state-before-restart.json", "bytes": 4049, "sha256": "de00e1f97396ddeece82616d3e5315cc968731dc0a38c62a758351ea618d361f"},
+    "finding": "Exact failed boot10a256e14519450dafdedaeea9c27fbe kernel metadata reports CONSTRAINT_MEMCG for Pod UIDee874c82-3a16-4852-a91e-12673e5180de under original worker c1c95c0e014fa272e3662224c17b8c6dd228b1ce43be108de8fceeb4725873e1, usage=limit1572864kB=1536Mi, and jitml PID66298 killed. This proves that selected numerical Pod cgroup hit its limit. The large total-vm figure is virtual address space, not consumed physical RAM. Retained original-node metadata separately records worker OOMKilled=true, both original nodes stopped/Pid0, unchanged1.5CPU/5Gi/noSwap caps and original var volumes; it does not reconstruct missing failed-cycle inspections or independently prove the worker-level OOM mechanism.",
+    "causal_limit": "The old/current behavioral and heap experiment strongly supports deferred per-iteration retention as a real contributing mechanism. It does not uniquely attribute every byte or prove that this was the sole cause of the full product run's memory use. Nor does a resource kill establish failure to numerically converge: no scientific terminal was produced. Current product peak, termination, final quality and simultaneous node/client/platform fit remain unmeasured.",
+    "retained_outcomes": "Original dc00 convergence supervisor125/guardian125/caller137, no scientific terminal, Pod1536Mi OOM, worker OOM flag and VMstop0 remain literal at that source. No current convergence rerun occurred in this packet. Earlier f138/SourceJ qualification/daemon failures and four original closing rolesNotRun retain their original scope. Historical source490/first656/nonpass, failed calibrations/quiet cycles, old225 unschedulable placement and subsequent separately scoped recovery/placement/preflight passes are not pooled or retroactively changed. Current style1 then correctedstyle0 and old-regression1 negative control retain their distinct outcomes."
+  },
+  "open_obligations": [
+    "No missing scientific fact blocks these four exact prospective applicability decisions. This review authorizes no runtime launch, producer admission, qualification or phase closure.",
+    "No current4958 image exists. Build/cache/adopt and verify the current canonical image, baked public inputs, source/library/CLI/test producer pins and current criterion materialization/selection before dependent live work. Historical image and passing standing receipts remain historical.",
+    "Reuse unchanged calibrated owner/guardian algorithms only with actual current source/image/caller/helper/Job/Pod/domain bindings and fresh configured hardware. Explicit named VM start/stop, current host CPU/memory-pressure/swap reserves, unchanged VM4CPU16Gi and node1.5CPU5Gi caps, serial bounded caller/helper slots, shared5s complete observations, sticky unsafe, terminal/cgroup/descendant/attach joins and post-DONE quiet/join checks remain mandatory. VM/container limits do not constrain native Metal host work.",
+    "After supported restoration/current-image rollout, verify original node/var-volume/PV/data identities, application readback/readiness, frontend control-plane placement, Pulsar init budgets and whole settled BOTH-node reservations. The previously projected worker+numerical CPU request margin was zero; fresh roster/selector/allocatable checks remain necessary without lowering the unchanged numerical250m/1Gi request or1CPU/1536Mi limit.",
+    "Run only the prescribed focused placement/convergence sequence under its existing bounds and actual prerequisite rules. Obtain current simultaneous platform/node/client/numerical memory/time/OOM evidence and actual terminal result before claiming the retention fix solves product fit. Synthetic post-GC live bytes are not cgroup RSS/peak, real-lane fit or full-lifetime margin; sampled numerical peaks retain their cutoff and cannot be reconstructed by cache subtraction or boot-history parent peaks.",
+    "Current source-bound standing gates, actual daemon75/full55 work and real CPU/hostMetal lanes remain open with all original0..4/all-five/served0, complete attempts/reference retention and authenticated producer/qualification/journal/Store/lane admission. A successful engineering fix does not waive any numerical/reference/historical bar or provide a new seed/budget/retry allowance.",
+    "No new image, real hardware witness, scalar heap proof, product convergence, scientific quality, full55/standing pass, served0/Store admission, published-model parity, population generalization, automatic confidence, tuning-learning, NVIDIA runtime, three-lane aggregate or phase authority is supplied."
+  ]
+}

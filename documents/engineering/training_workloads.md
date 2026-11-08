@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-14-interactive-demo-and-playwright-closure.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-22-canonical-matrix-and-dataset-integrity.md, ../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md, ../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, ../../DEVELOPMENT_PLAN/phase-272-apple-integration-e2e-and-attestation.md, product_completion_contract.md, checkpoint_format.md, numerical_core.md, training_metrics_and_splits.md, run_contract.md
+**Referenced by**: README.md, ../documentation_standards.md, [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 98](../../DEVELOPMENT_PLAN/phase-98-sl-substrate-backed-training-real-eval.md), [Phase 104](../../DEVELOPMENT_PLAN/phase-104-validated-runplan-and-pure-contract-algebra.md), [Phase 113](../../DEVELOPMENT_PLAN/phase-113-real-rl-eval-rollout-and-per-algorithm-on-device-rollouts.md), [Phase 121](../../DEVELOPMENT_PLAN/phase-121-resolved-alphazero-and-tuning-plans.md), [Phase 240](../../DEVELOPMENT_PLAN/phase-240-layer-graph-checkpoints-inference.md), [Phase 245](../../DEVELOPMENT_PLAN/phase-245-convergence-and-evidence.md), [Phase 249](../../DEVELOPMENT_PLAN/phase-249-per-row-convergence-and-evidence.md), [Phase 251](../../DEVELOPMENT_PLAN/phase-251-trainingplan-evaluationplan-compiler-and-trainer-migration.md), [Phase 252](../../DEVELOPMENT_PLAN/phase-252-typed-measured-counters-and-evidence-separation.md), ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, ../../DEVELOPMENT_PLAN/phase-272-apple-integration-e2e-and-attestation.md, product_completion_contract.md, checkpoint_format.md, numerical_core.md, training_metrics_and_splits.md, run_contract.md
 **Generated sections**: training.rl.catalog, training.tune.samplers, training.tune.schedulers, training.tune.pruners
 
 > **Purpose**: Project-specific training-workload doctrine for jitML — the
@@ -177,13 +177,23 @@ The complete wire and eligibility rules live in
 Generic execution consumes the plan seed rather than merely persisting it.
 `supervisedExecutionSeed` requires exactly one refined plan seed, rejects an
 `Int` overflow, and passes that seed into classifier/regression initialization
-and deterministic classification epoch permutation; the canonical problem's
+and deterministic classification and regression epoch permutation; the canonical problem's
 default seed is not substituted. For local generic execution, the experiment
 address combines the selected Dhall path with a fingerprint of canonical row,
 dataset, model, substrate, seed, epoch budget, training/evaluation example
 budgets, and batch budget (which fixes the derived optimizer-update budget).
 Changing any one of those execution inputs changes experiment and `PlanId`
 identity.
+
+Generic regression applies the versioned `reg-ord1` permutation to whole
+standardized training examples before each epoch's existing batcher. Its shuffle
+stream is separate from initialization, and fitting the standardizer and
+evaluating held-out examples retain their original order. The exact derivation,
+tie rule and ProductRow/report identity binding are specified in
+[Determinism Contract](determinism_contract.md#the-contract). The prescribed
+seeds, model, split, Adam update rules, batch and update budgets, and quality
+bars are unchanged; Adam state remains continuous between batches. Passing
+structural controls does not establish model qualification.
 
 When a daemon-dispatched Linux worker has mounted `BootConfig`, it resolves the
 mounted in-cluster MinIO service and writes a passing completed
@@ -723,6 +733,16 @@ reset episode into its predecessor. Continuing rollout cuts retain their own
 endpoint values, and ended slots never substitute a reset-state value. Extra
 value forwards change neither the horizon/reset RNG rule nor the count of
 physical environment transitions.
+
+DQN, QR-DQN and the shared on-policy collectors add potential-based shaping only
+to stored training rewards. A true environment terminal uses zero successor
+potential, so the terminal increment is `-Phi(current)` and the discounted
+shaping sum over a completed trajectory is `-Phi(initial)`. Continuing and
+time-limit transitions retain `gamma * Phi(successor) - Phi(current)` with the
+actual pre-reset successor. This pairs with the successor value bootstrap at
+truncation and does not introduce a terminal-potential residual. Count novelty
+remains a separate training reward; episode-return reporting and evaluation use
+the raw environment reward.
 
 Canonical on-policy ProductRows bind `on-policy-greedy-selected-device-v1` as
 `evaluation-recipe` and `on-policy-gae-time-limit-bootstrap-v1` as `rollout-recipe`

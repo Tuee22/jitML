@@ -357,6 +357,8 @@ main =
               `Text.isInfixOf` livePlanText
           assertBool "repository mount is read-only" $
             "-v .:/work:ro" `Text.isInfixOf` livePlanText
+          assertBool "private retained ProductScenario data is hidden by an empty read-only mount" $
+            "--tmpfs /work/.build:ro" `Text.isInfixOf` livePlanText
           assertBool "exact browser catalogue is mounted read-only" $
             "-v ./.build/runtime/browser-catalogue-input.json:/jitml-browser-input/catalogue.json:ro"
               `Text.isInfixOf` livePlanText
@@ -396,6 +398,8 @@ main =
               && "/command/input/publication.json:/jitml-browser-input/cluster-publication.json:ro"
                 `Text.isInfixOf` customPlan
               && "/command/output/browser:/jitml-browser-scope:rw" `Text.isInfixOf` customPlan
+          assertBool "custom browser inputs retain the private-build overlay" $
+            "--tmpfs /work/.build:ro" `Text.isInfixOf` customPlan
       , testCase "Playwright evidence surface is catalogue-driven and signed" $ do
           spec <- Text.IO.readFile "playwright/jitml-demo.spec.ts"
           config <- Text.IO.readFile "playwright/playwright.config.ts"

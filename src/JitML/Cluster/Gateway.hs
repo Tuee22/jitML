@@ -7,8 +7,13 @@ module JitML.Cluster.Gateway
   )
 where
 
+import Data.Aeson qualified as Aeson
+import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text.Encoding
+
+import JitML.Cluster.Resources (ClusterResources (..), ComponentBudget (..))
 
 renderGatewayClass :: Text
 renderGatewayClass =
@@ -45,9 +50,9 @@ renderGateway edgePort =
     , "          from: All"
     ]
 
-renderEnvoyProxy :: Int -> Text
-renderEnvoyProxy edgePort =
-  Text.unlines
+renderEnvoyProxy :: ClusterResources -> Int -> Text
+renderEnvoyProxy resources edgePort =
+  Text.unlines $
     [ "apiVersion: gateway.envoyproxy.io/v1alpha1"
     , "kind: EnvoyProxy"
     , "metadata:"
@@ -69,39 +74,52 @@ renderEnvoyProxy edgePort =
     , "                  nodePort: 30090"
     , "      envoyDeployment:"
     , "        container:"
-    , "          resources:"
-    , "            requests:"
-    , "              cpu: 50m"
-    , "              memory: 512Mi"
-    , "            limits:"
-    , "              memory: 1Gi"
-    , "        patch:"
-    , "          type: StrategicMerge"
-    , "          value:"
-    , "            spec:"
-    , "              template:"
-    , "                spec:"
-    , "                  containers:"
-    , "                    - name: envoy"
-    , "                      readinessProbe:"
-    , "                        failureThreshold: 12"
-    , "                        periodSeconds: 5"
-    , "                        timeoutSeconds: 10"
-    , "                      startupProbe:"
-    , "                        failureThreshold: 60"
-    , "                        periodSeconds: 10"
-    , "                        timeoutSeconds: 10"
-    , "                    - name: shutdown-manager"
-    , "                      livenessProbe:"
-    , "                        failureThreshold: 12"
-    , "                        periodSeconds: 10"
-    , "                        timeoutSeconds: 5"
-    , "                      readinessProbe:"
-    , "                        failureThreshold: 12"
-    , "                        periodSeconds: 10"
-    , "                        timeoutSeconds: 5"
-    , "                      startupProbe:"
-    , "                        failureThreshold: 60"
-    , "                        periodSeconds: 10"
-    , "                        timeoutSeconds: 5"
     ]
+      <> resourceLines 10 (gateway resources)
+      <> [ "        patch:"
+         , "          type: StrategicMerge"
+         , "          value:"
+         , "            spec:"
+         , "              template:"
+         , "                spec:"
+         , "                  containers:"
+         , "                    - name: envoy"
+         , "                      readinessProbe:"
+         , "                        failureThreshold: 12"
+         , "                        periodSeconds: 5"
+         , "                        timeoutSeconds: 10"
+         , "                      startupProbe:"
+         , "                        failureThreshold: 60"
+         , "                        periodSeconds: 10"
+         , "                        timeoutSeconds: 10"
+         , "                    - name: shutdown-manager"
+         ]
+      <> resourceLines 22 (supporting resources)
+      <> [ "                      livenessProbe:"
+         , "                        failureThreshold: 12"
+         , "                        periodSeconds: 10"
+         , "                        timeoutSeconds: 5"
+         , "                      readinessProbe:"
+         , "                        failureThreshold: 12"
+         , "                        periodSeconds: 10"
+         , "                        timeoutSeconds: 5"
+         , "                      startupProbe:"
+         , "                        failureThreshold: 60"
+         , "                        periodSeconds: 10"
+         , "                        timeoutSeconds: 5"
+         ]
+
+resourceLines :: Int -> ComponentBudget -> [Text]
+resourceLines width budget =
+  fmap
+    (Text.replicate width " " <>)
+    [ "resources:"
+    , "  requests:"
+    , "    cpu: " <> quantity (budgetCpuRequest budget)
+    , "    memory: " <> quantity (budgetMemoryRequest budget)
+    , "  limits:"
+    , "    cpu: " <> quantity (budgetCpuLimit budget)
+    , "    memory: " <> quantity (budgetMemoryLimit budget)
+    ]
+ where
+  quantity = Text.Encoding.decodeUtf8 . LazyByteString.toStrict . Aeson.encode

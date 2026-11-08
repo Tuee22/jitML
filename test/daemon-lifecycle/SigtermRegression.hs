@@ -45,11 +45,13 @@ import System.Directory
   , setOwnerExecutable
   , setPermissions
   )
+import System.Environment (getExecutablePath)
 import System.FilePath ((</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Timeout (timeout)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, (@?=))
 
+import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
 import JitML.Plan.Command qualified as PlanCommand
 import JitML.Proto.Training qualified as Training
 import JitML.Service.BootConfig
@@ -65,8 +67,16 @@ import JitML.Service.LiveConfig
   , defaultLiveConfig
   , renderLiveConfigDhall
   )
-import JitML.Sub.Outcome (ProcessOutcome (..), renderProcessOutcome)
-import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
+import JitML.Sub.Outcome
+  ( ProcessOutcome (..)
+  , ProcessTranscript (..)
+  , renderProcessOutcome
+  )
+import JitML.Sub.Stream
+  ( defaultSubprocessEnv
+  , runStreaming
+  , subprocessEnvOverrideAndRemove
+  )
 import JitML.Sub.Subprocess (subprocess)
 import JitML.Substrate (Substrate (LinuxCPU))
 
@@ -96,10 +106,49 @@ threadedRtsRegression :: Assertion
 threadedRtsRegression = do
   jitmlBinary <- requireJitmlBinary
   outcome <-
-    runStreaming
-      defaultSubprocessEnv
-      (subprocess jitmlBinary ["+RTS", "-N1", "-RTS", "commands", "--tree"])
+    runProbe
+      "threaded RTS capability probe"
+      jitmlBinary
+      ""
+      ["+RTS", "-N1", "-RTS", "commands", "--tree"]
   assertProcessSucceeded "threaded RTS capability probe" outcome
+  checkOptions "jitml CLI" jitmlBinary ["--help"]
+  testBinary <- getExecutablePath
+  checkOptions "daemon lifecycle test executable" testBinary ["--list-tests"]
+ where
+  checkOptions :: String -> FilePath -> [Text] -> Assertion
+  checkOptions label binary arguments = do
+    baseline <- runProbe (label <> " baseline") binary "" arguments
+    assertProcessSucceeded (label <> " baseline") baseline
+    bounded <- runProbe (label <> " operator RTS options") binary "-N1 -M3G" arguments
+    assertProcessSucceeded (label <> " operator RTS options") bounded
+    case (baseline, bounded) of
+      (ProcessSucceeded before, ProcessSucceeded after) ->
+        processTranscriptStdout after @?= processTranscriptStdout before
+      _ -> assertFailure (label <> " did not produce both successful transcripts")
+    invalid <-
+      runProbe
+        (label <> " invalid GHCRTS control")
+        binary
+        "--jitml-rts-invalid-control"
+        arguments
+    case invalid of
+      ProcessFailed _failure -> pure ()
+      ProcessSucceeded _transcript ->
+        assertFailure (label <> " ignored deliberately invalid GHCRTS")
+
+  runProbe :: String -> FilePath -> Text -> [Text] -> IO ProcessOutcome
+  runProbe label binary rtsOptions arguments = do
+    maybeOutcome <-
+      timeout
+        (5 * 1000 * 1000)
+        ( runStreaming
+            (subprocessEnvOverrideAndRemove [("GHCRTS", rtsOptions)] [])
+            (subprocess binary arguments)
+        )
+    case maybeOutcome of
+      Just outcome -> pure outcome
+      Nothing -> ioError (userError (label <> " exceeded the five-second probe deadline"))
 
 sigtermDrainRegression :: Assertion
 sigtermDrainRegression =
@@ -660,24 +709,103 @@ fakeCurlScript =
 fakeKubectlScript :: LifecycleFixture -> Text
 fakeKubectlScript fixture =
   Text.unlines
-    [ "#!/bin/sh"
-    , "set -eu"
-    , "case \" $* \" in"
-    , "  *' apply '*)"
-    , "    cat >/dev/null"
-    , "    printf '%s\\n' \"$$\" > " <> shellQuote (fixtureHandlerPidPath fixture)
-    , "    cancel_handler() { printf '%s\\n' 'handler:cancel' >> "
-        <> shellQuote (fixtureBridgeLogPath fixture)
-        <> "; exit 143; }"
-    , "    trap cancel_handler TERM INT"
-    , "    printf '%s\\n' 'handler:start' >> " <> shellQuote (fixtureBridgeLogPath fixture)
-    , "    touch " <> shellQuote (fixtureHandlerStartedPath fixture)
-    , "    while [ ! -f " <> shellQuote (fixtureHandlerReleasePath fixture) <> " ]; do sleep 0.01; done"
-    , "    printf '%s\\n' 'handler:finish' >> " <> shellQuote (fixtureBridgeLogPath fixture)
-    , "    printf '%s\\n' 'job.batch/sigterm-in-flight configured'"
-    , "    ;;"
-    , "  *) printf '%s\\n' 'items: []' ;;"
-    , "esac"
+    ( [ "#!/bin/sh"
+      , "set -eu"
+      , "case \" $* \" in"
+      , "  *' exec '*)"
+      ]
+        <> expectArguments
+          [ "exec"
+          , "-n"
+          , "platform"
+          , "pulsar-toolset-0"
+          , "--"
+          , "/usr/bin/timeout"
+          , "--signal=TERM"
+          , "--kill-after=3s"
+          , "17s"
+          , "/usr/bin/flock"
+          , "--exclusive"
+          , "--no-fork"
+          , "/tmp/jitml-pulsar-admin.lock"
+          , "/usr/bin/curl"
+          , "--disable"
+          , "--silent"
+          , "--show-error"
+          , "--globoff"
+          , "--noproxy"
+          , "*"
+          , "--location"
+          , "--max-redirs"
+          , "5"
+          , "--proto"
+          , "=http,https"
+          , "--proto-redir"
+          , "=http,https"
+          , "--connect-timeout"
+          , "2"
+          , "--max-time"
+          , "5"
+          , "--request"
+          ]
+        <> [ "    [ \"$#\" -gt 0 ] || exit 97"
+           , "    method=$1; shift"
+           ]
+        <> expectArguments ["--write-out", "\nJITML_PULSAR_HTTP_STATUS=%{http_code}\n"]
+        <> [ "    case \"$method\" in"
+           , "      PUT)"
+           ]
+        <> expectArguments ["--header", "Content-Type: application/json", "--data-binary", "{}"]
+        <> [ "        ;;"
+           , "      GET) ;;"
+           , "      *) exit 97 ;;"
+           , "    esac"
+           , "    [ \"$#\" -eq 1 ] || exit 97"
+           , "    resource=$1"
+           , "    if [ \"$method\" = GET ]; then"
+           , "      case \"$resource\" in */stats) resource=${resource%/stats} ;; *) exit 97 ;; esac"
+           , "    fi"
+           , "    case \"$resource\" in"
+           , "      " <> Text.intercalate "|" (fmap shellQuoteText topicResources) <> ") ;;"
+           , "      *) exit 97 ;;"
+           , "    esac"
+           , "    marker=" <> shellQuote (fixtureDirectory fixture </> "topic-") <> "${resource##*/}"
+           , "    if [ \"$method\" = PUT ]; then"
+           , "      if [ -f \"$marker\" ]; then status=409; else : > \"$marker\"; status=204; fi"
+           , "      printf '\\nJITML_PULSAR_HTTP_STATUS=%s\\n' \"$status\""
+           , "    elif [ -f \"$marker\" ]; then"
+           , "      printf '%s\\nJITML_PULSAR_HTTP_STATUS=200\\n' '{\"subscriptions\":{}}'"
+           , "    else"
+           , "      printf '%s\\nJITML_PULSAR_HTTP_STATUS=404\\n' '{\"reason\":\"missing fixture topic\"}'"
+           , "    fi"
+           , "    ;;"
+           , "  *' apply '*)"
+           , "    cat >/dev/null"
+           , "    printf '%s\\n' \"$$\" > " <> shellQuote (fixtureHandlerPidPath fixture)
+           , "    cancel_handler() { printf '%s\\n' 'handler:cancel' >> "
+               <> shellQuote (fixtureBridgeLogPath fixture)
+               <> "; exit 143; }"
+           , "    trap cancel_handler TERM INT"
+           , "    printf '%s\\n' 'handler:start' >> " <> shellQuote (fixtureBridgeLogPath fixture)
+           , "    touch " <> shellQuote (fixtureHandlerStartedPath fixture)
+           , "    while [ ! -f " <> shellQuote (fixtureHandlerReleasePath fixture) <> " ]; do sleep 0.01; done"
+           , "    printf '%s\\n' 'handler:finish' >> " <> shellQuote (fixtureBridgeLogPath fixture)
+           , "    printf '%s\\n' 'job.batch/sigterm-in-flight configured'"
+           , "    ;;"
+           , "  *) printf '%s\\n' 'items: []' ;;"
+           , "esac"
+           ]
+    )
+ where
+  expectArguments expected =
+    [ "    for expected in " <> Text.unwords (fmap shellQuoteText expected) <> "; do"
+    , "      [ \"$#\" -gt 0 ] && [ \"$1\" = \"$expected\" ] || exit 97"
+    , "      shift"
+    , "    done"
+    ]
+  topicResources =
+    [ "http://pulsar-proxy:80/admin/v2/" <> Text.replace "://" "/" (PulsarBootstrap.topicName topic)
+    | topic <- PulsarBootstrap.pulsarTopics
     ]
 
 deliveryFrame :: Text -> Text

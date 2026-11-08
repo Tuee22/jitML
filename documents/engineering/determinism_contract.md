@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/00-overview.md, ../../DEVELOPMENT_PLAN/system-components.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, checkpoint_format.md, jit_codegen_architecture.md, training_workloads.md, unit_testing_policy.md, run_contract.md
+**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/00-overview.md, ../../DEVELOPMENT_PLAN/system-components.md, [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 124](../../DEVELOPMENT_PLAN/phase-124-bit-determinism-contract-and-retention-reconciler.md), [Phase 206](../../DEVELOPMENT_PLAN/phase-206-remove-the-cross-substrate-parity-surface-reframe-the-determ.md), [Phase 233](../../DEVELOPMENT_PLAN/phase-233-typed-layer-ir-reverse-mode-autodiff.md), ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, checkpoint_format.md, jit_codegen_architecture.md, training_workloads.md, unit_testing_policy.md, run_contract.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific bit-determinism contract for jitML — the per-
@@ -386,8 +386,8 @@ an older report policy or assert historical numerical parameter equality.
 
 That generic seed is executed, not merely hashed or persisted. The supervised
 entrypoint requires exactly one plan seed, rejects platform-`Int` overflow, and
-uses it for parameter initialization and deterministic classification epoch
-ordering. Local generic experiment identity combines the Dhall path with
+uses it for parameter initialization and deterministic classification and
+regression epoch ordering. Local generic experiment identity combines the Dhall path with
 canonical row/dataset/model, substrate, seed, epoch/training/evaluation/batch
 budgets, and consequently the derived update budget. Changing any one changes
 the experiment and semantic `PlanId`.
@@ -411,9 +411,26 @@ authoritative training-example quantity, batch-example quantity, number and
 sizes of batches, `slmExamplesProcessed`, and
 `tmOptimizerUpdatesExecuted` remain unchanged. Validation-driven model
 selection and held-out test measurement consume their original unpermuted
-partitions. Hyperparameter tuning deliberately continues to call the
-fixed-order selected trainer; introducing the canonical ProductRow shuffle does
-not silently alter trial/rung replay.
+partitions. Hyperparameter tuning retains its fixed-order selected objective
+and resumable exact-update training paths. Neither canonical classification nor
+generic regression epoch permutations silently alter trial/rung replay.
+
+Generic regression uses the versioned `reg-ord1` contract exported by
+`JitML.SL.Regression.regressionTrainingOrderContract`. Initialization retains
+the execution seed. A separate shuffle root derives from that seed with
+SplitMix64 domain `0x7265672d6f726431`; each one-based epoch derives its own
+seed from that root. The trainer generates one key per original standardized
+training example and sorts whole examples by ascending `(key, original index)`.
+Every epoch starts from the original training partition. Standardizer fitting
+and held-out membership and order remain unchanged. Batch sizes, Adam update
+rules, state retention between batches, and update budgets are preserved.
+Regression ProductRow identities include the complete
+ordering contract, inherited by each prescribed cohort child. Regression report
+contracts bind it together with the complete previous report digest under the
+`jitml-product-scenario-report-contract-regression-training-order-v1` domain.
+Earlier regression journals cannot qualify this changed recipe. Implementation
+and deterministic-order tests establish the ordering behavior; actual CPU and
+Metal five-seed qualification remains a separate Phase `278` obligation.
 
 Tuning and AlphaZero make that identity boundary concrete. Their raw commands
 refine to canonical version-`1` `TuningPlan` / `AlphaZeroPlan` transports whose

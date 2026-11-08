@@ -5,14 +5,30 @@
 module SupervisedQualification (supervisedQualificationTests) where
 
 import Codec.Serialise (serialise)
+import Control.Concurrent (threadDelay)
+import Control.Exception (evaluate)
 import Data.ByteString qualified as ByteString
+import Data.ByteString.Internal qualified as ByteString.Internal
 import Data.ByteString.Lazy qualified as LazyByteString
-import Data.Either (isLeft)
+import Data.Either (isLeft, isRight)
 import Data.Foldable (for_)
+import Data.IORef (IORef, newIORef, readIORef, writeIORef)
 import Data.List qualified as List
+import Data.List.NonEmpty qualified as NonEmpty
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector.Unboxed qualified as VU
+import Data.Word (Word64)
+import Foreign.Concurrent qualified as Foreign
+import Foreign.ForeignPtr (withForeignPtr)
+import Foreign.Marshal.Alloc (free, mallocBytes)
+import Foreign.Marshal.Utils (copyBytes, fillBytes)
+import Foreign.Ptr (castPtr, plusPtr)
+import GHC.Float (castWord64ToDouble)
+import System.FilePath (takeDirectory, (</>))
+import System.Mem (performGC)
+import System.Mem.Weak (Weak, deRefWeak, mkWeakPtr)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
@@ -21,8 +37,11 @@ import JitML.Numerics.LayerGraph qualified as Graph
 import JitML.Numerics.LayerGraphMetadata qualified as Metadata
 import JitML.Plan.Plan qualified as Plan
 import JitML.Plan.Workload qualified as Workload
+import JitML.Product.CriterionReviewData qualified as Review
 import JitML.Product.DeviceWitness qualified as DeviceWitness
+import JitML.Product.LaneRegistrationData qualified as Registration
 import JitML.Product.Matrix qualified as Matrix
+import JitML.Product.SourceDigest (SourceStamp (..), sourceDigestAlgorithm)
 import JitML.Product.SupervisedCohortPlan qualified as Cohort
 import JitML.Product.SupervisedQualification qualified as Qualification
 import JitML.Product.SupervisedQualificationPolicy qualified as Policy
@@ -54,6 +73,47 @@ supervisedQualificationTests =
           @?= 3
         Qualification.supervisedQualificationIndex0Metric reloaded @?= 1
         length (Qualification.supervisedQualificationOutcomes reloaded) @?= 5
+        case NonEmpty.nonEmpty (Qualification.supervisedQualificationOutcomes refined) of
+          Just outcomes ->
+            show refined
+              @?= "SupervisedQualification "
+              <> showsPrec 11 raw " "
+              <> showsPrec 11 outcomes " "
+              <> showsPrec 11 (Qualification.supervisedQualificationAssessment refined) ""
+          Nothing -> fail "refined fixture lost its five outcomes"
+    , testCase "classification and regression retain exact public bytes, predictions and decisions" $ do
+        for_ [False, True] $ \regression ->
+          for_ [[True, True, True, False, False], [True, True, False, False, False]] $ \successes -> do
+            (plan, raw) <- expectRight (fixtureForRetention regression successes)
+            refined <- assertExactPublicProjection plan raw
+            let assessment = Qualification.supervisedQualificationAssessment refined
+                expectedMetric = if regression then 0 else 1
+            fmap
+              Qualification.supervisedSeedOutcomeObservation
+              (Qualification.supervisedQualificationOutcomes refined)
+              @?= zipWith (expectedObservation regression) (Qualification.rawQualificationSeeds raw) successes
+            Policy.supervisedCohortJointSuccessCount assessment @?= length (filter id successes)
+            Policy.supervisedCohortMedian assessment
+              @?= if length (filter id successes) >= 3 then expectedMetric else if regression then 1 else 0.5
+            Policy.supervisedCohortServedMetric assessment @?= expectedMetric
+            isRight (Qualification.qualifySupervisedCohort refined) @?= (length (filter id successes) >= 3)
+    , testCase "retained qualification releases the original classification and regression feature lists" $ do
+        for_ [False, True] $ \regression -> do
+          (refined, weakFeatures, expected) <- retainedFeaturesWorker regression
+          performGC
+          collected <- traverse deRefWeak weakFeatures
+          -- The later opaque IO call keeps the qualification live across GC;
+          -- the worker returned no raw DTO, examples or serialized baseline.
+          qualificationFingerprint refined >>= (@?= expected)
+          assertBool
+            "retained qualification still owns original boxed feature lists"
+            (all isNothing collected)
+    , testCase "retained seed and reviewed-producer bytes release their shared oversized backing buffer" $ do
+        for_ [False, True] $ \supplied -> do
+          (refined, released, expected) <- retainedBackingWorker supplied
+          collected <- awaitBackingRelease 20 released
+          qualificationFingerprint refined >>= (@?= expected)
+          assertBool "retained slices still own the original oversized byte buffer" collected
     , testCase "unchanged initial/final raw weights are retained and cannot qualify as learning" $ do
         (plan, raw) <- expectRight (classificationFixture (replicate 5 False))
         refined <- expectRight (Qualification.refineSupervisedQualification plan raw)
@@ -292,6 +352,25 @@ supervisedQualificationTests =
         assertBool "signed-zero payload distinction was lost" $
           Qualification.qualificationEvaluationSha256 positive
             /= Qualification.qualificationEvaluationSha256 negative
+    , testCase "packed public projection preserves signed-zero feature and regression-target bits" $ do
+        bits <- newIORef (0x8000000000000000 :: Word64)
+        negative <- runtimeDouble <$> readIORef bits
+        for_ [False, True] $ \regression -> do
+          (plan, raw) <- expectRight (fixtureForRetention regression (replicate 5 True))
+          let withZero value = case Qualification.rawQualificationEvaluation raw of
+                Qualification.RawClassificationEvaluation examples ->
+                  Qualification.RawClassificationEvaluation (([value], 0) : withoutFirst examples)
+                Qualification.RawRegressionEvaluation scale examples ->
+                  Qualification.RawRegressionEvaluation scale (([value], value) : withoutFirst examples)
+              positive = withZero 0
+              signed = withZero negative
+          positive @?= signed
+          assertBool "runtime negative zero lost its binary64 sign" $
+            Qualification.qualificationEvaluationSha256 positive
+              /= Qualification.qualificationEvaluationSha256 signed
+          _ <- assertExactPublicProjection plan (replaceEvaluation positive raw)
+          _ <- assertExactPublicProjection plan (replaceEvaluation signed raw)
+          pure ()
     , testCase
         "nonfinite shared inputs or a wrong evaluation count cannot be hidden behind an updated digest"
         $ do
@@ -348,6 +427,193 @@ supervisedQualificationTests =
                     raw {Qualification.rawQualificationProducer = invalid}
                 )
     ]
+
+assertExactPublicProjection
+  :: Cohort.SupervisedCohortPlan
+  -> Qualification.RawSupervisedQualification
+  -> IO Qualification.SupervisedQualification
+assertExactPublicProjection plan raw = do
+  refined <- expectRight (Qualification.refineSupervisedQualification plan raw)
+  let expectedWire = LazyByteString.toStrict (serialise raw)
+      expectedEvaluation = serialise (Qualification.rawQualificationEvaluation raw)
+  Qualification.supervisedQualificationToRaw refined @?= raw
+  Qualification.encodeSupervisedQualification refined @?= expectedWire
+  Qualification.supervisedQualificationSha256 refined
+    @?= WeightCodec.jmw1ContentSha (LazyByteString.fromStrict expectedWire)
+  Qualification.supervisedQualificationEvaluationBytes refined
+    @?= LazyByteString.toStrict expectedEvaluation
+  Qualification.qualificationEvaluationSha256
+    (Qualification.supervisedQualificationEvaluation refined)
+    @?= WeightCodec.jmw1ContentSha expectedEvaluation
+  Qualification.supervisedQualificationRuntime refined @?= Qualification.rawQualificationRuntime raw
+  Qualification.supervisedQualificationGraphMetadata refined
+    @?= Qualification.rawQualificationGraphMetadata raw
+  fmap
+    Qualification.supervisedSeedOutcomeToRaw
+    (Qualification.supervisedQualificationOutcomes refined)
+    @?= Qualification.rawQualificationSeeds raw
+  first <- expectFirst (Qualification.rawQualificationSeeds raw)
+  Qualification.supervisedSeedOutcomeToRaw
+    (Qualification.supervisedQualificationIndex0Outcome refined)
+    @?= first
+  reloaded <- expectRight (Qualification.decodeSupervisedQualification plan expectedWire)
+  reloaded @?= refined
+  Qualification.encodeSupervisedQualification reloaded @?= expectedWire
+  Qualification.supervisedQualificationAssessment reloaded
+    @?= Qualification.supervisedQualificationAssessment refined
+  pure refined
+
+expectedObservation
+  :: Bool
+  -> Qualification.RawSupervisedSeedOutcome
+  -> Bool
+  -> Policy.SupervisedSeedObservation
+expectedObservation regression seed success =
+  Policy.SupervisedSeedObservation
+    (Qualification.rawSeedIndex seed)
+    (Qualification.rawSeedValue seed)
+    (Qualification.rawSeedObservedEpochs seed)
+    (Qualification.rawSeedObservedExamples seed)
+    (Qualification.rawSeedObservedOptimizerUpdates seed)
+    ( if regression
+        then
+          Policy.RegressionPredictionPair
+            (replicate 1000 0)
+            (if success then take 1000 (cycle [-1, 1]) else replicate 1000 0)
+        else Policy.ClassificationPredictionPair 500 (if success then 1000 else 500)
+    )
+
+fixtureForRetention
+  :: Bool
+  -> [Bool]
+  -> Either Text (Cohort.SupervisedCohortPlan, Qualification.RawSupervisedQualification)
+fixtureForRetention regression = if regression then regressionFixture else classificationFixture
+
+-- The IORef read and opaque function keep each feature list out of static
+-- fixtures/full-laziness sharing. Weak keys name the actual forced cons cells.
+{-# NOINLINE runtimeFeatures #-}
+runtimeFeatures :: Int -> Int -> [Double]
+runtimeFeatures salt index = [fromIntegral (if even index then negate (salt + 1) else salt + 1)]
+
+{-# NOINLINE runtimeDouble #-}
+runtimeDouble :: Word64 -> Double
+runtimeDouble = castWord64ToDouble
+
+{-# NOINLINE qualificationFingerprint #-}
+qualificationFingerprint :: Qualification.SupervisedQualification -> IO Text
+qualificationFingerprint value = evaluate (Qualification.supervisedQualificationSha256 value)
+
+{-# NOINLINE retainedFeaturesWorker #-}
+retainedFeaturesWorker
+  :: Bool -> IO (Qualification.SupervisedQualification, [Weak [Double]], Text)
+retainedFeaturesWorker regression = do
+  source <- newIORef (0 :: Int)
+  salt <- readIORef source
+  features <- traverse (evaluate . runtimeFeatures salt) [0 .. 999]
+  weakFeatures <- traverse (`mkWeakPtr` Nothing) features
+  (plan, original) <- expectRight (fixtureForRetention regression [True, True, True, False, False])
+  let evaluation =
+        if regression
+          then Qualification.RawRegressionEvaluation 1 (zip features (take 1000 (cycle [-1, 1])))
+          else Qualification.RawClassificationEvaluation (zip features (take 1000 (cycle [0, 1])))
+  refined <-
+    expectRight
+      (Qualification.refineSupervisedQualification plan (replaceEvaluation evaluation original))
+  fingerprint <- qualificationFingerprint refined
+  pure (refined, weakFeatures, fingerprint)
+
+-- All eleven payload views share one allocated buffer: a copied qualification
+-- must release it while retaining byte-identical review and all ten seed blobs.
+-- The finalizer observes the allocation itself, not a disposable ByteString
+-- wrapper whose collection would say nothing about slice backing retention.
+{-# NOINLINE retainedBackingWorker #-}
+retainedBackingWorker :: Bool -> IO (Qualification.SupervisedQualification, IORef Bool, Text)
+retainedBackingWorker supplied = do
+  (plan, original) <- expectRight (regressionFixture [True, True, True, False, False])
+  reviewBytes <- expectRight reviewedProducerFixture
+  let seeds = Qualification.rawQualificationSeeds original
+      payload = ByteString.concat (reviewBytes : concatMap seedBytes seeds)
+      padding = 1024 * 1024
+      total = padding + ByteString.length payload
+  released <- newIORef False
+  pointer <- mallocBytes total
+  allocation <- Foreign.newForeignPtr pointer (free pointer >> writeIORef released True)
+  withForeignPtr allocation $ \target -> do
+    fillBytes target 0 padding
+    ByteString.useAsCStringLen payload $ \(source, count) -> copyBytes (target `plusPtr` padding) (castPtr source) count
+  let backing = ByteString.Internal.fromForeignPtr allocation 0 total
+      view offset count = ByteString.take count (ByteString.drop offset backing)
+      payloadLengths = fmap ByteString.length (reviewBytes : concatMap seedBytes seeds)
+      views = zipWith view (scanl (+) padding payloadLengths) payloadLengths
+  case views of
+    reviewView : seedViews -> do
+      slicedSeeds <- expectRight (replaceSeedSlices seeds seedViews)
+      let producer = Qualification.rawQualificationProducer original
+          reviewed =
+            ( if supplied
+                then Qualification.RawSuppliedReviewedQualificationProducer
+                else Qualification.RawObservedReviewedQualificationProducer
+            )
+              (Qualification.rawQualificationSourceSha256 producer)
+              (Qualification.rawQualificationExecutableSha256 producer)
+              (Qualification.rawQualificationInvocationSha256 producer)
+              reviewView
+          raw =
+            original
+              { Qualification.rawQualificationProducer = reviewed
+              , Qualification.rawQualificationSeeds = slicedSeeds
+              }
+      refined <- expectRight (Qualification.refineSupervisedQualification plan raw)
+      fingerprint <- qualificationFingerprint refined
+      Qualification.qualificationProducerReviewWasSupplied
+        (Qualification.rawQualificationProducer (Qualification.supervisedQualificationToRaw refined))
+        @?= supplied
+      pure (refined, released, fingerprint)
+    [] -> fail "backing fixture has no review payload"
+ where
+  seedBytes seed = [Qualification.rawSeedInitialSnapshotBytes seed, Qualification.rawSeedFinalJmw1Bytes seed]
+
+replaceSeedSlices
+  :: [Qualification.RawSupervisedSeedOutcome]
+  -> [ByteString.ByteString]
+  -> Either Text [Qualification.RawSupervisedSeedOutcome]
+replaceSeedSlices [] [] = Right []
+replaceSeedSlices (seed : rest) (initial : final : views) =
+  ( seed
+      { Qualification.rawSeedInitialSnapshotBytes = initial
+      , Qualification.rawSeedFinalJmw1Bytes = final
+      }
+      :
+  )
+    <$> replaceSeedSlices rest views
+replaceSeedSlices _ _ = Left "backing fixture payload count differs from its five seeds"
+
+reviewedProducerFixture :: Either Text ByteString.ByteString
+reviewedProducerFixture =
+  Review.encodeCriterionReviewIdentityData
+    ( Review.CriterionReviewIdentityData
+        Review.SupervisedCriterionReview
+        LinuxCPU
+        source
+        (Registration.SelectedLaneFileData (Text.pack selection) (digest "a") 1)
+        ( Registration.SelectedLaneFileData
+            (Text.pack (takeDirectory selection </> "receipt.cbor"))
+            (digest "b")
+            1
+        )
+        (digest "c")
+    )
+ where
+  source = SourceStamp sourceDigestAlgorithm (digest "1")
+  selection = Review.criterionReviewSelectionPath source LinuxCPU Review.SupervisedCriterionReview
+
+awaitBackingRelease :: Int -> IORef Bool -> IO Bool
+awaitBackingRelease remaining released = do
+  performGC
+  observed <- readIORef released
+  if observed || remaining <= 0
+    then pure observed
+    else threadDelay 10000 >> awaitBackingRelease (remaining - 1) released
 
 classificationFixture
   :: [Bool] -> Either Text (Cohort.SupervisedCohortPlan, Qualification.RawSupervisedQualification)

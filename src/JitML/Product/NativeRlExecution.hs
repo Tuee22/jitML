@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 -- | Concrete child execution, ending at a physically read CHILD receipt.
 -- This does not authenticate a parent, bind a loaded image to source, issue a
 -- ProductRow/report result, or establish a journal qualification. There is no
@@ -9,9 +11,10 @@ module JitML.Product.NativeRlExecution
   , executeNativeRlPublication
   , nativeRlExecutionReport
   , nativeRlExecutionPublication
+  , renderNativeChildPipelineRefusal
   ) where
 
-import Control.Exception (evaluate)
+import Control.Exception (Exception, evaluate, toException)
 import Control.Exception.Safe (tryAny)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.IO.Class (liftIO)
@@ -76,6 +79,39 @@ nativeRlExecutionReport (NativeRlExecutionResult report _) = report
 nativeRlExecutionPublication
   :: NativeRlExecutionResult -> Maybe Publication.NativeQualificationPublication
 nativeRlExecutionPublication (NativeRlExecutionResult _ publication) = publication
+
+-- | Render only already observed refusal detail, never the complete producer
+-- report or any referenced object. Candidate findings keep their typed reason;
+-- an unavailable/oversized rendering falls back to the captured outer detail.
+renderNativeChildPipelineRefusal :: NativeRlExecutionReport -> IO Text.Text
+renderNativeChildPipelineRefusal report = do
+  detail <- selectDetail (candidateDetails <> outerDetails)
+  pure (prefix <> maybe "" (": " <>) detail)
+ where
+  prefix =
+    "native canonical child pipeline refused at "
+      <> Text.pack (show (nativeExecutionStage report))
+  candidateDetails = case nativeExecutionCandidateFailure report of
+    Nothing -> []
+    Just failure -> [Failure.captureNativeExceptionDiagnostic (toException (CandidateRefusalDiagnostic failure))]
+  outerDetails = case nativeExecutionDiagnostic report of
+    Nothing -> []
+    Just diagnostic -> [captureOriginal diagnostic]
+  captureOriginal (Failure.CompleteNativeDiagnostic text) = Failure.captureNativeDiagnostic text
+  captureOriginal other = pure other
+  selectDetail [] = pure Nothing
+  selectDetail (capture : rest) = do
+    captured <- capture
+    case captured of
+      Failure.CompleteNativeDiagnostic text -> pure (Just text)
+      _ -> selectDetail rest
+
+-- The existing exception capture bounds a lazy Show renderer before packing
+-- Text, so an endless findings list cannot escape the diagnostic byte limit.
+newtype CandidateRefusalDiagnostic = CandidateRefusalDiagnostic Candidate.NativeServingCandidateFailure
+instance Show CandidateRefusalDiagnostic where
+  show (CandidateRefusalDiagnostic failure) = show failure
+instance Exception CandidateRefusalDiagnostic
 
 emptyReport :: NativeRlExecutionReport
 emptyReport =

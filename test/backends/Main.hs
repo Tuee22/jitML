@@ -18,6 +18,7 @@ import Data.Either (isRight, lefts)
 import Data.List qualified as List
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Data.Vector.Unboxed qualified as VU
+import DeviceWitnessCoordinate qualified
 import GHC.Float qualified
 import JitML.Cache.Key qualified as Cache
 import JitML.Codegen.Cuda qualified as CudaCodegen
@@ -160,7 +161,7 @@ import JitML.RL.VecEnv qualified as Vec
 import JitML.Substrate qualified as Substrate
 import Path (toFilePath)
 import System.Directory (doesFileExist, getCurrentDirectory, getModificationTime, listDirectory)
-import System.Environment (lookupEnv)
+import System.Environment (getArgs, lookupEnv)
 import System.FilePath (makeRelative, (</>))
 import System.IO.Temp (withSystemTempDirectory)
 import System.Random qualified as Random
@@ -421,11 +422,21 @@ compileArtifactTwice substrate = do
         pure (Right bytes)
 
 main :: IO ()
-main =
+main = do
+  arguments <- getArgs
+  case arguments of
+    ["--jitml-device-witness-coordinate-worker", substrate, stage, root, cacheDirectory] ->
+      DeviceWitnessCoordinate.runDeviceWitnessCoordinateWorker substrate stage root cacheDirectory
+    _ -> backendTestMain
+
+backendTestMain :: IO ()
+backendTestMain =
   defaultMain $
     testGroup
       "jitml-backends"
-      [ testCase "linux-cpu JIT compile/load/run executes the generated identity kernel" $ do
+      [ DeviceWitnessCoordinate.deviceWitnessCoordinateTest Substrate.LinuxCPU
+      , DeviceWitnessCoordinate.deviceWitnessCoordinateTest Substrate.AppleSilicon
+      , testCase "linux-cpu JIT compile/load/run executes the generated identity kernel" $ do
           env <- buildEnv defaultGlobalFlags
           result <- runLinuxCpuIdentityKernel env [1.25, 2.5, -3.75]
           case result of

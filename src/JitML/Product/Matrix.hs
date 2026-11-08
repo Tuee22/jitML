@@ -134,6 +134,7 @@ import JitML.SL.Architecture (ArchitectureFeature)
 import JitML.SL.Architecture qualified as SLArchitecture
 import JitML.SL.Canonicals qualified as SL
 import JitML.SL.ConvergenceThresholds qualified as SLConvergence
+import JitML.SL.Regression qualified as Regression
 import JitML.SL.TinyImageNet qualified as TinyImageNet
 import JitML.Substrate (Substrate (..), allSubstrates, renderSubstrate)
 import JitML.Training.Budget
@@ -763,8 +764,9 @@ supervisedRow problem =
 
 -- | The fixed product budget is the one source of truth for the publisher.
 -- CIFAR ResNet-20/56 and ViT use forty epochs, Tiny ImageNet uses fifteen,
--- and the other seven supervised rows use ten.  Producers must consume this
--- value rather than independently clamping or extending it.
+-- California explicitly uses the generic regression default of one hundred,
+-- and the other six supervised rows use ten. Producers consume this value
+-- rather than independently clamping or extending it.
 supervisedEpochBudget :: Text -> Word64
 supervisedEpochBudget problemName =
   case problemName of
@@ -772,6 +774,7 @@ supervisedEpochBudget problemName =
     "cifar10-resnet56" -> 40
     "cifar10-vit" -> 40
     "tiny-imagenet-resnet50" -> 15
+    "california-housing-mlp" -> 100
     _ -> 10
 
 rlConvergenceRows :: [ProductRow 'Declared]
@@ -1877,6 +1880,13 @@ productSemanticSubject row descriptor subject =
                        , SupervisedPolicy.supervisedQualificationPolicyContract
                        , "cohort-base-seed"
                        , showText (productPlanSeed row)
+                       ]
+                     _ -> []
+                 )
+              <> ( case rowClass row of
+                     SupervisedRegression {} ->
+                       [ "regression-training-order"
+                       , Regression.regressionTrainingOrderContract
                        ]
                      _ -> []
                  )

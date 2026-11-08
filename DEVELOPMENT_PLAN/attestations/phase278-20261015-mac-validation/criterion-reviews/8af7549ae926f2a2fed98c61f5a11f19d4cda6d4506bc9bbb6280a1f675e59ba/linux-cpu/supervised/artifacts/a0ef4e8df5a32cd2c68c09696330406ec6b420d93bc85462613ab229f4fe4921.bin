@@ -1,0 +1,41 @@
+{
+  "scope": "Independent exact mathematics for unchanged compact supervised criteria; no current export/runtime/qualification assertion",
+  "utc": "2026-10-18T13:53:13.944013+00:00",
+  "source": {
+    "algorithm": 1,
+    "sha256": "31285ae277b0e3b009c2c7366d6601282af63b15d6a372101f4e0bf25e48009e"
+  },
+  "classification": [
+    {
+      "classes": 10,
+      "examples": 1000,
+      "exact_critical_count": 136,
+      "critical_integer_tail_at_most_alpha": true,
+      "prior_integer_tail_exceeds_alpha": true,
+      "method": "Exact integer binomial masses using math.comb and (C-1)^(n-k), accumulated from n downwards; comparison is 5000*integer_tail <= C^n, with predecessor failure. No floating recurrence or trainer call."
+    },
+    {
+      "classes": 100,
+      "examples": 1000,
+      "exact_critical_count": 24,
+      "critical_integer_tail_at_most_alpha": true,
+      "prior_integer_tail_exceeds_alpha": true,
+      "method": "Exact integer binomial masses using math.comb and (C-1)^(n-k), accumulated from n downwards; comparison is 5000*integer_tail <= C^n, with predecessor failure. No floating recurrence or trainer call."
+    },
+    {
+      "classes": 200,
+      "examples": 1000,
+      "exact_critical_count": 16,
+      "critical_integer_tail_at_most_alpha": true,
+      "prior_integer_tail_exceeds_alpha": true,
+      "method": "Exact integer binomial masses using math.comb and (C-1)^(n-k), accumulated from n downwards; comparison is 5000*integer_tail <= C^n, with predecessor failure. No floating recurrence or trainer call."
+    }
+  ],
+  "cohort_bound": "For the all-five uniform-independent-example null only, each P(correct>=critical)<=1/5000. With K the count of such seeds, E[K]<=5/5000 regardless of between-seed dependence. Thus P(K>=3)<=E[K]/3<=1/3000. Joint initial-gain success is a subset; majority+1 only strengthens the requirement.",
+  "limits": "This mathematical null does not model arbitrary random neural networks, mixed-null cohorts, adaptive or repeated attempts, regression, or population accuracy. Historical published-model accuracy parity is not justified. No familywise probability claim is supplied for actual product runs.",
+  "regression": "Finite binary64 observations are exact rationals. Require SSE(final)<SST(held-out targets) and SSE(final)<SSE(actual effective initialization); finite positive training-fitted target scaling preserves strict inequalities. Zero/nonfinite variance or malformed inputs reject. Separate unchanged standardized RMSE quality floor remains mandatory.",
+  "cohort_and_serving": "Exactly5 prescribed actual training seeds; at least3 same-seed learning+strict-initial-gain successes; full-five old-quality median; actual index0 individually learning+quality eligible and separately Store replayed. No count of3 joint-and-quality successes is inferred; no replacement of failed/incomplete outcomes.",
+  "classification_historical_tiny_target": "TinyImageNet0.008 remains an unproven project quality target; learning threshold16/1000 is separate and stricter.",
+  "training_runs_supplied": 0,
+  "qualification": null
+}

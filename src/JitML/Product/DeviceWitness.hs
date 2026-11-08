@@ -47,7 +47,7 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Word (Word8)
 import GHC.Generics (Generic)
-import System.Directory (doesFileExist)
+import System.Directory (canonicalizePath, doesFileExist)
 
 import JitML.Substrate (Substrate, parseSubstrate, renderSubstrate)
 
@@ -106,6 +106,9 @@ witnessExecutedIdentity = witnessExecutedIdentityValue
 -- This is the only constructor. It fails closed when the artifact the engine
 -- named is absent or unreadable, when the cache key is not a hex digest, or
 -- when the backend / executed identity read back from the artifact is blank.
+-- Resolve the loaded artifact in the caller's working directory before
+-- recording it: child and parent processes retain the same absolute physical
+-- coordinate even when their cache paths use different relative spellings.
 witnessDeviceExecution
   :: Substrate
   -> Text
@@ -132,36 +135,50 @@ witnessDeviceExecution substrate backend kernelHash artifactPath executedIdentit
   | null artifactPath =
       pure (Left "device execution witness requires an artifact path")
   | otherwise = do
-      present <- doesFileExist artifactPath
-      if not present
-        then
+      resolved <- try (canonicalizePath artifactPath)
+      case resolved :: Either IOException FilePath of
+        Left err ->
           pure
             ( Left
-                ( "device execution witness names an absent artifact: "
+                ( "device execution witness could not resolve "
                     <> Text.pack artifactPath
+                    <> ": "
+                    <> Text.pack (show err)
                 )
             )
-        else do
-          readResult <- try (ByteString.readFile artifactPath)
-          pure $
-            case readResult :: Either IOException ByteString.ByteString of
-              Left err ->
-                Left
-                  ( "device execution witness could not read "
-                      <> Text.pack artifactPath
-                      <> ": "
-                      <> Text.pack (show err)
-                  )
-              Right bytes ->
-                Right
-                  DeviceExecutionWitness
-                    { witnessSubstrateValue = substrate
-                    , witnessBackendValue = Text.strip backend
-                    , witnessKernelHashValue = Text.toLower kernelHash
-                    , witnessArtifactPathValue = Text.pack artifactPath
-                    , witnessArtifactSha256Value = hexBytes (SHA256.hash bytes)
-                    , witnessExecutedIdentityValue = Text.strip executedIdentity
-                    }
+        Right canonicalArtifactPath -> readArtifact canonicalArtifactPath
+ where
+  readArtifact canonicalArtifactPath = do
+    present <- doesFileExist canonicalArtifactPath
+    if not present
+      then
+        pure
+          ( Left
+              ( "device execution witness names an absent artifact: "
+                  <> Text.pack artifactPath
+              )
+          )
+      else do
+        readResult <- try (ByteString.readFile canonicalArtifactPath)
+        pure $
+          case readResult :: Either IOException ByteString.ByteString of
+            Left err ->
+              Left
+                ( "device execution witness could not read "
+                    <> Text.pack artifactPath
+                    <> ": "
+                    <> Text.pack (show err)
+                )
+            Right bytes ->
+              Right
+                DeviceExecutionWitness
+                  { witnessSubstrateValue = substrate
+                  , witnessBackendValue = Text.strip backend
+                  , witnessKernelHashValue = Text.toLower kernelHash
+                  , witnessArtifactPathValue = Text.pack canonicalArtifactPath
+                  , witnessArtifactSha256Value = hexBytes (SHA256.hash bytes)
+                  , witnessExecutedIdentityValue = Text.strip executedIdentity
+                  }
 
 deviceExecutionWitnessToRaw :: DeviceExecutionWitness -> RawDeviceExecutionWitness
 deviceExecutionWitnessToRaw witness =

@@ -1,0 +1,30 @@
+Review B accepts all four scopes **solely for prospective reissue of unchanged criterion DATA** for source `bca776a59829d66c9216daa447e6e5277e32c728ea615b97f6b1ec35fdc25ee2` / 617.
+
+| Lane | Scope | Decision and reason |
+|---|---|---|
+| linux-cpu | SupervisedCriterionReview | **Accept.** The 11 supervised scientific rows retain their existing contracts and full55 context. The edit demands each existing prediction/loss scalar earlier; it changes neither its arithmetic nor dataset order, semantic prefix, argmax, cross-entropy, accuracy counting or final mean reduction. |
+| linux-cpu | NativeCriterionReview | **Accept.** The 43 native scientific rows retain their existing contracts and full55 context. This classifier evaluation edit changes no native trainer, reference family, effective initialization, seed, work budget, comparison or serving obligation. |
+| apple-silicon | SupervisedCriterionReview | **Accept.** The same unchanged 11-row criterion substance applies to the exact Apple full55 context. The demand change introduces no Apple recipe or numerical-contract change. Linux compilation and synthetic evaluations supply no Metal execution witness. |
+| apple-silicon | NativeCriterionReview | **Accept.** The unchanged 43-row native criterion remains applicable to the exact Apple full55 context. Required actual device execution, honest ARS host provenance, effective-initial comparisons and physical replay remain separate obligations. |
+
+I read AGENTS.md first and performed only read-only inspection and metadata comparisons. I created no files and launched no builds, tests, containers, VMs or training. I read no private dataset/checkpoint/native2237 bodies or scientific transcripts.
+
+Evidence supporting these decisions:
+
+- Independently verified the byte lengths and SHA-256 pins for all nine supplied source/diff/export/compilation/synthetic metadata inputs. Reconstructed the unified diff from the before/after snapshots and obtained the supplied diff exactly.
+- The complete current and prior exports have identical `authority`, `format` and **entire `lanes` objects**; only root source identity changes from `495822c9…` to `bca776a5…`. Each lane contains exactly 55 distinct row IDs in the same order, with identical row, plan and contract identities.
+- CPU full55 digest remains `8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7`; Apple remains `a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c`.
+- Verified the supplemental prior selected20 registry pin and all 20 registered criterion-file pins. Each of its four scope capsules’ complete ordered55 vectors equals the corresponding current export. Their scientific subsets contain 11 supervised or 43 native rows, all present unchanged in that lane.
+- The packet reports 616 unchanged public source files and one changed file. I inspected the supplied changed-file snapshots and exact delta; I did not independently rehash all 617 repository source inputs.
+
+There is no blocking criterion-applicability finding. The two changed functions retain the same expressions and reductions. For finite, total validated inputs, forcing an `Int` prediction or `Double` loss to weak head normal form settles that scalar before traversal continues, without introducing reassociation or changing the value selected. Existing error branches remain unchanged. Supplied synthetic controls report equal output bits at 8/32/128 examples; actual edited-module observations support equality at 32/128 and matching empty/shape errors.
+
+Strictness does change demand and failure timing. For example, an earlier partial scalar can now fail before a later example returns `Left`; arbitrary bottoms or invalid direct API inputs therefore do not have universal lazy observational equivalence. I found no validated-input numerical counterexample. The supplied finite controls do not prove every graph/backend case.
+
+Synthetic held-result retention improves substantially: at 128 examples, legacy retained live heap is approximately 15.6 MB, versus approximately 1.46 MB for strict/edited-production observations. This supports the diagnosed lifetime mechanism only. The scalar-result list, input dataset and per-example forward peaks remain; neither constant-space evaluation nor production memory fit follows.
+
+All inherited restrictions remain cumulative: five original ordered models, all outcomes retained, at least three same-model joint learning successes, whole-five statistics, predetermined served index zero, strict own-effective-initial gain, complete prescribed references and only the existing independently proved exact-optimum tie exceptions. Classification’s finite uniform-null control, regression’s exact finite comparisons, historical floor provenance and tuning’s context-only status retain their stated limits. No population-generalization or published-model-parity claim is created.
+
+The ordinary DATA export proves exact exported contract equality; it confers no reviewer independence, execution, qualification, registration or admission authority. Coherent Linux compilation and retained seed metadata establish their declared compilation scope only.
+
+**Still unproven:** production convergence, measured production performance, complete CPU55, current native/Metal/Apple55 execution, canonical image and quality gates, scientific workflow memory/time fit, Store admission, authenticated journals/registration, physical serving/replay and Phase278 closure. Reissue must bind the new source and preserve prior provenance; it cannot adopt weaker bars, changed deadlines, altered seeds, budget extensions, score-selected retries, pooled/spliced prefixes or retrospectively converted failures.

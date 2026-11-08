@@ -3,6 +3,7 @@
 module JitML.Test.Command
   ( TestCommandRuntime (..)
   , runTest
+  , withProductScenarioAttemptDirectory
   )
 where
 
@@ -35,7 +36,9 @@ import System.Directory
 import System.Environment (getExecutablePath)
 import System.Exit (ExitCode (..))
 import System.FilePath (takeDirectory, takeFileName, (</>))
-import System.IO.Temp (withSystemTempDirectory, withTempDirectory)
+import System.IO.Error (catchIOError, isDoesNotExistError)
+import System.IO.Temp (createTempDirectory, withSystemTempDirectory, withTempDirectory)
+import System.Posix.Files (setFileMode)
 import System.Posix.IO
   ( OpenFileFlags (cloexec, creat, exclusive)
   , OpenMode (WriteOnly)
@@ -814,8 +817,9 @@ verifyGreenProductScenarioJournal targets scenarioScope journal
                       )
                   Right _journal -> Right ()
 
--- | Allocate one fresh parent that outlives the child invocations and the
--- post-body journal read, then disappears after live diagnostics and release.
+-- | Allocate one fresh retained parent for the child invocations and the
+-- post-body journal read. Failed and cancelled attempts retain their original
+-- workspace and raw files; only the signing key is removed at scope release.
 -- The integration writer owns creation of @workspace@ and its checkpoint
 -- objects; observing a pre-existing journal or checkpoint root is therefore
 -- impossible for a command-created scope.
@@ -825,8 +829,7 @@ withProductScenarioCommandScope
   -> IO value
 withProductScenarioCommandScope Nothing action = action Nothing
 withProductScenarioCommandScope (Just batch) action =
-  withSystemTempDirectory "jitml-product-scenario" $ \rawParent -> do
-    parent <- makeAbsolute rawParent
+  withProductScenarioAttemptDirectory (".build" </> "runtime" </> "product-scenario-attempts") $ \parent -> do
     executablePath <- getExecutablePath >>= canonicalizePath
     executableSha256 <- productScenarioFileSha256 executablePath
     generatedKey <- ProductScenarioAuthorization.generateProductScenarioJournalKey
@@ -863,11 +866,29 @@ withProductScenarioCommandScope (Just batch) action =
             }
       )
 
+-- | Ordinary directory lifetime only, with no journal or execution authority.
+-- Each private namespace remains after every outcome. The release is installed
+-- before the caller can write any part of the exact journal key, including
+-- during setup; an absent key is the only ignored cleanup failure.
+withProductScenarioAttemptDirectory :: FilePath -> (FilePath -> IO value) -> IO value
+withProductScenarioAttemptDirectory retainedRoot action = do
+  absoluteRoot <- makeAbsolute retainedRoot
+  createDirectoryIfMissing True absoluteRoot
+  root <- canonicalizePath absoluteRoot
+  bracket
+    ( do
+        parent <- createTempDirectory root "jitml-product-scenario-"
+        setFileMode parent 0o700
+        canonicalizePath parent
+    )
+    (\parent -> removeProductScenarioJournalKeyFile (parent </> "journal.key"))
+    action
+
 -- | Allocate browser-only authority below the repository's host-visible
 -- runtime directory.  The nested Playwright Docker command receives only the
 -- two exact read-only files and this fresh writable scope; the ProductScenario
 -- key, checkpoint root, and executable challenge remain in their independent
--- system-temporary scope.
+-- private retained command scope.
 withBrowserEvidenceCommandScope
   :: (BrowserEvidenceCommandScope -> IO value)
   -> IO value
@@ -1263,10 +1284,14 @@ removeProductScenarioJournalKeyFileIfPresent
   :: Maybe ProductScenarioCommandScope
   -> IO ()
 removeProductScenarioJournalKeyFileIfPresent Nothing = pure ()
-removeProductScenarioJournalKeyFileIfPresent (Just scope) = do
-  let keyPath = productScenarioJournalKeyPath scope
-  exists <- doesFileExist keyPath
-  when exists (removeFile keyPath)
+removeProductScenarioJournalKeyFileIfPresent (Just scope) =
+  removeProductScenarioJournalKeyFile (productScenarioJournalKeyPath scope)
+
+removeProductScenarioJournalKeyFile :: FilePath -> IO ()
+removeProductScenarioJournalKeyFile keyPath =
+  catchIOError
+    (removeFile keyPath)
+    (\exception -> unless (isDoesNotExistError exception) (throwIO exception))
 
 removeBrowserEvidenceResultKeyFileIfPresent
   :: Maybe BrowserEvidenceCommandScope

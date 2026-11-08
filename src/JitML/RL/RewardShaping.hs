@@ -8,9 +8,10 @@
 -- reward stored in the training rollout/replay only. Every evaluation path
 -- (@evaluate*@) reads the raw environment reward, so the reported convergence
 -- metric is always the true, unshaped return. Because @F@ is a potential
--- difference it telescopes over any trajectory to @gamma^T*Phi(s_T) - Phi(s_0)@,
--- so it cannot be farmed and it preserves the optimal policy for any @Phi@ and
--- any scale — the shaping only densifies the learning signal.
+-- difference its discounted sum telescopes to @gamma^T*Phi(s_T) - Phi(s_0)@.
+-- True terminal states use zero potential, leaving only the initial-state
+-- offset on a stopped trajectory and preserving the optimal policy. Time-limit
+-- truncations retain their successor potential and value bootstrap.
 --
 -- 'shapingPotential' returns @0@ for every environment without a defined
 -- potential, so shaping is a strict no-op for cartpole, lunar-lander,
@@ -22,6 +23,7 @@
 module JitML.RL.RewardShaping
   ( shapingPotential
   , shapingBonus
+  , shapingBonusForTransition
   )
 where
 
@@ -165,3 +167,11 @@ keyDoorGridMaxDistance =
 shapingBonus :: Text -> Double -> Vector Double -> Vector Double -> Double
 shapingBonus env gamma obs nextObs =
   gamma * shapingPotential env nextObs - shapingPotential env obs
+
+-- | Training-transition increment with zero potential at true termination.
+-- Supply the environment's terminal flag, never the combined reset/time-limit
+-- flag: a truncated transition still bootstraps from its pre-reset successor.
+shapingBonusForTransition :: Text -> Double -> Bool -> Vector Double -> Vector Double -> Double
+shapingBonusForTransition env gamma terminated obs nextObs
+  | terminated = negate (shapingPotential env obs)
+  | otherwise = shapingBonus env gamma obs nextObs

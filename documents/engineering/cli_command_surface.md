@@ -2,7 +2,7 @@
 
 **Status**: Supporting reference
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md
+**Referenced by**: README.md, ../documentation_standards.md, [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 5](../../DEVELOPMENT_PLAN/phase-5-commandspec-registry-and-generated-parser.md), [Phase 20](../../DEVELOPMENT_PLAN/phase-20-typed-numeric-cli-parsing-and-generated-only-command-referen.md), ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md
 **Generated sections**: cli-commands.help-blocks
 
 > **Purpose**: Reference mirror of the README-owned CLI command matrix for the

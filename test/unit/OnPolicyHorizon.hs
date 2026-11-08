@@ -2,11 +2,14 @@
 
 module OnPolicyHorizon (onPolicyHorizonTests) where
 
-import Control.Monad (forM_)
-import Data.IORef (modifyIORef', newIORef, readIORef)
+import Control.Monad (forM_, when)
+import Data.IORef (atomicModifyIORef', modifyIORef', newIORef, readIORef, writeIORef)
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Vector.Unboxed qualified as VU
+import System.Mem (performGC)
+import System.Mem.Weak (deRefWeak, mkWeakPtr)
 import System.Random qualified as Random
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
@@ -15,6 +18,7 @@ import JitML.Numerics.Mlp qualified as Mlp
 import JitML.Numerics.MlpDevice (MlpDevice (..), pureReferenceMlpDevice)
 import JitML.RL.Algorithms.PpoTrainer qualified as Ppo
 import JitML.RL.CountExploration qualified as Count
+import JitML.RL.RewardShaping qualified as Shaping
 import JitML.RL.Simulator qualified as Sim
 import JitML.RL.VecEnv qualified as Vec
 
@@ -162,6 +166,118 @@ onPolicyHorizonTests =
               (\(samples, final) -> fst (Ppo.computeAdvantages current (Ppo.Rollout samples [] final)))
               groups
           )
+    , testCase "true-terminal shaping ignores successor potential in pure and device collectors" $
+        forM_ [VU.fromList [0.5, 0.0], VU.fromList [0.6, 1.05]] $ \successor -> do
+          let current = shapingEnvironment True successor
+              initial = Vec.VecEnv current [Vec.VecEnvSlot shapingStart 0.0 0]
+              generator = Random.mkStdGen 42
+              expectedReward = 1.0 - Shaping.shapingPotential "mountain-car" shapingStart
+          pureCount <- Count.newCountTable
+          (pureRollout, pureFinal, pureGenerator) <-
+            Ppo.collectRolloutInEnvironment pureCount current shapingConfig shapingParams shapingStart generator
+          deviceCount <- Count.newCountTable
+          (vectorized, deviceFinal, deviceGenerator) <-
+            Ppo.collectRolloutVectorizedOnDevice
+              pureReferenceMlpDevice
+              deviceCount
+              current
+              shapingConfig
+              shapingParams
+              initial
+              generator
+              >>= expectRight
+          forM_ [pureRollout, Ppo.vectorizedRollout vectorized] $ \rollout -> do
+            assertNear [expectedReward] (fmap Ppo.rsReward (Ppo.rolloutSteps rollout))
+            fmap Ppo.rsBoundary (Ppo.rolloutSteps rollout) @?= [Ppo.RolloutTerminated]
+            Ppo.rolloutEpisodes rollout @?= [1.0]
+            Ppo.rolloutFinalValue rollout @?= 0.0
+          pureFinal @?= shapingReset
+          fmap Vec.vecSlotState (Vec.vecEnvSlots deviceFinal) @?= [shapingReset]
+          deviceGenerator @?= pureGenerator
+    , testCase "discounted terminal shaping leaves only the initial-state offset" $
+        forM_ [0.0, 0.9, 1.0] $ \gamma -> do
+          let successors =
+                [ VU.fromList [-0.7, -0.5]
+                , VU.fromList [0.1, 0.8]
+                , VU.fromList [0.6, 1.05]
+                ]
+              observations = shapingStart : successors
+              bonuses =
+                zipWith3
+                  (Shaping.shapingBonusForTransition "mountain-car" gamma)
+                  [False, False, True]
+                  observations
+                  successors
+              rawRewards = [2.0, -1.0, 5.0]
+              discounted = sum . zipWith (*) [gamma ^ index | index <- [0 :: Int ..]]
+              initialPotential = Shaping.shapingPotential "mountain-car" shapingStart
+          assertNear [negate initialPotential] [discounted bonuses]
+          assertNear
+            [discounted rawRewards - initialPotential]
+            [discounted (zipWith (+) rawRewards bonuses)]
+    , testCase
+        "continuation and actual VecEnv truncation preserve shaping cancellation in successor bootstrap"
+        $ forM_ [1, 2]
+        $ \horizon -> do
+          batches <- newIORef []
+          let successor = VU.fromList [0.4, 0.7]
+              current = shapingEnvironment False successor
+              currentConfig = shapingConfig {Ppo.ppoMaxEpisodeSteps = horizon}
+              initial = Vec.VecEnv current [Vec.VecEnvSlot shapingStart 0.0 0]
+              initialPotential = Shaping.shapingPotential "mountain-car" shapingStart
+              successorPotential = Shaping.shapingPotential "mountain-car" successor
+              successorValue = 7.0 - successorPotential
+              shapedValue observation =
+                (if observation == shapingStart then 3.0 else 7.0)
+                  - Shaping.shapingPotential "mountain-car" observation
+              device =
+                pureReferenceMlpDevice
+                  { mlpdForwardBatch = \frozen observations -> do
+                      frozen @?= shapingParams
+                      assertBool "reset observation entered shaping bootstrap" (shapingReset `notElem` observations)
+                      modifyIORef' batches (<> [observations])
+                      result <- mlpdForwardBatch pureReferenceMlpDevice frozen observations
+                      pure
+                        ( fmap
+                            ( zipWith
+                                (\observation output -> output VU.// [(2, shapedValue observation)])
+                                observations
+                            )
+                            result
+                        )
+                  }
+          count <- Count.newCountTable
+          (vectorized, finalEnvironment, _) <-
+            Ppo.collectRolloutVectorizedOnDevice
+              device
+              count
+              current
+              currentConfig
+              shapingParams
+              initial
+              (Random.mkStdGen 42)
+              >>= expectRight
+          let rollout = Ppo.vectorizedRollout vectorized
+              (advantages, targets) = Ppo.computeAdvantages currentConfig rollout
+          assertNear
+            [1.0 + 0.9 * successorPotential - initialPotential]
+            (fmap Ppo.rsReward (Ppo.rolloutSteps rollout))
+          fmap Ppo.rsBoundary (Ppo.rolloutSteps rollout)
+            @?= [if horizon == 1 then Ppo.RolloutTruncated successorValue else Ppo.RolloutContinues]
+          assertNear [1.0 + 0.9 * 7.0 - 3.0] advantages
+          assertNear [1.0 + 0.9 * 7.0 - initialPotential] targets
+          fmap Vec.vecSlotState (Vec.vecEnvSlots finalEnvironment)
+            @?= [if horizon == 1 then shapingReset else successor]
+          readIORef batches >>= (@?= [[shapingStart], [successor]])
+    , testCase "environments without potentials retain raw rewards across every transition boundary"
+        $ forM_
+          ["cartpole", "lunar-lander", "gridworld-deterministic", "pendulum", "on-policy-horizon-control"]
+        $ \name ->
+          forM_ [False, True] $ \terminated -> do
+            let rawReward = 17.0
+                bonus = Shaping.shapingBonusForTransition name 0.9 terminated shapingStart shapingReset
+            bonus @?= 0.0
+            rawReward + bonus @?= rawReward
     , testCase "failed or malformed truncation successor output rejects the entire device rollout"
         $ forM_
           [ (Left "successor device unavailable", "device forward failed")
@@ -184,6 +300,47 @@ onPolicyHorizonTests =
                 (Text.unpack err)
                 ("on-policy truncation bootstrap" `Text.isInfixOf` err && expected `Text.isInfixOf` err)
             Right _ -> assertFailure "truncation bootstrap failure yielded a partial rollout"
+    , testCase "completed iterations release previous parameter roots before the next rollout" $ do
+        gradientSeen <- newIORef False
+        previous <- newIORef Nothing
+        boundaries <- newIORef (0 :: Int)
+        let current =
+              config
+                { Ppo.ppoNumIterations = 4
+                , Ppo.ppoRolloutSteps = 4
+                , Ppo.ppoVectorEnvCount = 2
+                , Ppo.ppoMiniBatchSize = 4
+                , Ppo.ppoEpochsPerUpdate = 1
+                }
+            device =
+              pureReferenceMlpDevice
+                { mlpdForwardBatch = \frozen observations -> do
+                    -- Rollout/bootstrap batches have two slots; optimizer
+                    -- batches have four. Inspect only the first rollout call
+                    -- after a complete optimizer pass.
+                    when (length observations == 2) $ do
+                      updated <- atomicModifyIORef' gradientSeen (False,)
+                      when updated $ do
+                        performGC
+                        weak <- readIORef previous
+                        forM_ weak $ \key -> do
+                          alive <- deRefWeak key
+                          assertBool
+                            "a completed iteration still retains its previous parameter root"
+                            (isNothing alive)
+                        key <- mkWeakPtr frozen Nothing
+                        writeIORef previous (Just key)
+                        modifyIORef' boundaries (+ 1)
+                    mlpdForwardBatch pureReferenceMlpDevice frozen observations
+                , mlpdBatchGradient = \frozen batch -> do
+                    writeIORef gradientSeen True
+                    mlpdBatchGradient pureReferenceMlpDevice frozen batch
+                }
+        prepared <- Ppo.preparePpoOnDeviceWithEnvironment device environment current
+        observed <- Ppo.continuePreparedPpoRaw prepared >>= expectRight
+        result <- expectRight (Ppo.refinePpoTrainObservation observed)
+        length (Ppo.resultIterations result) @?= 4
+        readIORef boundaries >>= (@?= 3)
     ]
 
 config :: Ppo.PpoTrainConfig
@@ -208,6 +365,32 @@ params =
     (VU.singleton 0.0)
     (VU.fromList [0.0, 0.0, 3.0])
     (VU.fromList [0.0, 0.0, 2.0])
+
+shapingConfig :: Ppo.PpoTrainConfig
+shapingConfig = config {Ppo.ppoObsSize = 2, Ppo.ppoRolloutSteps = 1}
+
+shapingParams :: Mlp.MlpParams
+shapingParams = params {Mlp.paramShape = Mlp.MlpShape 2 1 3, Mlp.paramW1 = VU.fromList [1.0, 0.0]}
+
+shapingStart :: VU.Vector Double
+shapingStart = VU.fromList [-0.5, 0.0]
+
+shapingReset :: VU.Vector Double
+shapingReset = VU.fromList [-1.2, -1.05]
+
+shapingEnvironment :: Bool -> VU.Vector Double -> Sim.SimulatedEnvironment (VU.Vector Double)
+shapingEnvironment terminated successor =
+  Sim.SimulatedEnvironment
+    { Sim.envName = "mountain-car"
+    , Sim.envInitial = shapingStart
+    , Sim.envStep = \_ _ -> Sim.SimStep successor 1.0 terminated
+    , Sim.envRenderFrame = \state -> Sim.RenderFrame (VU.toList state) "shaping control"
+    , Sim.envActionCount = 2
+    , Sim.envObservationSize = 2
+    , Sim.envMaxEpisodeSteps = 3
+    , Sim.envActionMask = Nothing
+    , Sim.envTrainingStart = Just (\_ _ -> shapingReset)
+    }
 
 -- Explicit synthetic transition/GAE controls, not ProductRow completion.
 environment :: Sim.SimulatedEnvironment Int

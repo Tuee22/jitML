@@ -2,10 +2,12 @@
 
 -- Actual public-entry preflight only. No producer, private stage result or
 -- positive publication is fabricated and no environment action is permitted.
+-- Diagnostic-rendering fixtures below are ordinary report DATA only.
 module NativeRlExecution (nativeRlExecutionTests) where
 
 import Control.Exception (AsyncException (ThreadKilled), Exception (displayException), throw, try)
 import Control.Monad.Reader (runReaderT)
+import Data.Text (Text)
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertEqual, assertFailure, testCase)
@@ -15,6 +17,7 @@ import JitML.Checkpoint.NativePhase.Types (Resource (DiagnosticTextBytes), nativ
 import JitML.Env.Env (Env)
 import JitML.Product.NativeRlCohortPlan qualified as Cohort
 import JitML.Product.NativeRlExecution qualified as Execution
+import JitML.Product.NativeRlServingCandidate qualified as Candidate
 
 data InputFault = ExactInputFault | EndlessInputFault | AsyncRendererFault
   deriving stock (Show)
@@ -71,7 +74,74 @@ nativeRlExecutionTests =
           try (invoke (throw AsyncRendererFault))
             :: IO (Either AsyncException Execution.NativeRlExecutionResult)
         assertAsync outcome
+    , testCase
+        "child refusal renders the actual typed Candidate findings before outer diagnostic without dumping reports"
+        $ do
+          report <- diagnosticFixture
+          detail <-
+            Execution.renderNativeChildPipelineRefusal
+              report
+                { Execution.nativeExecutionCandidateFailure =
+                    Just (Candidate.NativeServingLearningRefusal ["held-out gain", "whole-five median"])
+                , Execution.nativeExecutionDiagnostic = Just (error "unused outer diagnostic was forced")
+                , Execution.nativeExecutionProducer = Just (error "producer report was rendered")
+                }
+          assertEqual
+            "typed findings survive the public error boundary"
+            "native canonical child pipeline refused at NativeExecutionCandidate: NativeServingLearningRefusal [\"held-out gain\",\"whole-five median\"]"
+            detail
+    , testCase
+        "oversized Candidate rendering falls back to original captured outer detail without a complete prefix"
+        $ do
+          report <- diagnosticFixture
+          result <-
+            timeout
+              10000000
+              ( Execution.renderNativeChildPipelineRefusal
+                  report
+                    { Execution.nativeExecutionCandidateFailure =
+                        Just (Candidate.NativeServingLearningRefusal (repeat "findings"))
+                    , Execution.nativeExecutionDiagnostic =
+                        Just (Failure.CompleteNativeDiagnostic "original outer diagnostic")
+                    }
+              )
+          assertEqual
+            "bounded fallback retains only complete original detail"
+            ( Just
+                "native canonical child pipeline refused at NativeExecutionCandidate: original outer diagnostic"
+            )
+            result
+    , testCase "child refusal retains the exact old stage-only message when detail is absent" $ do
+        report <- diagnosticFixture
+        detail <- Execution.renderNativeChildPipelineRefusal report
+        assertEqual
+          "old fallback"
+          "native canonical child pipeline refused at NativeExecutionCandidate"
+          detail
+    , testCase "Candidate diagnostic async cancellation still propagates" $ do
+        report <- diagnosticFixture
+        result <-
+          try
+            ( Execution.renderNativeChildPipelineRefusal
+                report
+                  { Execution.nativeExecutionCandidateFailure =
+                      Just (Candidate.NativeServingLearningRefusal [throw ThreadKilled])
+                  }
+            )
+            :: IO (Either AsyncException Text)
+        assertAsync result
     ]
+
+-- Ordinary diagnostic-only record update: never a child result/publication.
+diagnosticFixture :: IO Execution.NativeRlExecutionReport
+diagnosticFixture = do
+  result <- invoke (error "diagnostic fixture preflight")
+  pure
+    (Execution.nativeRlExecutionReport result)
+      { Execution.nativeExecutionStage = Execution.NativeExecutionCandidate
+      , Execution.nativeExecutionCandidateFailure = Nothing
+      , Execution.nativeExecutionDiagnostic = Nothing
+      }
 
 invoke :: Cohort.NativeRlCohortBatch -> IO Execution.NativeRlExecutionResult
 invoke batch =

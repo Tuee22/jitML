@@ -466,7 +466,7 @@ loopEither initialSnapshot device environment config update online target adam g
                   , transAction = action
                   , transReward =
                       simStepReward stepResult
-                        + RewardShaping.shapingBonus (envName environment) (dqnGamma config) obs nextObs
+                        + RewardShaping.shapingBonusForTransition (envName environment) (dqnGamma config) envDone obs nextObs
                   , transNextObs = nextObs
                   , transDone = envDone
                   }

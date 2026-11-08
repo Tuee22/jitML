@@ -1,0 +1,132 @@
+{
+  "completed": true,
+  "scope": "Fresh HOST direct-GHC current57cf source603 contract export only; no review approval/materialization/install/current image/ML claim",
+  "source": {
+    "algorithm": 1,
+    "sha256": "57cf61d1cf6149f353d852e21d8c663418d40e0ecc415e30d54dbdf5ef57ae16"
+  },
+  "code_files": 603,
+  "actual_exit_codes": [
+    0,
+    0
+  ],
+  "raw_streams": 4,
+  "helper_executable": {
+    "path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/criterion-native-export-root-metadata-20261019T050327Z/criterion-review-contract-export",
+    "bytes": 191469552,
+    "sha256": "edc9f188fdfc76de9a0ae038825e86abb5a70963fe8e07ab785cf0ddeeabacee",
+    "identity": [
+      16777230,
+      478617128,
+      33261,
+      1,
+      191469552,
+      1792386363842920270,
+      1792386364047769719
+    ]
+  },
+  "contracts": {
+    "path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/native-criterion-review-candidate-outputs/20261019T050620000000Z-source57cf61d1-contracts110/contracts.json",
+    "bytes": 21678,
+    "sha256": "b4dbaa0d365d34b59e294c6c4601358df5beab497b3a19314b078c340f87befa"
+  },
+  "contract_sets": [
+    {
+      "lane": "linux-cpu",
+      "rows": 55,
+      "sha256": "555aa3ad727fec53c2e2b361df5f8f10e6c89875c89ed4ca7d1f2cbdc9331b2c"
+    },
+    {
+      "lane": "apple-silicon",
+      "rows": 55,
+      "sha256": "2d256900ff740e5ec6b392d1a60c9d36813b4147b9fba0a4a49a46dcb73b53f3"
+    }
+  ],
+  "source603_native9_before_after_full7_SHA_equal": true,
+  "helper_before_after_full7_SHA_equal": true,
+  "actual_ordered_110_triples_literal_equal_15c": true,
+  "domain_hashes_independently_recomputed": true,
+  "changed_source_inputs_vs15c": [
+    "src/JitML/Cluster/PVSnapshotPrograms.hs"
+  ],
+  "unchanged_source_inputs_vs15c": 602,
+  "native_build_original": {
+    "path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/native-root-metadata-fix-build/result.json",
+    "bytes": 1641,
+    "sha256": "e0383bc48970c37cead09beecbcbbcbdd6eb14e7008329286a0841e6c734a9ca"
+  },
+  "source_snapshots": [
+    {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/criterion-native-export-root-metadata-20261019T050327Z/source-before.json",
+      "bytes": 204920,
+      "sha256": "0b503bd6fe00ad4680313e40da3c520473c9bd8e3f2641d37e96ab7a7427b0ea"
+    },
+    {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/criterion-native-export-root-metadata-20261019T050327Z/after-compile.json",
+      "bytes": 204920,
+      "sha256": "7d27e9e91120bd65f3ed161521bb0335a681e0d8cfd152a1293ca4b7671f34a4"
+    },
+    {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/criterion-native-export-root-metadata-20261019T050327Z/source-package-after.json",
+      "bytes": 204920,
+      "sha256": "9c7c83619c74d6d0e1901678efd197b03cc4c67bcfd97d43e85962b53713e68a"
+    }
+  ],
+  "binding": {
+    "path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/criterion-native-export-root-metadata-20261019T050327Z/binding.json",
+    "bytes": 1138,
+    "sha256": "9a6023064e847fdf9f979aebd0038da520219b0968df13f67343ffd509f3c8c0"
+  },
+  "export_files": [
+    {
+      "original": {
+        "path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/native-criterion-review-candidate-outputs/20261019T050620000000Z-source57cf61d1-contracts110/binding-input.json",
+        "bytes": 1138,
+        "sha256": "9a6023064e847fdf9f979aebd0038da520219b0968df13f67343ffd509f3c8c0"
+      },
+      "retained": {
+        "path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/criterion-native-export-root-metadata-20261019T050327Z/retained-export/binding-input.json",
+        "bytes": 1138,
+        "sha256": "9a6023064e847fdf9f979aebd0038da520219b0968df13f67343ffd509f3c8c0"
+      }
+    },
+    {
+      "original": {
+        "path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/native-criterion-review-candidate-outputs/20261019T050620000000Z-source57cf61d1-contracts110/contracts.json",
+        "bytes": 21678,
+        "sha256": "b4dbaa0d365d34b59e294c6c4601358df5beab497b3a19314b078c340f87befa"
+      },
+      "retained": {
+        "path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/criterion-native-export-root-metadata-20261019T050327Z/retained-export/contracts.json",
+        "bytes": 21678,
+        "sha256": "b4dbaa0d365d34b59e294c6c4601358df5beab497b3a19314b078c340f87befa"
+      }
+    },
+    {
+      "original": {
+        "path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/native-criterion-review-candidate-outputs/20261019T050620000000Z-source57cf61d1-contracts110/manifest.json",
+        "bytes": 1023,
+        "sha256": "87e810c151bc4efb60065c78e48e714a93506d4e9783c8752eb6a735b45c20fb"
+      },
+      "retained": {
+        "path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/criterion-native-export-root-metadata-20261019T050327Z/retained-export/manifest.json",
+        "bytes": 1023,
+        "sha256": "87e810c151bc4efb60065c78e48e714a93506d4e9783c8752eb6a735b45c20fb"
+      }
+    }
+  ],
+  "receipts": [
+    {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/criterion-native-export-root-metadata-20261019T050327Z/compile/result.json",
+      "bytes": 3372,
+      "sha256": "b74d16224a30bf3477963c837ba7c9cd3abbea6c6c19c0bee1662411efde4511"
+    },
+    {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/criterion-native-export-root-metadata-20261019T050327Z/export/result.json",
+      "bytes": 2184,
+      "sha256": "a7937d1a276bf6afaa40458327ce17300459663638016b2cf6dda8e6bbc266a9"
+    }
+  ],
+  "package_stability_window_closed": true,
+  "finished_utc": "2026-10-19T05:06:50.085921+00:00"
+}

@@ -122,7 +122,11 @@ canonicalProductRlSchedule algorithm environment =
     productRlDefaultTrainingEpisodeFloor
     productRlDefaultMaxEpisodeSteps
     Nothing
-    (Just productRlRequestedStepFloor)
+    (Just requestedStepFloor)
+ where
+  requestedStepFloor
+    | algorithm == "PPO" && environment == "mountain-car" = 2_457_600
+    | otherwise = productRlRequestedStepFloor
 
 canonicalProductRlTargetUnits :: Text -> Text -> Either Text Word64
 canonicalProductRlTargetUnits algorithm environment =

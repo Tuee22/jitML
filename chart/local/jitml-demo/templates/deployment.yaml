@@ -16,6 +16,10 @@ spec:
         app: jitml-demo
     spec:
       automountServiceAccountToken: false
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: jitml-demo
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
@@ -26,21 +30,9 @@ spec:
           # publishes inference WorkCommands to the Engine; it computes nothing.
           command: ["jitml", "service", "--config", "/etc/jitml/BootConfig.dhall"]
           workingDir: /jitml
-          # Sprint 4.8 — pod budget from dhall/cluster/resources.dhall (`jitmlDemo`).
-          # Sprint 15.20 — linux-cuda retains the raised budget from the live
-          # product-matrix validation; Webapp compute is publish-only.
+          # The selected profile owns the budget for every substrate.
           resources:
-            requests:
-              cpu: 250m
-              memory: 512Mi
-            limits:
-              {{- if eq .Values.substrate "linux-cuda" }}
-              cpu: "2"
-              memory: 4Gi
-              {{- else }}
-              cpu: "2"
-              memory: 3Gi
-              {{- end }}
+            {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - name: webapp-config
               mountPath: /etc/jitml

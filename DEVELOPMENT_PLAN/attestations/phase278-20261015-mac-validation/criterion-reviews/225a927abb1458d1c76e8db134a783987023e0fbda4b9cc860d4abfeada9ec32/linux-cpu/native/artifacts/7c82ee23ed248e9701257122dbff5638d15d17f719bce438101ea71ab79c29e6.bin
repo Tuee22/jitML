@@ -1,0 +1,666 @@
+{
+  "format": "jitml-independent-current225-helper-four-scope-criterion-addendum-a-v1",
+  "reviewer": "resource_criterion_review_a",
+  "authored_at_utc": "2026-11-03T21:12:48.588078+00:00",
+  "source": {
+    "algorithm": 1,
+    "sha256": "225a927abb1458d1c76e8db134a783987023e0fbda4b9cc860d4abfeada9ec32",
+    "files": 617
+  },
+  "decision": "ACCEPT_PROSPECTIVE_HELPER_CODE_AND_FOUR_FINITE_CRITERION_APPLICABILITY_SCOPES_ONLY",
+  "image": null,
+  "current225_canonical_image_status": "Not built/adopted or independently proved by this packet. Historical656 resource primitive image is not relabeled as225.",
+  "code_blockers": [],
+  "packet": {
+    "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-criterion-review-a/review-request.json",
+    "bytes": 7414,
+    "sha256": "c769048ad0aab16c9b225ac6f5afc1571d0fb8fd80dcc22f479693b352da30b0"
+  },
+  "independence_and_method": {
+    "independent_current_decision": true,
+    "method": "I inspected public source/configuration, exact delta, four drafts, exported contract metadata, selected structured execution receipts, and my own prior scientific reasoning. I independently hashed every current617 public source file, reproduced the normalized source-frame algorithm, compared the actual file roster and source656 inventory, all110 current/prior ordered contract records, all four scientific subject bodies, and nine scientific-policy source pins. This is an actual new source225 judgment; my historical656 judgment remains historical.",
+    "peer_fresh_output_inspected": false,
+    "new_agents_spawned": false,
+    "runtime_build_test_training_VM_Docker_operations_performed_by_reviewer": false,
+    "private_model_evaluation_proof_journal_key_or_raw_body_reads_or_hashes": false,
+    "tracked_files_changed": false,
+    "write_scope": "This reviewer-a judgment only. No git staging, commit or push.",
+    "independence_limit": "Independence means independently authored reviewer A reasoning within the same authorized agent session, not independently authenticated physical producer provenance or separate human authorship."
+  },
+  "source_and_contract_invariance": {
+    "independent_current_source_frame": {
+      "algorithm": 1,
+      "sha256": "225a927abb1458d1c76e8db134a783987023e0fbda4b9cc860d4abfeada9ec32",
+      "files": 617
+    },
+    "previous_source": {
+      "algorithm": 1,
+      "sha256": "656efe8f4236a0720bdba9b582320beae922b6f95913e22f9989203d58b2b6c7",
+      "files": 617
+    },
+    "counted_public_roots": [
+      "app",
+      "gen",
+      "src",
+      "test",
+      "cabal.project",
+      "jitml.cabal"
+    ],
+    "exact_current_roster_and_raw_hashes_verified": 617,
+    "changed_source_files": [
+      {
+        "path": "test/shared/GenericRlLiveControls.hs",
+        "before": {
+          "path": "test/shared/GenericRlLiveControls.hs",
+          "bytes": 90647,
+          "sha256": "1c1ad1c90a6b5eddc9d5cbee77e95da2889645f77d392699578de79f832723ff"
+        },
+        "after": {
+          "path": "test/shared/GenericRlLiveControls.hs",
+          "bytes": 91775,
+          "sha256": "57354cda3a7752ee052108ab4e63de4db1d9137df28ee2c2af06c2f815f05c6b"
+        }
+      },
+      {
+        "path": "test/shared/GenericRlPhysicalProof.hs",
+        "before": {
+          "path": "test/shared/GenericRlPhysicalProof.hs",
+          "bytes": 25712,
+          "sha256": "2effd873ecf5e9184cdea23c5a11963efd29443d127d1048844f17703ee2797d"
+        },
+        "after": {
+          "path": "test/shared/GenericRlPhysicalProof.hs",
+          "bytes": 30159,
+          "sha256": "be77081a2b3aa9cf43e6350e09fd79614f1c00169de44e096974c09a8fdadf7d"
+        }
+      },
+      {
+        "path": "test/unit/GenericRlPhysicalControls.hs",
+        "before": {
+          "path": "test/unit/GenericRlPhysicalControls.hs",
+          "bytes": 39743,
+          "sha256": "2dea0e44a82f56b95a0624ff4912558ab0dccf07dd9c22287e3a0148e36b0e45"
+        },
+        "after": {
+          "path": "test/unit/GenericRlPhysicalControls.hs",
+          "bytes": 43889,
+          "sha256": "3436f8105bfca85db7f110394a585faf30e3511b181e8069b69a245badc7efb9"
+        }
+      }
+    ],
+    "unchanged_source_files": 614,
+    "additional_public_policy_changes": [
+      "AGENTS.md",
+      "compose.lifecycle-bounded.yaml comments",
+      "unit_testing_policy.md"
+    ],
+    "assessment": "All counted production/library/CLI/numerical/scientific policy files are byte-identical to656. Exactly three Haskell test files change helper creation/refinement, caller-slot reservation and meaningful inspector-rejection controls. Operator documentation requires the existing smaller lifecycle caller override for live GenericRL checks. Resource/scheduling changes can still affect actual completion and timing; unchanged contracts do not imply bit-identical trajectories or resource fit.",
+    "actual_two_ordered55_vectors_equal656": true,
+    "all_four_scientific_subject_fields_equal656": true,
+    "complete_ordered55_contract_sets": [
+      {
+        "lane": "linux-cpu",
+        "rows": 55,
+        "sha256": "8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7"
+      },
+      {
+        "lane": "apple-silicon",
+        "rows": 55,
+        "sha256": "a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c"
+      }
+    ],
+    "contract_metadata_authority": "Ordinary deliberate DATA. No execution, independent authorship, qualification, producer, admission or phase authority follows from equality."
+  },
+  "helper_code_assessment": {
+    "decision": "ACCEPT_CODE_FOR_THE_DECLARED_SERIAL_CALLER_SCOPE",
+    "source_coordinates": [
+      {
+        "path": "test/shared/GenericRlLiveControls.hs",
+        "line": 1841,
+        "purpose": "Actual caller sibling reservation, owner coordinate, exact Docker CID, two actual pre-start refinements and cleanup."
+      },
+      {
+        "path": "test/shared/GenericRlPhysicalProof.hs",
+        "line": 209,
+        "purpose": "Finite helper constants, fixed per-owner name, exact create argv and actual observation refiner."
+      },
+      {
+        "path": "test/unit/GenericRlPhysicalControls.hs",
+        "line": 149,
+        "purpose": "Reject substituted ownership, limits, command, isolation and already-started state."
+      },
+      {
+        "path": "src/JitML/Cluster/ResourceRuntime.hs",
+        "line": 247,
+        "purpose": "Existing typed selected-slot subtraction plus actual caller cgroup and runtime capacity checks."
+      }
+    ],
+    "budget": "Before create, the existing typed runtime validator validates the selected complete VM envelope, subtracts512MiB and500m CPU from its client allowance, and verifies actual Linux caller memory.max/cpu.max/no-swap. Under mac16 and the explicitly selected existing lifecycle override, caller0.5CPU/3GiB plus one helper0.5CPU/512MiB consumes1CPU/3.5GiB inside the1CPU/4GiB slot. This arithmetic is admission capacity, not measured simultaneous node/Pod/client fit.",
+    "helper_controls": "Factory uses --pull=never, immutable digest, explicit platform, root0:0, exact /bin/sh -c command-v, finite0.5CPU/512MiB, MemorySwap equal Memory,64PIDs, no network, private cgroup namespace/default private PID namespace, read-only root, no added capabilities/dropALL, no-new-privileges, restartno and one64MiB tmpfs. Parsed actual observations independently reject missing/null/changed caps, host PID/network/cgroup modes, ownership/source/name/image/command substitutions, mounts beyond its tmpfs, unsafe restart/isolation and non-created/nonzero-PID/already-started states.",
+    "seriality": "Docker atomic creation of the fixed name derived from a stable caller owner coordinate permits at most one extant helper for that coordinate. A competing same-coordinate proof fails create instead of spending the same reservation twice. This is exclusion, not a queue and not global admission for multiple clients; the outer operator must still run one heavy/qualification role at a time and enforce aggregate active client/helper inventory.",
+    "identity": "The code validates the returned canonical Docker CID, inspects and starts that exact CID, and checks expected deterministic name, immutable target, owner/source labels and command twice: after create and after copied executable/source verification immediately before start. The original immutable executable and copied source-byte comparison remains. Owner environment and labels are binding coordinates, not authentication by themselves; the concrete guardian must join them to the selected actual caller and helper CID. Historical656 source cannot satisfy a future225 image-source comparison merely by being labeled225.",
+    "cleanup": "The created valid CID enters existing owned-scenario cleanup before copy/start; normal and exception paths remove that exact CID and retain cleanup failures. Name exclusion is released only by actual removal. An asynchronous interruption in the narrow create-to-cleanup-registration interval can leave a never-started container/name; it does not authorize reuse, broad removal or an invented clean state. Concrete supervision still needs exact inventory/retirement, including a running helper if the caller is forcibly terminated.",
+    "limitations": "This refiner authenticates neither its observation producer nor future concurrent Docker mutations. Future supervision must pin the actual selected Docker context, stable caller owner/CID, cached current image, caps and enrolled identities; no implicit VM startup/image build or permissive inventory whitelist is admitted."
+  },
+  "reviews": [
+    {
+      "source": {
+        "algorithm": 1,
+        "sha256": "225a927abb1458d1c76e8db134a783987023e0fbda4b9cc860d4abfeada9ec32",
+        "files": 617
+      },
+      "lane": "linux-cpu",
+      "scope": "supervised",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+      "subject": {
+        "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-criterion-review-a/linux-cpu-supervised-subject.json",
+        "bytes": 20538,
+        "sha256": "323bae2ecefbaab77254ea1dfae31809e4c67e7d79e7d03cec686769ece7493b"
+      },
+      "complete_ordered55_contract_set_sha256": "8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7",
+      "complete_ordered55_context_ref": {
+        "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-budget-a/export-work/export.stdout",
+        "bytes": 21726,
+        "sha256": "c66f27427da15d47af8453d388db4bae0cecd03c702256c8cbc9a33d97d2328f"
+      },
+      "scientific_row_count": 11,
+      "scientific_row_ids": [
+        "mnist-shallow-mlp",
+        "mnist-deep-mlp",
+        "mnist-lenet",
+        "fashion-mnist-mlp",
+        "fashion-mnist-resnet",
+        "cifar10-resnet20",
+        "cifar10-resnet56",
+        "cifar100-wide-resnet",
+        "cifar10-vit",
+        "tiny-imagenet-resnet50",
+        "california-housing-mlp"
+      ],
+      "context_only_row_ids": [
+        "hyperparameter-tuning"
+      ],
+      "reasoning": "The exact current225 subject has the same scientific rows, complete ordered55 contract metadata, and scientific limits as independently reviewed656. I independently compared current guest-export vectors and all subject fields, verified the actual617-file source frame, and inspected the entire helper delta. The only counted source changes are the Linux image-capability helper boundary and its rejection controls; worker numerical algorithms, training/evaluation recipes, data, splits, seeds, reference families, budgets, bars, and exclusions are unchanged. Strict paired authentic own-initial gain plus the complete fixed references can therefore still establish finite observed learning on these exact cases, cumulatively with every restriction reproduced below. Neither contract equality nor helper execution is a learning result. CPU oneDNN hardware/toolchain execution and actual producer/served qualification still require their own current evidence.",
+      "scientific_restrictions_ref": "#/scientific_restrictions",
+      "blocking_missing_facts_for_this_prospective_applicability_scope": [],
+      "execution_runtime_or_phase_obligations_closed_by_this_review": [],
+      "epoch_limit": "Only source225 and this exact unchanged finite allocation. No prospective run, later edit, retry-to-score, budget extension, pooled cohort, published-model parity, or population guarantee is admitted."
+    },
+    {
+      "source": {
+        "algorithm": 1,
+        "sha256": "225a927abb1458d1c76e8db134a783987023e0fbda4b9cc860d4abfeada9ec32",
+        "files": 617
+      },
+      "lane": "linux-cpu",
+      "scope": "native",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+      "subject": {
+        "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-criterion-review-a/linux-cpu-native-subject.json",
+        "bytes": 27780,
+        "sha256": "40b2efe2977ef2cbeceb40f54c4294294c9ba0b04c9c565ce9a7c8bed0f980a6"
+      },
+      "complete_ordered55_contract_set_sha256": "8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7",
+      "complete_ordered55_context_ref": {
+        "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-budget-a/export-work/export.stdout",
+        "bytes": 21726,
+        "sha256": "c66f27427da15d47af8453d388db4bae0cecd03c702256c8cbc9a33d97d2328f"
+      },
+      "scientific_row_count": 43,
+      "scientific_row_ids": [
+        "PPO/cartpole",
+        "PPO/mountain-car",
+        "PPO/acrobot",
+        "PPO/lunar-lander",
+        "PPO/key-door-grid",
+        "PPO/gridworld-deterministic",
+        "A2C/cartpole",
+        "A2C/mountain-car",
+        "A2C/lunar-lander",
+        "A2C/key-door-grid",
+        "TRPO/cartpole",
+        "TRPO/mountain-car",
+        "TRPO/lunar-lander",
+        "TRPO/key-door-grid",
+        "MaskablePPO/cartpole",
+        "MaskablePPO/mountain-car",
+        "MaskablePPO/lunar-lander",
+        "MaskablePPO/key-door-grid",
+        "RecurrentPPO/cartpole",
+        "RecurrentPPO/mountain-car",
+        "RecurrentPPO/lunar-lander",
+        "RecurrentPPO/key-door-grid",
+        "DQN/cartpole",
+        "DQN/mountain-car",
+        "DQN/key-door-grid",
+        "QR-DQN/cartpole",
+        "QR-DQN/mountain-car",
+        "QR-DQN/key-door-grid",
+        "DDPG/lunar-lander",
+        "TD3/lunar-lander",
+        "SAC/lunar-lander",
+        "SAC/pendulum",
+        "CrossQ/lunar-lander",
+        "TQC/lunar-lander",
+        "ARS/cartpole",
+        "ARS/mountain-car",
+        "ARS/lunar-lander",
+        "ARS/key-door-grid",
+        "HER/goal-reaching",
+        "connect4",
+        "othello",
+        "hex",
+        "gomoku"
+      ],
+      "context_only_row_ids": [
+        "hyperparameter-tuning"
+      ],
+      "reasoning": "The exact current225 subject has the same scientific rows, complete ordered55 contract metadata, and scientific limits as independently reviewed656. I independently compared current guest-export vectors and all subject fields, verified the actual617-file source frame, and inspected the entire helper delta. The only counted source changes are the Linux image-capability helper boundary and its rejection controls; worker numerical algorithms, training/evaluation recipes, data, splits, seeds, reference families, budgets, bars, and exclusions are unchanged. Strict paired authentic own-initial gain plus the complete fixed references can therefore still establish finite observed learning on these exact cases, cumulatively with every restriction reproduced below. Neither contract equality nor helper execution is a learning result. CPU oneDNN hardware/toolchain execution and actual producer/served qualification still require their own current evidence.",
+      "scientific_restrictions_ref": "#/scientific_restrictions",
+      "blocking_missing_facts_for_this_prospective_applicability_scope": [],
+      "execution_runtime_or_phase_obligations_closed_by_this_review": [],
+      "epoch_limit": "Only source225 and this exact unchanged finite allocation. No prospective run, later edit, retry-to-score, budget extension, pooled cohort, published-model parity, or population guarantee is admitted."
+    },
+    {
+      "source": {
+        "algorithm": 1,
+        "sha256": "225a927abb1458d1c76e8db134a783987023e0fbda4b9cc860d4abfeada9ec32",
+        "files": 617
+      },
+      "lane": "apple-silicon",
+      "scope": "supervised",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+      "subject": {
+        "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-criterion-review-a/apple-silicon-supervised-subject.json",
+        "bytes": 20542,
+        "sha256": "b88f44a8f0866220614cedcc419f4791bee3922729db1ccd85a66f5d13d69391"
+      },
+      "complete_ordered55_contract_set_sha256": "a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c",
+      "complete_ordered55_context_ref": {
+        "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-budget-a/export-work/export.stdout",
+        "bytes": 21726,
+        "sha256": "c66f27427da15d47af8453d388db4bae0cecd03c702256c8cbc9a33d97d2328f"
+      },
+      "scientific_row_count": 11,
+      "scientific_row_ids": [
+        "mnist-shallow-mlp",
+        "mnist-deep-mlp",
+        "mnist-lenet",
+        "fashion-mnist-mlp",
+        "fashion-mnist-resnet",
+        "cifar10-resnet20",
+        "cifar10-resnet56",
+        "cifar100-wide-resnet",
+        "cifar10-vit",
+        "tiny-imagenet-resnet50",
+        "california-housing-mlp"
+      ],
+      "context_only_row_ids": [
+        "hyperparameter-tuning"
+      ],
+      "reasoning": "The exact current225 subject has the same scientific rows, complete ordered55 contract metadata, and scientific limits as independently reviewed656. I independently compared current guest-export vectors and all subject fields, verified the actual617-file source frame, and inspected the entire helper delta. The only counted source changes are the Linux image-capability helper boundary and its rejection controls; worker numerical algorithms, training/evaluation recipes, data, splits, seeds, reference families, budgets, bars, and exclusions are unchanged. Strict paired authentic own-initial gain plus the complete fixed references can therefore still establish finite observed learning on these exact cases, cumulatively with every restriction reproduced below. Neither contract equality nor helper execution is a learning result. Real host Metal execution, native host CPU/heap/pressure supervision and actual producer/served qualification still require their own current evidence; Docker limits do not contain native Apple processes.",
+      "scientific_restrictions_ref": "#/scientific_restrictions",
+      "blocking_missing_facts_for_this_prospective_applicability_scope": [],
+      "execution_runtime_or_phase_obligations_closed_by_this_review": [],
+      "epoch_limit": "Only source225 and this exact unchanged finite allocation. No prospective run, later edit, retry-to-score, budget extension, pooled cohort, published-model parity, or population guarantee is admitted."
+    },
+    {
+      "source": {
+        "algorithm": 1,
+        "sha256": "225a927abb1458d1c76e8db134a783987023e0fbda4b9cc860d4abfeada9ec32",
+        "files": 617
+      },
+      "lane": "apple-silicon",
+      "scope": "native",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+      "subject": {
+        "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-criterion-review-a/apple-silicon-native-subject.json",
+        "bytes": 27784,
+        "sha256": "21e75f408546901c133f8e673a121da1f4647c61e65375bdf83f73f7adecb7dc"
+      },
+      "complete_ordered55_contract_set_sha256": "a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c",
+      "complete_ordered55_context_ref": {
+        "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-budget-a/export-work/export.stdout",
+        "bytes": 21726,
+        "sha256": "c66f27427da15d47af8453d388db4bae0cecd03c702256c8cbc9a33d97d2328f"
+      },
+      "scientific_row_count": 43,
+      "scientific_row_ids": [
+        "PPO/cartpole",
+        "PPO/mountain-car",
+        "PPO/acrobot",
+        "PPO/lunar-lander",
+        "PPO/key-door-grid",
+        "PPO/gridworld-deterministic",
+        "A2C/cartpole",
+        "A2C/mountain-car",
+        "A2C/lunar-lander",
+        "A2C/key-door-grid",
+        "TRPO/cartpole",
+        "TRPO/mountain-car",
+        "TRPO/lunar-lander",
+        "TRPO/key-door-grid",
+        "MaskablePPO/cartpole",
+        "MaskablePPO/mountain-car",
+        "MaskablePPO/lunar-lander",
+        "MaskablePPO/key-door-grid",
+        "RecurrentPPO/cartpole",
+        "RecurrentPPO/mountain-car",
+        "RecurrentPPO/lunar-lander",
+        "RecurrentPPO/key-door-grid",
+        "DQN/cartpole",
+        "DQN/mountain-car",
+        "DQN/key-door-grid",
+        "QR-DQN/cartpole",
+        "QR-DQN/mountain-car",
+        "QR-DQN/key-door-grid",
+        "DDPG/lunar-lander",
+        "TD3/lunar-lander",
+        "SAC/lunar-lander",
+        "SAC/pendulum",
+        "CrossQ/lunar-lander",
+        "TQC/lunar-lander",
+        "ARS/cartpole",
+        "ARS/mountain-car",
+        "ARS/lunar-lander",
+        "ARS/key-door-grid",
+        "HER/goal-reaching",
+        "connect4",
+        "othello",
+        "hex",
+        "gomoku"
+      ],
+      "context_only_row_ids": [
+        "hyperparameter-tuning"
+      ],
+      "reasoning": "The exact current225 subject has the same scientific rows, complete ordered55 contract metadata, and scientific limits as independently reviewed656. I independently compared current guest-export vectors and all subject fields, verified the actual617-file source frame, and inspected the entire helper delta. The only counted source changes are the Linux image-capability helper boundary and its rejection controls; worker numerical algorithms, training/evaluation recipes, data, splits, seeds, reference families, budgets, bars, and exclusions are unchanged. Strict paired authentic own-initial gain plus the complete fixed references can therefore still establish finite observed learning on these exact cases, cumulatively with every restriction reproduced below. Neither contract equality nor helper execution is a learning result. Real host Metal execution, native host CPU/heap/pressure supervision and actual producer/served qualification still require their own current evidence; Docker limits do not contain native Apple processes.",
+      "scientific_restrictions_ref": "#/scientific_restrictions",
+      "blocking_missing_facts_for_this_prospective_applicability_scope": [],
+      "execution_runtime_or_phase_obligations_closed_by_this_review": [],
+      "epoch_limit": "Only source225 and this exact unchanged finite allocation. No prospective run, later edit, retry-to-score, budget extension, pooled cohort, published-model parity, or population guarantee is admitted."
+    }
+  ],
+  "scientific_restrictions": {
+    "claim": "Prospective applicability of exact finite observed-learning criteria on pinned benchmark cases only. There is no present learning, convergence, qualification or scientific pass from this review.",
+    "allocation": "All original indices0..4 complete their unchanged finite allocation in original order and remain retained. Supervised canonical base+index and native42..46 stay fixed; original index0 is predetermined for serving. Missing, incomplete, duplicate, reordered, substituted, wrong-budget or nonfinite children fail. Finite failures remain. No seed replacement, pooling episodes as models, cherry-picking, selected retries, hidden attempts or budget/deadline extensions.",
+    "joint_and_served": "At least3 SAME original models each jointly satisfy strict own-effective-initial gain and every applicable reference predicate. Successes on different coordinates/models cannot be pooled. All-five statistics include every finite failure/below-floor member and pass every unchanged family quality bar. Served original index0 independently satisfies its own joint learning/reference, quality, budget, selected device, completion, exact full graph/search/head replay, Store and authenticated qualification/journal chain. Its own metric is not the cohort median.",
+    "classification": "Exact finalCorrect>initialCorrect and finalCorrect>=max(actual held-out largest class count+1, exact Binomial(n,1/C) upper-tail critical count at alpha1/5000). At n1000 the chance counts are136,24,16 for10,100,200 classes. Actual majority can strengthen them. All-five median and served0 historical floors additionally apply.",
+    "regression": "On the same retained finite binary64 targets/predictions, exact rational SSE_final<SSE_initial and SSE_final<SST, positive target variance and finite positive scale. The unchanged standardized-RMSE ceiling additionally applies at all-five median and independently served0; rounding/tolerance cannot create a strict improvement.",
+    "probability": "Only under prospective allocation and the stated all-five independent-uniform-per-example null: each event probability<=1/5000; E[N]<=5/5000 implies P[N>=3]<=1/3000 with no between-seed independence; at most30 fixed classification cohorts have union bound<=0.01. Uniform marginals alone are insufficient. This calculation is conditional, not automatic acquisition confidence. No mixed-null, arbitrary random-network, adaptive/repeated-attempt, regression, native-RL or population guarantee.",
+    "held_out_adaptivity": "Initial/final comparisons require the same pinned inputs, descriptors/transforms and authentic before-update snapshots. Held-out data are not automatically fresh after outcome-guided development. Reused outcomes and all attempts remain retained. Freezing this review does not erase selection/adaptivity bias or establish population generalization.",
+    "historical_bars": "Every original target/slack floor, ceiling and exclusion remains an exact additional restriction with its true provenance. Field names/positive slack do not turn project policy into a published-model anchor. Tiny binary64(0.64-0.632)=0.008000000000000007 was chosen after measured0.012 and retains that history. Other unproved/higher floors may still reject learning. No failed bar is waived, relabelled or rebaselined.",
+    "return": "The same20 canonical starts/horizon, complete prescribed reference controllers once in order and exact paired median arithmetic remain mandatory. Final strictly improves its authentic effective initial and beats EVERY reference. A reference tie is allowed only for supported KeyDoor when both actual reference and final equal the current complete-state/time legal-transition DP maximum; supplied/historical bounds, epsilons, above-bound observations and other RETURN ties fail.",
+    "her": "Same20 sampler-only goals at42+104729 and all46656 goal-blind six-step references. Each joint policy strictly improves BOTH success and exact normalized terminal distance from its effective initial and compares against both complete-family extrema. Reference equality only at actual reference/final20success or actual reference/final0distance, respectively. Strict initial gain, both quality bars, full-five medians and served0 remain.",
+    "arena": "All nine addressed row-owned tape cases at7961, actual player1/legal-uniform opponent and unchanged game-aware search/horizon/pass/draw rules. Exact score(2wins+draws)/18 strictly improves initial and separately beats both actual plain legal-uniform and neutral-prior zero-value MCTS controls. Reference equality only when actual reference and final are both exact1 from complete outcomes. Legal constraints, unchanged quality bars and0.5 exclusion remain; no selected subset or rounded equality.",
+    "ars_and_sac": "ARS remains honest host-Double linear search, binding the whole actually applied aggregate-step lineage; favorable perturbations or unrelated neural witnesses are insufficient. SAC/pendulum preparation including340000 warm Adam applications remains distinct and retained; scheduled-learning gain begins from authentic effective initialization after preparation.",
+    "tuning_context": "hyperparameter-tuning remains context only in every complete55: seed1729/trials128, unchanged contract and original full-lane admission obligations. No tuning learning result is endorsed and its explicitly absent original code source is not invented.",
+    "physical_boundary": "Mathematical raw comparisons, source/contract equality and parsed review DATA prove no actual producer. Before-dependent-work durable boundaries, original source/process/invocation, prelaunch review selection identity, complete attempts/reference/child retention, real selected hardware/toolchain, exact served Store bytes and full original qualification/journal/lane authentication remain separate obligations. CPU and Apple evidence cannot substitute for each other; later NVIDIA/three-lane admission remains separate."
+  },
+  "current_scientific_reasoning": {
+    "finite_interpretation": "I independently retain the finite interpretation after checking the concrete successor: authentic same-case strict own-initial gain and complete unchanged reference comparisons, joint success by at least three same originals, full-five bars and independently eligible predetermined served0 can support observed learning only on those finite cases. A helper-boundary fix changes no mathematical predicate and supplies no learning evidence.",
+    "unchanged_policy_source_pins": [
+      {
+        "path": "src/JitML/Product/SupervisedQualificationPolicy.hs",
+        "bytes": 14275,
+        "sha256": "50e89bd9078bfe25055bcf5e1be6ccf7e36c0ca1b69488eedf2904e944b70c9d"
+      },
+      {
+        "path": "src/JitML/Product/LearningSignal.hs",
+        "bytes": 7023,
+        "sha256": "f21727b739073aa3d0bc2118ee3b7818690cff57ec30bea01bb35df6ad5b2f31"
+      },
+      {
+        "path": "src/JitML/Product/NativeReturnLearningPolicy.hs",
+        "bytes": 15540,
+        "sha256": "f028b706b40387d29e3e43257d750e2b243dc6f70632ab1e4fba633714258274"
+      },
+      {
+        "path": "src/JitML/RL/NativeReturnCeiling.hs",
+        "bytes": 9774,
+        "sha256": "8e2784c126881767d74d40d3de3dcea6663232a8433f0c86e4a3be6b32fda5d6"
+      },
+      {
+        "path": "src/JitML/Product/NativeHerLearningPolicy.hs",
+        "bytes": 31241,
+        "sha256": "6f0c617b901bc2318a13b5a07efef4dd900f509bf57a693f360984fe28ba67df"
+      },
+      {
+        "path": "src/JitML/Product/NativeArenaLearningPolicy.hs",
+        "bytes": 28996,
+        "sha256": "af62169d3656d559deeaaed8d2c281a8a192cf9c6f781ee1610c3fc905eccb0d"
+      },
+      {
+        "path": "src/JitML/Product/NativeRlCohortPlan.hs",
+        "bytes": 36360,
+        "sha256": "95b39c4123e31642ec98dcf3721b1e652444565d6df879dfd0e3d7e55d36362a"
+      },
+      {
+        "path": "src/JitML/SL/ConvergenceThresholds.hs",
+        "bytes": 6145,
+        "sha256": "ca87a62ed2b1718595dcf5c7328f0cf261a148a791e6fc42ad37803cd1002ab6"
+      },
+      {
+        "path": "src/JitML/RL/ProductBudget.hs",
+        "bytes": 28073,
+        "sha256": "5d33151e8af6f8ec60b2a30bd44800b2d7e310bdfbd1e3839865eec543c3c145"
+      }
+    ],
+    "classification": "The exact integer-tail critical counts136/24/16 at n1000 and classes10/100/200 remain applicable with actual majority+1 and strict own-initial gain. Tiny three joint successes force full-five median>=0.016, and separately eligible served0>=0.016; this is stronger than the retained outcome-calibrated0.008000000000000007 floor, whose history remains unchanged.",
+    "regression": "Exact binary64-rational final SSE below both authentic initial SSE and the same-target constant-baseline SST supports strict finite improvement, with positive variance/scale and unchanged standardized-RMSE bars. It does not establish population accuracy.",
+    "conditional_probability": "Retain the explicitly prospective all-five independent-uniform-per-example null only: per-event<=1/5000, E[N]<=5/5000, Markov P[N>=3]<=1/3000 without between-seed independence, and union<=0.01 over at most30 preallocated classification cohorts. Uniform marginals, adaptive attempts, random networks, mixed nulls, regression and native RL do not inherit it. Current freezing cannot erase outcome-guided selection or make reused held-out data fresh.",
+    "native": "Retain complete20-case RETURN/reference pairing and exact median; complete46656 HER family and both success/distance predicates on the same20 goals; complete nine-case arena and both actual controls. Strict authentic effective-initial gain always remains. Equality is only at the narrowly supported exact current KeyDoor DP optimum, actual HER20success/zero distance or all-nine arena exact1; other RETURN ties, selected subsets, epsilons and pooled policies fail. ARS actual aggregate-step host provenance and SAC post-preparation effective initial remain binding.",
+    "tuning_and_physical": "Tuning seed1729/trials128 remains context only, without invented original source provenance or tuning-learning endorsement. The new current225 independent applicability decision does not create a before-run physical boundary, actual current image/device producer, real execution, exact served Store bytes or authenticated original qualification/journal/lane admission."
+  },
+  "bounded_execution_receipt_assessment": {
+    "component_compilation": {
+      "actual_exit": 0,
+      "source": {
+        "algorithm": 1,
+        "sha256": "225a927abb1458d1c76e8db134a783987023e0fbda4b9cc860d4abfeada9ec32",
+        "files": 617
+      },
+      "components": [
+        "test:jitml-backends",
+        "test:jitml-daemon-lifecycle",
+        "test:jitml-integration",
+        "test:jitml-negative-controls"
+      ],
+      "payload_wall_seconds": 227.80185615,
+      "library_CLI_authority_before_after_exact": true,
+      "library_or_CLI_rebuilt": false,
+      "file_frame_scope": "Payload records compiled_CLI_library_file_frame_unchanged=true. I separately compared actual authority-before/after JSON hashes/bytes; that JSON does not itself carry historical inode/mtime frames, so I do not independently reconstruct those past file frames.",
+      "memory_peak_bytes": 5652709376,
+      "scope": "Compilation only, no substrate runtime or test pass."
+    },
+    "physical_family": {
+      "actual_exit": 0,
+      "actual_test_exit": 0,
+      "passed": 13,
+      "tested_component": {
+        "path": "/jitml/dist-newstyle/build/aarch64-linux/ghc-9.12.4/jitml-0.1.0.0/t/jitml-negative-controls/build/jitml-negative-controls/jitml-negative-controls",
+        "bytes": 307105112,
+        "sha256": "9d70530d853eee8868dcb25c6a8c9d9f284dc13cd6c39a0d6243104b4633b7c6"
+      },
+      "scope": "Complete compiled GenericRL physical-proof family only, including resource/helper identity rejection; not full unit/negative-controls/daemon, actual Docker helper, numerical fit or scientific qualification."
+    },
+    "actual_resource_primitive": {
+      "actual_exit": 0,
+      "historical_image": "sha256:0c6dca2f7b8ca7cd10e9c4b4df8cde431772d39742acf4dbd525ffa3c098822c",
+      "source_of_factory_refiner": {
+        "algorithm": 1,
+        "sha256": "225a927abb1458d1c76e8db134a783987023e0fbda4b9cc860d4abfeada9ec32",
+        "files": 617
+      },
+      "caller_cgroup": {
+        "memory.max": "3221225472\n",
+        "memory.swap.max": "0\n",
+        "cpu.max": "50000 100000\n"
+      },
+      "helper_cid": "eb7ea1601a866f3f71bd378acfeead951dab8bc76ed9f5e807c21fce46073cdb",
+      "helper_name": "jm-generic-rl-image-proof-b0cba7b62bd3b93167e7a52f",
+      "created_and_prestart_caps_verified": true,
+      "actual_terminal_state": {
+        "Dead": false,
+        "Error": "",
+        "ExitCode": 0,
+        "FinishedAt": "2026-11-03T21:03:20.854204662Z",
+        "OOMKilled": false,
+        "Paused": false,
+        "Pid": 0,
+        "Restarting": false,
+        "Running": false,
+        "StartedAt": "2026-11-03T21:03:20.81475914Z",
+        "Status": "exited"
+      },
+      "exact_helper_removed": true,
+      "scope": "Actual225 factory/refiner and bounded parent/helper resource/isolation/start/cleanup primitive on retained656 cached image only. The helper source label225 is not evidence that the image contains225. No new225 immutable producer, cluster, numerical, convergence, lane or joint fit pass."
+    },
+    "preservation_and_stop": {
+      "structured_actual_exit": 0,
+      "source617_exact_recorded": true,
+      "native2237_lstat_exact_recorded": true,
+      "original_nodes_and_volumes_exact_recorded": true,
+      "pre_stop_active_CIDs": [],
+      "explicit_stop_actual_exit": 0,
+      "verified_VM": [
+        {
+          "name": "colima-jitml",
+          "status": "Stopped",
+          "cpus": 4,
+          "memory": 17179869184
+        }
+      ],
+      "assessment": "Structured metadata supports preservation for this bounded engineering step and separately stopped named VM. I corroborated current public source617 myself; native preservation is lstat metadata only, not body/hash/readback or original nine-role closure. Historical node exit137/OOMfalse remains as recorded, not relabeled a fresh application success."
+    },
+    "no_training_executed": true,
+    "retained_attempts": "Compile A/B pre-compiler refusals and primitive A/B before-helper failures remain literal. Successful C/scoped13/export are distinct engineering scopes and are not pooled into any training result. No successful numerical/scientific acquisition was rerun by this reviewer."
+  },
+  "open_obligations_and_nonclaims": [
+    "No code blocker or missing scientific fact prevents these four exact prospective source225 applicability decisions. This acceptance authorizes no runtime launch.",
+    "Build/cache/adopt and physically verify a canonical225 image and current source-bound test executable before live work; the656 resource primitive and unchanged CLI bytes alone do not fulfill225 producer proof.",
+    "Before any live focused role, explicitly start the named jitml VM after fresh reserves; select mac16 and the lifecycle caller override; bind stable actual caller/owner/helper identities and original nodes/volumes; verify actual helper caps and seriality; admit the exact new Job/Pod through UID ownership, actual requests/limits and real lane hardware.",
+    "Concrete current-source host/client/node/numerical-Pod observation must meet common5s deadlines, stale-observer/pressure/identity fail-closed retirement, exact helper inventory and normal terminal joins. Historical toy E10/10 and one-shell primitive do not admit live training.",
+    "First focused live measurement may report enforced caps, successful exact owned workload, sampled telemetry/cutoffs and fresh hierarchical node OOM deltas. Existing node memory.peak already at prior cap cannot establish fresh numerical high-water or margin; missing final Pod counters cannot be invented or repaired by cache subtraction. Full-lifetime Pod peaks need authentic durable capture before teardown if claimed.",
+    "Standing full gates, current canonical image/producer and live readiness, current original-data readback, simultaneous platform/node/numerical/client measured fit, fixed RL placement then unchanged convergence, daemon closings and current225 original qualification remain separate.",
+    "Current CPU55 and real hostMetal Apple55 require unchanged complete original indices0..4/all-five/served0, all attempts/reference families, original prelaunch source/process/review/invocation, exact served Store graph/search/head bytes and authenticated qualification/journal/lane admission. No hardware/evidence substitution across lanes.",
+    "SourceJ actual daemon OOM failures137/two failed tests and four original closing rolesNotRun retain their exact original scopes. Source490 bootstrap1/readbackNotRun, first656 prelaunchNotRun and failed owner B/D attempts remain literal. Later current656 engineering/bootstrap/preservation and isolated E10/10 successes close only their actual declared scopes.",
+    "No pooling or partial-row splicing, score retries, budget/deadline extensions, criterion weakening, hidden attempts or relabeling historical reviews/results. Native Metal host processes still need separate CPU/heap/pressure supervision.",
+    "No published-model parity, population generalization, automatic statistical confidence, tuning learning, CUDA/NVIDIA runtime, three-lane aggregate, production registration/admission, or Phase278 closure is created."
+  ],
+  "evidence_refs": {
+    "source_freeze": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-budget-a/candidate-source.json",
+      "bytes": 112939,
+      "sha256": "541b9c0d568ced9264116399423a300e8e44fe6a7b480217fd95dee813460d49"
+    },
+    "exact_source_and_resource_policy_delta": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-criterion-review-a/delta-from-656.diff",
+      "bytes": 15759,
+      "sha256": "7d69d7f00e8796854111389b93a589ac769abf4ea6c5447cfe851cc115caa950"
+    },
+    "unit_policy_delta": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-criterion-review-a/unit-policy-clarification.diff",
+      "bytes": 1275,
+      "sha256": "8f95fb2ea98b0f9968c83967e6c28580238f5771e075b27da61d6a575f9e4f88"
+    },
+    "linux-cpu-supervised-subject": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-criterion-review-a/linux-cpu-supervised-subject.json",
+      "bytes": 20538,
+      "sha256": "323bae2ecefbaab77254ea1dfae31809e4c67e7d79e7d03cec686769ece7493b"
+    },
+    "linux-cpu-native-subject": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-criterion-review-a/linux-cpu-native-subject.json",
+      "bytes": 27780,
+      "sha256": "40b2efe2977ef2cbeceb40f54c4294294c9ba0b04c9c565ce9a7c8bed0f980a6"
+    },
+    "apple-silicon-supervised-subject": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-criterion-review-a/apple-silicon-supervised-subject.json",
+      "bytes": 20542,
+      "sha256": "b88f44a8f0866220614cedcc419f4791bee3922729db1ccd85a66f5d13d69391"
+    },
+    "apple-silicon-native-subject": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-criterion-review-a/apple-silicon-native-subject.json",
+      "bytes": 27784,
+      "sha256": "21e75f408546901c133f8e673a121da1f4647c61e65375bdf83f73f7adecb7dc"
+    },
+    "actual_export": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-budget-a/export-work/export.stdout",
+      "bytes": 21726,
+      "sha256": "c66f27427da15d47af8453d388db4bae0cecd03c702256c8cbc9a33d97d2328f"
+    },
+    "contract_invariance": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-budget-a/export-work/result.json",
+      "bytes": 1256,
+      "sha256": "68d4765583f9498945a8dbeee3975ef0f0db66868cf3b798ccf67fd89e47d165"
+    },
+    "actual_component_compilation": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-budget-a/components-work-c/payload-result.json",
+      "bytes": 5178,
+      "sha256": "928d278d242acb969a9cfbac5aadfa0b12648c432bcfd56417d16aeeca9185e4"
+    },
+    "actual_scoped13_controls": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-budget-a/scoped-work/result.json",
+      "bytes": 3733,
+      "sha256": "5fc447a2feb772651ae35918680ca66bd8fbde63384eebbb3c5f57a8e9d60030"
+    },
+    "actual_Docker_resource_primitive": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-budget-a/primitive-work-c/result.json",
+      "bytes": 4267,
+      "sha256": "ce623f22bdb3374e80b96b160f33a064e25def31852972af742882ca36420e00"
+    },
+    "actual_post_preservation_VM_stop": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-budget-a/post-and-VM-stop.json",
+      "bytes": 8279,
+      "sha256": "146f76a3318f0e69376bda2b3e6c0a21206d75c51caf8359d0511bf4d84b711f"
+    },
+    "style": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-budget-a/style-a/result.json",
+      "bytes": 3605,
+      "sha256": "4dcca98dac0020398c2ef0e9c32ab50452fc6265db32dbb34d67282ce9de57a4"
+    },
+    "prior_656_criterion_packet": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-resource-helm-criterion-review-a/review-request.json",
+      "bytes": 6102,
+      "sha256": "df16acbce626b773db1701de5e61f6b00a6df50bd335b297d440164d836d55bc"
+    },
+    "historical_isolated_owner10": {
+      "path": "/Users/matthewnowak/jitML/.build/cpu55-role-owner-calibration-current656-e/accepted-actual-review-bindings.json",
+      "bytes": 1524,
+      "sha256": "d715496d5e337681829854b8816d3a10ddf238fc5acedb4ef7f4108afe04c05d"
+    },
+    "current_primitive_code": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-budget-a/HelperBudgetProbeC.hs",
+      "bytes": 3620,
+      "sha256": "7824795db8651eec73ce656a8ad41757817ebf181adb8fc4f1df478790bdc508"
+    },
+    "request": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-criterion-review-a/review-request.json",
+      "bytes": 7414,
+      "sha256": "c769048ad0aab16c9b225ac6f5afc1571d0fb8fd80dcc22f479693b352da30b0"
+    },
+    "own_historical656_judgment": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-resource-helm-criterion-review-a/reviewer-a/independent-four-scope-judgment-a.json",
+      "bytes": 104505,
+      "sha256": "fdfb5f66c359401d769ef68b816b910416f9e56df0dd90e068c662eaa6803930"
+    }
+  },
+  "prior_reasoning_reference": {
+    "path": "/Users/matthewnowak/jitML/.build/phase278-resource-helm-criterion-review-a/reviewer-a/independent-four-scope-judgment-a.json",
+    "bytes": 104505,
+    "sha256": "fdfb5f66c359401d769ef68b816b910416f9e56df0dd90e068c662eaa6803930"
+  },
+  "primary_external_sources_previously_read_for_unchanged_reasoning": [
+    {
+      "url": "https://www.itl.nist.gov/div898/handbook/eda/section3/eda366i.htm",
+      "support": "Fixed-p binomial PMF/CDF. Exact critical counts and conditional finite-family inequalities are my deductions, not a claim that actual trained models satisfy that null."
+    },
+    {
+      "url": "https://scikit-learn.org/stable/modules/generated/sklearn.metrics.r2_score.html",
+      "support": "The nonconstant-target best-constant baseline has R2=0; constant-target R2 is degenerate. Project exact rational SSE checks were inspected directly."
+    },
+    {
+      "url": "https://www.jmlr.org/papers/v11/cawley10a.html",
+      "support": "Finite-sample criterion/model-selection adaptivity can bias evaluation. This supports preserving the caveat and does not quantify project bias."
+    }
+  ]
+}

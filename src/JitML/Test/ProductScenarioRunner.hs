@@ -20,6 +20,7 @@ module JitML.Test.ProductScenarioRunner
   ( ProductScenarioRunError (..)
   , productScenarioWorkflowTimeoutMicros
   , renderProductScenarioRunError
+  , renderNativeParentExecutionRefusal
   , runProductScenario
   )
 where
@@ -36,12 +37,14 @@ import System.FilePath ((</>))
 
 import Data.ByteString.Lazy qualified as LBS
 import JitML.Checkpoint.Format qualified as Checkpoint
+import JitML.Checkpoint.NativePhase.Failure qualified as NativeFailure
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Env.Build qualified as Env
 import JitML.Plan.Plan (RunKind, Validation (..), planIdText)
 import JitML.Product.CriterionReview qualified as Review
 import JitML.Product.CriterionReviewData qualified as ReviewData
 import JitML.Product.Matrix qualified as ProductMatrix
+import JitML.Product.NativeParentEvaluationReplay qualified as NativeEvaluation
 import JitML.Product.NativeParentExecution qualified as NativeParent
 import JitML.Product.NativeRlCohortPlan qualified as NativeCohort
 import JitML.Product.Publisher.SourceAuthority
@@ -705,14 +708,10 @@ executeQualificationBoundCommand sourceRoot supervisedRef nativeRef workdir proj
           actual <-
             runReaderT (NativeParent.executeNativeParentCohortForReview expectedContracts batch request) env
           case actual of
-            Left failure ->
-              let report = NativeParent.nativeParentExecutionFailureReport failure
-               in pure
-                    ( Left
-                        ( SEConflict
-                            ("actual native parent refused at " <> Text.pack (show (NativeParent.parentExecutionStage report)))
-                        )
-                    )
+            Left failure -> do
+              reason <-
+                renderNativeParentExecutionRefusal (NativeParent.nativeParentExecutionFailureReport failure)
+              pure (Left (SEConflict reason))
             Right completed -> do
               let certificate = NativeParent.nativeParentExecutedCertificate completed
                   spawn = NativeParent.nativeParentCertificateSpawn certificate
@@ -725,6 +724,39 @@ executeQualificationBoundCommand sourceRoot supervisedRef nativeRef workdir proj
                 (Right (Report.renderProductScenarioExecutionAcknowledgement proof (renderSubprocess actualCommand)))
   | otherwise =
       executeLegacyQualificationBoundCommand sourceRoot supervisedRef workdir projection proof command
+
+-- | Preserve the finer actual replay stage and bounded captured refusal text.
+-- This reads no report payloads/references and changes no failure classification.
+renderNativeParentExecutionRefusal :: NativeParent.NativeParentExecutionReport -> IO Text
+renderNativeParentExecutionRefusal report = do
+  detail <- selectDetail (evaluationDetails <> parentDetails)
+  pure (prefix <> evaluationStage <> maybe "" (": " <>) detail)
+ where
+  prefix = "actual native parent refused at " <> Text.pack (show (NativeParent.parentExecutionStage report))
+  evaluation = NativeParent.parentExecutionEvaluation report
+  evaluationStage = case evaluation of
+    Nothing -> ""
+    Just actual -> "; evaluation " <> Text.pack (show (NativeEvaluation.parentEvaluationStage actual))
+  evaluationDetails = case evaluation of
+    Nothing -> []
+    Just actual ->
+      diagnosticDetails (NativeEvaluation.parentEvaluationDiagnostic actual)
+        <> refusalDetails (NativeEvaluation.parentEvaluationRefusal actual)
+  parentDetails =
+    diagnosticDetails (NativeParent.parentExecutionDiagnostic report)
+      <> refusalDetails (NativeParent.parentExecutionRefusal report)
+  diagnosticDetails Nothing = []
+  diagnosticDetails (Just diagnostic) = [captureOriginal diagnostic]
+  refusalDetails Nothing = []
+  refusalDetails (Just reason) = [NativeFailure.captureNativeDiagnostic reason]
+  captureOriginal (NativeFailure.CompleteNativeDiagnostic text) = NativeFailure.captureNativeDiagnostic text
+  captureOriginal other = pure other
+  selectDetail [] = pure Nothing
+  selectDetail (capture : rest) = do
+    captured <- capture
+    case captured of
+      NativeFailure.CompleteNativeDiagnostic text -> pure (Just text)
+      _ -> selectDetail rest
 
 nativeProjection :: ProductMatrix.ProductProjection kind -> Bool
 nativeProjection projection =

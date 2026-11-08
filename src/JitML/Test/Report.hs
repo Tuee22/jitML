@@ -184,6 +184,7 @@ import JitML.Product.SourceDigest qualified as Source
 import JitML.Product.SupervisedCohortPlan qualified as Cohort
 import JitML.Product.SupervisedQualificationReceipt qualified as QualificationReceipt
 import JitML.SL.Architecture (ArchitectureFeature)
+import JitML.SL.Regression qualified as Regression
 import JitML.SL.RuntimeArtifact qualified as RuntimeArtifact
 import JitML.Sub.Outcome
   ( ObservedProcessFailure (..)
@@ -2253,19 +2254,33 @@ productScenarioReportContract projection =
 
 productScenarioReportContractDigest :: ProductScenarioReportContract -> Text
 productScenarioReportContractDigest contract =
-  sha256Text
-    ( "jitml-product-scenario-report-contract-v1\NUL"
-        <> Text.pack (show contract)
-        <> if productContractMetricName contract `elem` ["test_accuracy", "rmse"]
-          then "\NUL" <> LearningSignal.learningSignalPolicyContract
-          else
-            if productContractMetricName contract
-              `elem` ["median_final_reward", "goal_success_rate", "arena_win_rate"]
-              then "\NUL" <> nativeQualificationPolicyContract
-              else ""
-    )
+  if productContractMetricName contract == "rmse"
+    then
+      sha256Text
+        ( "jitml-product-scenario-report-contract-regression-training-order-v1\NUL"
+            <> legacyDigest
+            <> "\NUL"
+            <> Regression.regressionTrainingOrderContract
+        )
+    else legacyDigest
+ where
+  -- Retain the complete prior criterion/report descriptor, including its
+  -- learning-signal policy. Only regression adds the versioned order recipe;
+  -- classification, native and tuning report-contract bytes remain unchanged.
+  legacyDigest =
+    sha256Text
+      ( "jitml-product-scenario-report-contract-v1\NUL"
+          <> Text.pack (show contract)
+          <> if productContractMetricName contract `elem` ["test_accuracy", "rmse"]
+            then "\NUL" <> LearningSignal.learningSignalPolicyContract
+            else
+              if productContractMetricName contract
+                `elem` ["median_final_reward", "goal_success_rate", "arena_win_rate"]
+                then "\NUL" <> nativeQualificationPolicyContract
+                else ""
+      )
 
--- Native-only contract suffix: all SL/tuning contract bytes stay unchanged.
+-- Native-specific contract suffix, separate from regression's order recipe.
 -- This is a versioned obligation description, never a declaration of success.
 nativeQualificationPolicyContract :: Text
 nativeQualificationPolicyContract =

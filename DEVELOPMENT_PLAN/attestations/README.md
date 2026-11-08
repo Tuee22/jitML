@@ -42,7 +42,10 @@ The consumers are implemented in
 [`QualificationObjects.hs`](../../src/JitML/Product/QualificationObjects.hs).
 Structured validation records retain the fields required by their evidence
 contract, including failure details; they are deliberate admission records, not
-a copy of every diagnostic run.
+a copy of every diagnostic run. Complete stdout/stderr embedded in a failed
+`jitml-validation-record` remain versioned with that record and their verified
+digests. The local-only rule applies to loose raw logs and compiled payloads;
+it does not authorize deleting required failure streams or the failed record.
 
 The current selected criterion source is `75aad7e7…`. Its four CPU/Apple scope
 selections require **56** files: **4** selectors, **4** receipts and **48** exact

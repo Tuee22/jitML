@@ -14,10 +14,12 @@ module JitML.SL.Regression
   , fitRegressionStandardization
   , inverseRegressionTarget
   , parseCaliforniaHousingData
+  , regressionEpochPermutation
   , regressionFeatureMeans
   , regressionFeatureScales
   , regressionTargetMean
   , regressionTargetScale
+  , regressionTrainingOrderContract
   , standardizeRegressionExamples
   , trainRegressorWithDevice
   , predictRegressorWithDevice
@@ -29,6 +31,7 @@ import Control.Monad (foldM, when)
 import Data.ByteString (ByteString)
 import Data.Either (fromRight)
 import Data.Foldable (traverse_)
+import Data.List qualified as List
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 import Data.Vector.Unboxed (Vector)
@@ -36,6 +39,7 @@ import Data.Vector.Unboxed qualified as VU
 import Data.Word (Word64)
 import Text.Read qualified
 
+import JitML.Engines.Rng qualified as Rng
 import JitML.Numerics.Mlp
   ( AdamConfig (..)
   , MlpGradient (..)
@@ -331,6 +335,42 @@ requireFinite label value
   | isNaN value || isInfinite value = Left (label <> " must be finite")
   | otherwise = Right ()
 
+-- | The complete versioned ordering recipe bound into regression plans and
+-- report contracts.  Its shuffle stream is separate from initialization;
+-- fitting the standardizer and evaluation retain their original row order.
+regressionTrainingOrderContract :: Text.Text
+regressionTrainingOrderContract =
+  "generic-regression-training-order-v1:splitmix64-domain-reg-ord1;epoch1-based;original-training-list;sort-key-original-index;whole-example;fixed-heldout"
+    <> ";shuffle-root=deriveSplitMixSeed(SplitMixSeed(fromIntegral(execution-seed)),0x7265672d6f726431)"
+    <> ";epoch-seed=deriveSplitMixSeed(shuffle-root,fromIntegral(one-based-epoch))"
+    <> ";keys=splitMixWords(length(original-standardized-training-partition),epoch-seed)"
+    <> ";ordering=ascending(key,zero-based-original-index)"
+    <> ";epoch-input=original-standardized-training-partition"
+    <> ";membership=every-original-training-example-once-per-epoch"
+    <> ";record=whole-regression-example;heldout=excluded-fixed-membership-and-order"
+
+-- | Permute the original fitted training partition for one one-based epoch.
+-- Sorting the fixed-width keys with original indices preserves every whole
+-- example exactly once, including a deterministic tie rule.  Callers supply
+-- the original partition each epoch, never the preceding epoch's permutation.
+-- No initializer or evaluation state participates in this separate stream.
+regressionEpochPermutation :: Int -> Int -> [RegressionExample] -> [RegressionExample]
+regressionEpochPermutation seed epoch dataset =
+  selectExample
+    <$> List.sortOn
+      (\(word, originalIndex, _example) -> (word, originalIndex))
+      (zip3 permutationKeys [0 :: Int ..] dataset)
+ where
+  shuffleRoot =
+    Rng.deriveSplitMixSeed
+      (Rng.SplitMixSeed (fromIntegral seed))
+      0x7265672d6f726431
+  permutationKeys =
+    Rng.splitMixWords
+      (length dataset)
+      (Rng.deriveSplitMixSeed shuffleRoot (fromIntegral epoch))
+  selectExample (_, _, example) = example
+
 trainRegressorWithDevice
   :: MlpDevice
   -> RegressionConfig
@@ -387,17 +427,20 @@ trainRegressorWithDevice device config dataset
                                       , nextUpdatesExecuted
                                       )
                                   )
-          stepEpoch state =
+          stepEpoch epoch state =
             foldM
               ( \acc batch -> case acc of
                   Left err -> pure (Left err)
                   Right current -> stepBatch current batch
               )
               (Right state)
-              (nonEmptyChunks (regBatchSize config) dataset)
-          runEpoch acc _epoch = case acc of
+              ( nonEmptyChunks
+                  (regBatchSize config)
+                  (regressionEpochPermutation (regSeed config) epoch dataset)
+              )
+          runEpoch acc epoch = case acc of
             Left err -> pure (Left err)
-            Right state -> stepEpoch state
+            Right state -> stepEpoch epoch state
       trainedE <- foldM runEpoch (Right (params0, adam0, 0)) [1 .. regEpochs config]
       case trainedE of
         Left err -> pure (Left err)

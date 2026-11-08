@@ -1488,12 +1488,13 @@ coordinatorDaemonWorkloadDispatcherForRuntime
 coordinatorDaemonWorkloadDispatcherForRuntime runtime =
   daemonWorkloadDispatcherForRuntime runtime coordinatorDispatcher
  where
+  numericalResources = BootConfig.bootNumericalWorkload (ServiceRuntime.daemonBootConfig runtime)
   coordinatorDispatcher =
     case BootConfig.bootSubstrate
       (ServiceRuntime.daemonBootConfig runtime) of
-      AppleSilicon -> ServiceRuntime.daemonWorkloadDispatcherForwardingInference
-      LinuxCPU -> ServiceRuntime.daemonWorkloadDispatcher
-      LinuxCUDA -> ServiceRuntime.daemonWorkloadDispatcher
+      AppleSilicon -> ServiceRuntime.daemonWorkloadDispatcherForwardingInference numericalResources
+      LinuxCPU -> ServiceRuntime.daemonWorkloadDispatcher numericalResources
+      LinuxCUDA -> ServiceRuntime.daemonWorkloadDispatcher numericalResources
 
 engineDaemonWorkloadDispatcherForRuntime
   :: ServiceCommandRuntime

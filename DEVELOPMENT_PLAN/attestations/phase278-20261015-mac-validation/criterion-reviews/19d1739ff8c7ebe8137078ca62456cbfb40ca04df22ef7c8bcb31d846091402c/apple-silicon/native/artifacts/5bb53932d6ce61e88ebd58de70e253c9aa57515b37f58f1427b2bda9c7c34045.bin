@@ -1,0 +1,2601 @@
+{
+  "format": "jitml-source-j-independent-four-scope-prospective-criterion-judgment-v1",
+  "reviewer": "/root/criterion_j_review_a",
+  "authored_at_utc": "2026-11-02T18:37:44.890142+00:00",
+  "source": {
+    "algorithm": 1,
+    "sha256": "19d1739ff8c7ebe8137078ca62456cbfb40ca04df22ef7c8bcb31d846091402c",
+    "files": 617
+  },
+  "decision": "ACCEPT_FOUR_PROSPECTIVE_FINITE_CRITERION_SCOPES_ONLY",
+  "decision_basis": "Fresh source-J examination of the actual compound acceptance predicates, current scientific declarations and independently checked current-library-linked actual110 export. My scientific judgment does not follow from hash invariance or any historical final review.",
+  "independence_and_method": {
+    "source_authorship_for_this_review": "None. Reviewer A made no source edits and ran no project build/runtime/training.",
+    "read_scope": "Current governed rules/docs and selected scientific/registration/criterion source;617 freeze-listed source files hashed twice; retained compile/export/build records; historical primary-anchor/material-reference content; no trained-model, journal or key reads.",
+    "historical_judgment_handling": "Prior9b/H-c final-manifest was read for schema only, and retained artifact prefixes for classification. No prior final judgment reasoning was copied, relabelled or adopted. Historical explanatory material is labelled and cannot close current execution obligations.",
+    "actual_export_binding": {
+      "format": "jitml-source-j-reviewer-a-actual-export-binding-v1",
+      "source": {
+        "algorithm": 1,
+        "sha256": "19d1739ff8c7ebe8137078ca62456cbfb40ca04df22ef7c8bcb31d846091402c"
+      },
+      "actual_export": {
+        "path": ".build/phase278-stateful-pv-fix-20261101-a/evidence-helper-sourcej-compile-export-prep-a/output-a/helper.stdout",
+        "bytes": 21726,
+        "sha256": "72af6089518d4fc071120780e55dfacf0eff317d253148572ddd7e27410a9a57"
+      },
+      "actual_compile_export_result": {
+        "path": ".build/phase278-stateful-pv-fix-20261101-a/evidence-helper-sourcej-compile-export-prep-a/result-a.json",
+        "bytes": 1598,
+        "sha256": "0bd158e9063df3718d6658d8268f1e4b4c68b6589a4a2cdbf547238d26c59d84"
+      },
+      "actual_compile_export_payload": {
+        "path": ".build/phase278-stateful-pv-fix-20261101-a/evidence-helper-sourcej-compile-export-prep-a/output-a/payload-result.json",
+        "bytes": 255345,
+        "sha256": "5ef18bc2f852e29c8c8d303cdf8c234df082f7eca21d403e881519c678db69d3"
+      },
+      "prior_actual_incremental_build_payload": {
+        "path": ".build/phase278-stateful-pv-fix-20261101-a/supervised-packed-validation-prep-a/build-output-a/payload-result.json",
+        "bytes": 271290,
+        "sha256": "6c4dc4b7120002c39ffdb5c87e152412fb70f63340e63f12e6789523ddac4c2e"
+      },
+      "compile_export_actual_exit": 0,
+      "compiled_home_modules": [
+        "Main"
+      ],
+      "linked_library": {
+        "bytes": 279076146,
+        "sha256": "06a7a0bc3000a74e272d4bba80969fb2afbec835ed7b0f5912abc0f4e240b683"
+      },
+      "current_cli": {
+        "bytes": 237973704,
+        "sha256": "342aa335e3bdd10f0da599aa30b615dc64f7d33f3bad6e5c15236b7fa4ad4ce4"
+      },
+      "helper_binary": {
+        "bytes": 206282648,
+        "sha256": "a80aeec12321c3fbec0815dd62d35e54f19d815e390f3e106efb9e72a348d335",
+        "elf64_le_aarch64": true
+      },
+      "before_after_authority_equal": true,
+      "linked_library_matches_prior_current_source_J_build": true,
+      "cli_matches_prior_current_source_J_build": true,
+      "frozen_source_rows_rechecked": 617,
+      "source_mismatches": [],
+      "export_contract_vector_checks": [
+        {
+          "lane": "linux-cpu",
+          "ordered55": true,
+          "all_unique": true,
+          "matches_own_source_derived_scientific_row_order": true,
+          "independently_recomputed_contract_set_sha256": "8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7"
+        },
+        {
+          "lane": "apple-silicon",
+          "ordered55": true,
+          "all_unique": true,
+          "matches_own_source_derived_scientific_row_order": true,
+          "independently_recomputed_contract_set_sha256": "a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c"
+        }
+      ],
+      "inference_limit": "The actual current library-linked helper supplies ordinary contract DATA. This file independently checks retained artifact bytes, linkage metadata and ordered digests. It is not a hardware or training invocation by this reviewer; inherited cuda build flags do not prove any CUDA runtime lane.",
+      "retained_operation_scope": {
+        "manifest_materialized": false,
+        "criterion_capture_performed": false,
+        "science_or_qualification_claim": false,
+        "full_test_stanza_pass": false,
+        "library_rebuilt": false
+      }
+    },
+    "source_enumeration_method": "All617 source-freeze listed files independently matched exact bytes/SHA256 before and after scientific analysis. The current actual export supplied algorithm1 source SHA and both complete ordered vectors.",
+    "scientific_arithmetic": "Fresh integer math.comb tails for n1000 and exact logical analysis of current compound predicates; not evaluation of a trained model and not repo runtime execution.",
+    "source_stamp_limit": "A source stamp alone cannot authenticate a linked library. The retained actual compile record links jitml-0.1.0.0-inplace via explicit package DBs, hide-all-packages and empty home module search path; only Main is compiled. Archive/CLI metadata agree with the prior actual current-J incremental build and remain equal before/after. This is a provenance assessment of retained records, not an independent rerun."
+  },
+  "ordered55_contexts": {
+    "linux-cpu": [
+      {
+        "contract_sha256": "2b0f0c9427a2b82db3bec2d4e9be83d78c6cef29710b1b806543e8f338666d89",
+        "plan_id": "8d0e685d27f8718a09aca8d9cde10246d8b46b300107a21c780a567482c1c3d2",
+        "row_id": "mnist-shallow-mlp"
+      },
+      {
+        "contract_sha256": "0da5bb7256b5ecd738abdc81c0384d7403525c0a58efcc2e9f1f3dd2b7fc468d",
+        "plan_id": "7d6c88b9b487aceff26c06d1524ed2ed43acd17e6f8087941ff22dd39228bce0",
+        "row_id": "mnist-deep-mlp"
+      },
+      {
+        "contract_sha256": "c2e2393f77655c574ce79fadbd2701e94ca9063673bdbc365f0d4ea35f8683f6",
+        "plan_id": "cd822dc8fb4f572bd3afd7eb59db68cb8d855c845dcd790ed3752b2201b532d2",
+        "row_id": "mnist-lenet"
+      },
+      {
+        "contract_sha256": "7ddf1b2330614ad06aa785b7f853eef3cd42b3bcbd03d1b70e6b62d914484712",
+        "plan_id": "d9c4e4436dc9428d80a5460f51bc1f0edbf0720e8c0c615610aa138d9e0f9aad",
+        "row_id": "fashion-mnist-mlp"
+      },
+      {
+        "contract_sha256": "8afd7429805deec69ceb715b3e6f2dfb37b1161c5d7e6a9d419bcbe0f029c232",
+        "plan_id": "642dcb131084debf6bccbdd8672317a05944cfc60e132cd7008e91f082e2d011",
+        "row_id": "fashion-mnist-resnet"
+      },
+      {
+        "contract_sha256": "e62fd1e34a8a68f8c5b4d03a74230a007f6b97a0d2d2711e6fc13cdc7ed21be3",
+        "plan_id": "65c19dd44a4aca73e7edc5f3e02b8024384405f510b1eaf16b7db551dbbb7bf3",
+        "row_id": "cifar10-resnet20"
+      },
+      {
+        "contract_sha256": "4b84439cd31efbde505121d6743a17ed003a57a1be868bd8b59dbc5e68629372",
+        "plan_id": "89c824f4e59f96e5ab6f6f34f087be13cca712663149775ecf98a313666f1648",
+        "row_id": "cifar10-resnet56"
+      },
+      {
+        "contract_sha256": "3806772a5b8cf0976ab378bb16f0b42993d8a5b60530eb2fc8b6e4c7984779b5",
+        "plan_id": "13d288a249d79d2f92974df7d0b81d9a446b2be84201a9c0e38b325bc2638e7d",
+        "row_id": "cifar100-wide-resnet"
+      },
+      {
+        "contract_sha256": "db708282e304e2d8d20dfa662d13792a7c2ce762fbb6bf56e435ab45ce8dfe82",
+        "plan_id": "1528574480a5d949aab8e19a29dbe8d94f5161241a3559c07ac298b78fef2268",
+        "row_id": "cifar10-vit"
+      },
+      {
+        "contract_sha256": "a1683cceb3306f925a2797fc1fa5dc7ba809a0c7c89a09cc705996014cb5e226",
+        "plan_id": "1bf17525109200326669ce753b27f664ab44094195d7615892813e8a28929468",
+        "row_id": "tiny-imagenet-resnet50"
+      },
+      {
+        "contract_sha256": "13c8781db2d45a7f2dc1afec9d0b7bbc0cdc82d2c04ecf880188f90073f29f94",
+        "plan_id": "3bdc28adc596427a05779634500773b93913ce18d35819b86f66bb04995d72d2",
+        "row_id": "california-housing-mlp"
+      },
+      {
+        "contract_sha256": "97d97b5a9115dc44c57543d7fd8552ead3ffd4407e2c7b5cfaaacf26ff29179e",
+        "plan_id": "4738f6852ded47b1d60c0f25934bace5cb7bfe14a71726815912ae88ca5482fd",
+        "row_id": "PPO/cartpole"
+      },
+      {
+        "contract_sha256": "4f128168a4ba25e1f647b995df7b503e59681da84868543cd76e07152cf7fe18",
+        "plan_id": "b560836fd2dbe374e8e7aaa898b51bdb2096ac93e30feb690bcac1d12f97bbbd",
+        "row_id": "PPO/mountain-car"
+      },
+      {
+        "contract_sha256": "a8290e19575cf6ffe5b3acb668c2a54a9e6762f7ea7fc255170129b917382678",
+        "plan_id": "1d2b533d9eb63b3223d1b65d11252fc8e450d617cf26c5bac7d228e5ee9e2ece",
+        "row_id": "PPO/acrobot"
+      },
+      {
+        "contract_sha256": "9cf6d8de8ae265ec9051352b0ee431b137e82cc2a82b902e7ef9c770f2d4defa",
+        "plan_id": "30e6fef48517b3aad55bd78fc9a2d11a91fea9baf3df122bbb4e778e0daa7045",
+        "row_id": "PPO/lunar-lander"
+      },
+      {
+        "contract_sha256": "cb42a67176df531e55104b7020518f4711c83b9f312755b5d7468d22042e2889",
+        "plan_id": "3242bd966467db4950d9af908ca334071e692e8a13f57edacdea0d7a53f83573",
+        "row_id": "PPO/key-door-grid"
+      },
+      {
+        "contract_sha256": "c8f003ba579ee3ef22734824e601f6b9967e662c21cf8223a714a5a75516e524",
+        "plan_id": "875597507848f0ff7aeb8860f1e8dc0e87cd9d78f42cc7cfe1998b369873d4e7",
+        "row_id": "PPO/gridworld-deterministic"
+      },
+      {
+        "contract_sha256": "52d29a3ace1c218f7757e07452f58d627fa76b1aa70145f6f1cff415e617115e",
+        "plan_id": "2c9d43cc1b30281c86d0aa42a47795a0bd5e238d1f4658373271e298a8036d79",
+        "row_id": "A2C/cartpole"
+      },
+      {
+        "contract_sha256": "cca1477d56c18c29098afc210c721dd3994a967f55060b9dc8dc214d2a04fc16",
+        "plan_id": "0f50baac23160462ad65a037188c5c5fda1e11dd8a657449e4ac0a3ad35105f2",
+        "row_id": "A2C/mountain-car"
+      },
+      {
+        "contract_sha256": "e900dc2c10d59c03ffd856deb1ce897cfd270ffc8d37940350c83881917f3463",
+        "plan_id": "e5c20d18ea819396f59413f1feb3e4d06bcf9959260935db2cd0765d44b71c88",
+        "row_id": "A2C/lunar-lander"
+      },
+      {
+        "contract_sha256": "5d6a2cae120623af83b4cee41d5ae3617beb5061a93bd4aa20509c4854c00b1d",
+        "plan_id": "edb6c13c3d2c175799714c2dcc14ae7f7e16392fbf25b83d95f961ab10c9b238",
+        "row_id": "A2C/key-door-grid"
+      },
+      {
+        "contract_sha256": "aa761aaf510c4061e633a5ae14b2e3d164a748c5ab1158400364574b6a0f7c50",
+        "plan_id": "140b0d1e6a970b0261e92119288a28cb288c7ebc99ff9aa7ac0452235b885d7e",
+        "row_id": "TRPO/cartpole"
+      },
+      {
+        "contract_sha256": "e54b3975118ebb3f40f8188d0af4f0fb24d9c61a435370bd7175f5480af86f0a",
+        "plan_id": "ea932ce8e676404c6845b4fe8fc3ef4ae851c51bc1ef1c2baa0fdcc8e8b26d6b",
+        "row_id": "TRPO/mountain-car"
+      },
+      {
+        "contract_sha256": "67111fb370e4d4f57683f10c7bf74720ae0961eda9ba1b6f894b7630dbd8b844",
+        "plan_id": "70462e574e19aa04a90e982d063d5801908cc358bc838f93c53da9d84e8e1dde",
+        "row_id": "TRPO/lunar-lander"
+      },
+      {
+        "contract_sha256": "5ee6cd27bc5e589825a0d8df932fcd593bd83a6be41e8a56387214c1a2cb466f",
+        "plan_id": "dba414857f7ffead6ee377c5e5dc55c195177f980ef5af672ab3e9a88a8b0778",
+        "row_id": "TRPO/key-door-grid"
+      },
+      {
+        "contract_sha256": "8044640163f2109f5ac0329c3dc9d8c7d031a70f0fe2dbbbb98bb1b278c9e694",
+        "plan_id": "723a2917e4935001acce8940208c4a712912c46d0a6d33c82a8dfb0ba0690330",
+        "row_id": "MaskablePPO/cartpole"
+      },
+      {
+        "contract_sha256": "a0b22bfd24e3d2deb160e2c2b5c41556aa26385bee6040e4cf22e81339f327bb",
+        "plan_id": "85ca26d47128af901af2a5a540e49a2396f3801ba272c04b53df012d3d45673a",
+        "row_id": "MaskablePPO/mountain-car"
+      },
+      {
+        "contract_sha256": "874ac25d604204279d8a47178e850f1af1094eb016b543f29387874636e30024",
+        "plan_id": "83773d586135b97df31b958d1b563c89805f6a09069d69b8e6e65fb5ac7b648b",
+        "row_id": "MaskablePPO/lunar-lander"
+      },
+      {
+        "contract_sha256": "29e08ac7ecb31016c12a3ac7eeee603a669fe4e980552119906a0042c6ff7965",
+        "plan_id": "95c3fde209b95c84e0983bc8a1ab15004cc4d074566c1fa568d171d173fffd6e",
+        "row_id": "MaskablePPO/key-door-grid"
+      },
+      {
+        "contract_sha256": "aa9216ccecf0b2255caaa28de69bfc723472d384fdec838cf8479e8abeeb3420",
+        "plan_id": "e3638fbb0afa548dffcf772950aa6fc028b52bbfac49330eee1b014ad2a980fb",
+        "row_id": "RecurrentPPO/cartpole"
+      },
+      {
+        "contract_sha256": "5864085e1a780b79181c48aa92f5939252ced2be83cc461ea314e06c296e800e",
+        "plan_id": "2e22c5d7db78eed527c09923c196a92bdd96fe5f9b305fff80740661775c1426",
+        "row_id": "RecurrentPPO/mountain-car"
+      },
+      {
+        "contract_sha256": "269319914eeb69624848db421d91d04d69d4331c3787d2890b4dfc9c592441a6",
+        "plan_id": "10124c9bdd7281ae5a3a3d1f1660b11dc64b05f26268e32a89cd2249aa03bf98",
+        "row_id": "RecurrentPPO/lunar-lander"
+      },
+      {
+        "contract_sha256": "9b98e80190bc4a2e2089cf6d399e2cb419f6b7090453d5c049e5bb447993b6ec",
+        "plan_id": "8db33b19f18c5d97cccaac3911f08b9e63166c44708cffc3a90c253d3c49dfa6",
+        "row_id": "RecurrentPPO/key-door-grid"
+      },
+      {
+        "contract_sha256": "fc7fbcf1c0bd5760b97a09fef18926c600b65284e5fb3ec79d0e21a7ec69d0a4",
+        "plan_id": "777e2c2422e4b2bc83fae3d8a3d3e79dba629340019c761ce9816d41c7b2346c",
+        "row_id": "DQN/cartpole"
+      },
+      {
+        "contract_sha256": "c8174517988359bd1c168eee6ecff627e47bc13edc841cacd0c701cce239bff0",
+        "plan_id": "6e45a778521cfaad1bbb4d2976dad8af8e97d6ddb3590ee24906fd07a9625e52",
+        "row_id": "DQN/mountain-car"
+      },
+      {
+        "contract_sha256": "87636ad94509940be447668573843aaa842ca5e2a7c319e24d39eb961fd38413",
+        "plan_id": "b51a3c6dd97466d68bd725cde8a58958003b07c55c089aadf49720615e9ae462",
+        "row_id": "DQN/key-door-grid"
+      },
+      {
+        "contract_sha256": "dfbf05098a3bafe59db3edb0bdcb5b9f050f4d914f15f8dca2be65701bed9e87",
+        "plan_id": "1af5b34cdd01a834ffdfc4b90ae61ecd56fe03111a6057e069a09732af0e0805",
+        "row_id": "QR-DQN/cartpole"
+      },
+      {
+        "contract_sha256": "88d7837cc0093aeff423cd5ca6822099fbac0e72c64bf32d1f472984cd85b54b",
+        "plan_id": "ad3db1ff9b71ec818060329a6d1a928c5e691f33cec5aac36d25fea3e482234c",
+        "row_id": "QR-DQN/mountain-car"
+      },
+      {
+        "contract_sha256": "e069a66f417d76d435b5936df13a40e315f32b1e5e141aeea593734d15c916ee",
+        "plan_id": "6d460c05503090a87700a3abc41c2d2b8a44cb385dab76aeb320ca81de615527",
+        "row_id": "QR-DQN/key-door-grid"
+      },
+      {
+        "contract_sha256": "0b00b3c053324c6ac8b479c6b16c23f2b1ecd76de0a288d86fe937c27ab9d331",
+        "plan_id": "49e0f1119a93110f6404f54e7f17c487e753dc992cd21ce23f38d2484fc8b0f0",
+        "row_id": "DDPG/lunar-lander"
+      },
+      {
+        "contract_sha256": "2c0f908bea64b6d0e0125fd111af2091464969d98c3752b7ca90ebfdf7b83891",
+        "plan_id": "7c467a8800795771440733dad69aa8fd34316003aa305947059a0e30539c38ec",
+        "row_id": "TD3/lunar-lander"
+      },
+      {
+        "contract_sha256": "40cff79b1217c09a76e538032be07f39e4e4f94e1e6a79db7a535277af56e83b",
+        "plan_id": "8f2a49e644952b49350b70ff937b525b9d116ad2309ebe8bd82981a18a011539",
+        "row_id": "SAC/lunar-lander"
+      },
+      {
+        "contract_sha256": "56d560406d4c7bec19aaf04553d73baabb64845df3d5e4af75f9cb2f0b4ed3bf",
+        "plan_id": "17ed88f8efadb3b8373a9ba8f51478f27a3d8971215f09ff8c452b32f39f68f7",
+        "row_id": "SAC/pendulum"
+      },
+      {
+        "contract_sha256": "513d4c45828931678963a242845ab472e599b78af53fc5b86b164a9e5a2b4bee",
+        "plan_id": "1e371e4cb09bfa6826436b334c600c4eee38b1e1d62b40bce0df0672c91ca2dd",
+        "row_id": "CrossQ/lunar-lander"
+      },
+      {
+        "contract_sha256": "87146d3a0b052d7c9d2437b04b832fd6b9c54ed305fbb80229b9de4dcd491cdb",
+        "plan_id": "61459512d7eac5f5946784503562b04afc7a09eb59c7d6fb2f3504affe195caa",
+        "row_id": "TQC/lunar-lander"
+      },
+      {
+        "contract_sha256": "5faa96ac72468ace693b46ae7d116e4e4e346bdd0f54be2459f316f204642660",
+        "plan_id": "1b8b6067991cd505dc839a72a8eb2c2d799fb36904e7ed6efdbce8e54338cfa6",
+        "row_id": "ARS/cartpole"
+      },
+      {
+        "contract_sha256": "e88021faa066f89157c20e3469d06527ad1722fe62a93b88bbd97a3d2eacd1b0",
+        "plan_id": "8a90a9ce4a6c465c0cde3841c1eb918a0126560bbd678a681c73fee8f9545d7b",
+        "row_id": "ARS/mountain-car"
+      },
+      {
+        "contract_sha256": "3d6346099397821a831c2e67ffa6d4218675ed415b7bed52f1f4a240f9aecd4b",
+        "plan_id": "346e16e06fd0632e205947b52e939b058de11f60330ec36bbfb057afdac78a3e",
+        "row_id": "ARS/lunar-lander"
+      },
+      {
+        "contract_sha256": "86eea7bf5de174cd91e44d64cfa126db35245edc6eba0881831d7973068c1b43",
+        "plan_id": "9e5e47efba8415453cb19fb8a1f1d3de78ff22c03977e57120bde0fac6ccb831",
+        "row_id": "ARS/key-door-grid"
+      },
+      {
+        "contract_sha256": "4240a5a23de857edb9c533c4f16e79789935b38fc0b63568f8043c52b88f1283",
+        "plan_id": "61ff4a52cb963afea5a44719466753c16bb5754a5245404f35046e2f829a7548",
+        "row_id": "HER/goal-reaching"
+      },
+      {
+        "contract_sha256": "954af02d8734e5cb1df7a7b09eb85b9786cb2b491dce4269165b58fa9c760bd0",
+        "plan_id": "c2c5caf762d9b1d322d87b12ce1406a74f44d40d04b054f635814c6906338ea9",
+        "row_id": "connect4"
+      },
+      {
+        "contract_sha256": "0191af33569290e301e02810c5bc2f7cdaa60366c85a0b49f733c50d89bceec4",
+        "plan_id": "e12682a93ff704f59576536fe1aa981ffdf828967b1dd0e35f7536cdc1d93c73",
+        "row_id": "othello"
+      },
+      {
+        "contract_sha256": "83ed06d07890d8ed0bc9c530279b1aab60258864c66c4bf102f8d8f6107d968b",
+        "plan_id": "a44cbeba8a9cb086b88beb07f8dfd3121a94830ff37e10a19eda9d81d3c30de4",
+        "row_id": "hex"
+      },
+      {
+        "contract_sha256": "2a09242488a3d87c73d2a9a1bd22f118bda90bc4898cd4d28ec2b289512eb073",
+        "plan_id": "75437658421a71735e90f06f0ad925544be1b9d0ebe9059ba3fbabf0b2f2ca55",
+        "row_id": "gomoku"
+      },
+      {
+        "contract_sha256": "db3d651c28a80efa52b4465b23fcc10f8a0b3d5adcbb829dcd1ef7724bb4a4db",
+        "plan_id": "4150d67ddfa20cda8b76351328560973fa713b98773cf08bb2456c2bfec56384",
+        "row_id": "hyperparameter-tuning"
+      }
+    ],
+    "apple-silicon": [
+      {
+        "contract_sha256": "2b0f0c9427a2b82db3bec2d4e9be83d78c6cef29710b1b806543e8f338666d89",
+        "plan_id": "7da4faeee152de78039933a7e42500e9cbd96597e257348bf91ff5ce3c35bf70",
+        "row_id": "mnist-shallow-mlp"
+      },
+      {
+        "contract_sha256": "0da5bb7256b5ecd738abdc81c0384d7403525c0a58efcc2e9f1f3dd2b7fc468d",
+        "plan_id": "fcce4d702e8e401e579cf561d3180c2d63b32eb9a43c17f6bc1fa8ef421fd4ac",
+        "row_id": "mnist-deep-mlp"
+      },
+      {
+        "contract_sha256": "c2e2393f77655c574ce79fadbd2701e94ca9063673bdbc365f0d4ea35f8683f6",
+        "plan_id": "825767c8fc3fbcd29c82cbca3b5a64fdb7d94ada466553be958d9f04312438a9",
+        "row_id": "mnist-lenet"
+      },
+      {
+        "contract_sha256": "7ddf1b2330614ad06aa785b7f853eef3cd42b3bcbd03d1b70e6b62d914484712",
+        "plan_id": "0db1451eb071cbf8402164805bb9b51162ce339498fa39e16e497af8cfa49cd5",
+        "row_id": "fashion-mnist-mlp"
+      },
+      {
+        "contract_sha256": "8afd7429805deec69ceb715b3e6f2dfb37b1161c5d7e6a9d419bcbe0f029c232",
+        "plan_id": "0d0144d31841a201770c8a73fbbe04727e7c4f97ba40d25bc80f476d2d7e8eeb",
+        "row_id": "fashion-mnist-resnet"
+      },
+      {
+        "contract_sha256": "e62fd1e34a8a68f8c5b4d03a74230a007f6b97a0d2d2711e6fc13cdc7ed21be3",
+        "plan_id": "8acc466dab1dfd454d067a5aa99a917a813cb8ed8370ade261cbe2a40277502d",
+        "row_id": "cifar10-resnet20"
+      },
+      {
+        "contract_sha256": "4b84439cd31efbde505121d6743a17ed003a57a1be868bd8b59dbc5e68629372",
+        "plan_id": "78c7cec5fe7c636a7611e3cbc0bb484094fc4f13b322d4dc48e6379e7166b5e7",
+        "row_id": "cifar10-resnet56"
+      },
+      {
+        "contract_sha256": "3806772a5b8cf0976ab378bb16f0b42993d8a5b60530eb2fc8b6e4c7984779b5",
+        "plan_id": "6a514742423d4ec693cc406b61bb3f9f1069e0803a10b19f2340b972527185e5",
+        "row_id": "cifar100-wide-resnet"
+      },
+      {
+        "contract_sha256": "db708282e304e2d8d20dfa662d13792a7c2ce762fbb6bf56e435ab45ce8dfe82",
+        "plan_id": "6f74b23e005855e31b98c9e34a681ac558439defb4ed48ee473376963f5f9454",
+        "row_id": "cifar10-vit"
+      },
+      {
+        "contract_sha256": "a1683cceb3306f925a2797fc1fa5dc7ba809a0c7c89a09cc705996014cb5e226",
+        "plan_id": "808f353500ed56966cf246d80116ca2168cec786dc51c8ce37fbcb6e42ce7ec2",
+        "row_id": "tiny-imagenet-resnet50"
+      },
+      {
+        "contract_sha256": "13c8781db2d45a7f2dc1afec9d0b7bbc0cdc82d2c04ecf880188f90073f29f94",
+        "plan_id": "572c209070a570d7423c17748cbd7be61571125f7b2f6ecc5aea950b3819d14b",
+        "row_id": "california-housing-mlp"
+      },
+      {
+        "contract_sha256": "97d97b5a9115dc44c57543d7fd8552ead3ffd4407e2c7b5cfaaacf26ff29179e",
+        "plan_id": "66ff26f1e3efeaf4cb0b7b6cb8b45c69fd9780793e428704f82b180fc11b713b",
+        "row_id": "PPO/cartpole"
+      },
+      {
+        "contract_sha256": "4f128168a4ba25e1f647b995df7b503e59681da84868543cd76e07152cf7fe18",
+        "plan_id": "21d881226609d1c25c76d71323a6271bb6009c70ffda5b21a1b05bbccefc0f09",
+        "row_id": "PPO/mountain-car"
+      },
+      {
+        "contract_sha256": "a8290e19575cf6ffe5b3acb668c2a54a9e6762f7ea7fc255170129b917382678",
+        "plan_id": "469fdfc0a380601f913635a1656dc4d51b634875d5d4d29c6a6e53eccc217c16",
+        "row_id": "PPO/acrobot"
+      },
+      {
+        "contract_sha256": "9cf6d8de8ae265ec9051352b0ee431b137e82cc2a82b902e7ef9c770f2d4defa",
+        "plan_id": "3492799add8b166ce431798ad6df73f2dca7cfed00ac75f59a785107220444de",
+        "row_id": "PPO/lunar-lander"
+      },
+      {
+        "contract_sha256": "cb42a67176df531e55104b7020518f4711c83b9f312755b5d7468d22042e2889",
+        "plan_id": "df6c00e43401011b2c59d6946d306c8ecb95dd563f2e1829d632324d997d201b",
+        "row_id": "PPO/key-door-grid"
+      },
+      {
+        "contract_sha256": "c8f003ba579ee3ef22734824e601f6b9967e662c21cf8223a714a5a75516e524",
+        "plan_id": "8929bd4f8063c46b29468d00037513fa38e46cc2b400024cb2eea6669f9c30cf",
+        "row_id": "PPO/gridworld-deterministic"
+      },
+      {
+        "contract_sha256": "52d29a3ace1c218f7757e07452f58d627fa76b1aa70145f6f1cff415e617115e",
+        "plan_id": "175fbb46c8c539b756c3841517ce21c2bfad9081bf6f9e9b6c01b86d5856a015",
+        "row_id": "A2C/cartpole"
+      },
+      {
+        "contract_sha256": "cca1477d56c18c29098afc210c721dd3994a967f55060b9dc8dc214d2a04fc16",
+        "plan_id": "e6f3c46364f44227e435af5c79a0e6c5640bccfb7549bd15a66d0c2156d961c2",
+        "row_id": "A2C/mountain-car"
+      },
+      {
+        "contract_sha256": "e900dc2c10d59c03ffd856deb1ce897cfd270ffc8d37940350c83881917f3463",
+        "plan_id": "e0ab7366874911b3c365f44edb2d881c2afcfa92b2401fcef0bc78018bf1c6df",
+        "row_id": "A2C/lunar-lander"
+      },
+      {
+        "contract_sha256": "5d6a2cae120623af83b4cee41d5ae3617beb5061a93bd4aa20509c4854c00b1d",
+        "plan_id": "927870a09414a2290b0733b9e769f4894efb57d578400983f3eeb4d7b4f82933",
+        "row_id": "A2C/key-door-grid"
+      },
+      {
+        "contract_sha256": "aa761aaf510c4061e633a5ae14b2e3d164a748c5ab1158400364574b6a0f7c50",
+        "plan_id": "64f3d41c00fc97046e50652def2eb18c0102ec12af10cc16e364595706f5c4fc",
+        "row_id": "TRPO/cartpole"
+      },
+      {
+        "contract_sha256": "e54b3975118ebb3f40f8188d0af4f0fb24d9c61a435370bd7175f5480af86f0a",
+        "plan_id": "7b9bfbd360484e060dd7930c7c280b5dae66b5d453ba42e9ea221aa965e6ae07",
+        "row_id": "TRPO/mountain-car"
+      },
+      {
+        "contract_sha256": "67111fb370e4d4f57683f10c7bf74720ae0961eda9ba1b6f894b7630dbd8b844",
+        "plan_id": "c285ef2a46d8f044a3c7caa07a91cfae24e37b2c339cad400b54bb080914baf8",
+        "row_id": "TRPO/lunar-lander"
+      },
+      {
+        "contract_sha256": "5ee6cd27bc5e589825a0d8df932fcd593bd83a6be41e8a56387214c1a2cb466f",
+        "plan_id": "1a5d4700dd7a7676e9ca5ac8337b7286675cfe6d45cea9f59be1865b6f8afb12",
+        "row_id": "TRPO/key-door-grid"
+      },
+      {
+        "contract_sha256": "8044640163f2109f5ac0329c3dc9d8c7d031a70f0fe2dbbbb98bb1b278c9e694",
+        "plan_id": "0b227fd91cf61a6a6137338e19d1aa73e8a49175d34a49e9af5ff6064ccab876",
+        "row_id": "MaskablePPO/cartpole"
+      },
+      {
+        "contract_sha256": "a0b22bfd24e3d2deb160e2c2b5c41556aa26385bee6040e4cf22e81339f327bb",
+        "plan_id": "323f7b2a1c2af6a8fdb0d45febc4077b8019b2e12f4e21fa8cc840e079477f1a",
+        "row_id": "MaskablePPO/mountain-car"
+      },
+      {
+        "contract_sha256": "874ac25d604204279d8a47178e850f1af1094eb016b543f29387874636e30024",
+        "plan_id": "3ff30bbf32692ad80fac4f939121737ab034eff285c13e71e7f5cf33c8271bfc",
+        "row_id": "MaskablePPO/lunar-lander"
+      },
+      {
+        "contract_sha256": "29e08ac7ecb31016c12a3ac7eeee603a669fe4e980552119906a0042c6ff7965",
+        "plan_id": "900a30029bc6d587ad24821a4b8e96b08a7277467869e19bbd12632018bfe3f7",
+        "row_id": "MaskablePPO/key-door-grid"
+      },
+      {
+        "contract_sha256": "aa9216ccecf0b2255caaa28de69bfc723472d384fdec838cf8479e8abeeb3420",
+        "plan_id": "78e77b75b3e4d4cfaad7fbb4f12c9110ffa5c8898c2f69e79563d0ae477329f7",
+        "row_id": "RecurrentPPO/cartpole"
+      },
+      {
+        "contract_sha256": "5864085e1a780b79181c48aa92f5939252ced2be83cc461ea314e06c296e800e",
+        "plan_id": "07ef5aafa97a4c56cc3a96b0d04f7d7fe9aba77aeaa82d9db9ad5c807e2711ca",
+        "row_id": "RecurrentPPO/mountain-car"
+      },
+      {
+        "contract_sha256": "269319914eeb69624848db421d91d04d69d4331c3787d2890b4dfc9c592441a6",
+        "plan_id": "2e7832fba7f6007461e6605d910e2717b62a0e87b7156af5cd29d2d027d98ae2",
+        "row_id": "RecurrentPPO/lunar-lander"
+      },
+      {
+        "contract_sha256": "9b98e80190bc4a2e2089cf6d399e2cb419f6b7090453d5c049e5bb447993b6ec",
+        "plan_id": "3ef4586036819f29fcf0959109af2b8ef296ae627ef9c6872b2789f4ffb9246c",
+        "row_id": "RecurrentPPO/key-door-grid"
+      },
+      {
+        "contract_sha256": "fc7fbcf1c0bd5760b97a09fef18926c600b65284e5fb3ec79d0e21a7ec69d0a4",
+        "plan_id": "9accaa1e159511d9406b6620398fee2f455e5aaed52a1b544f73aa1bdcd3420a",
+        "row_id": "DQN/cartpole"
+      },
+      {
+        "contract_sha256": "c8174517988359bd1c168eee6ecff627e47bc13edc841cacd0c701cce239bff0",
+        "plan_id": "9fbfc4d264c1153c36a1af7dcfaa533a19401eb3fd33a15b7392127b327cd9b7",
+        "row_id": "DQN/mountain-car"
+      },
+      {
+        "contract_sha256": "87636ad94509940be447668573843aaa842ca5e2a7c319e24d39eb961fd38413",
+        "plan_id": "aebcd29d5939a0fd88af2baef8c1849da90122877a4368d0a95e3830d7d9723f",
+        "row_id": "DQN/key-door-grid"
+      },
+      {
+        "contract_sha256": "dfbf05098a3bafe59db3edb0bdcb5b9f050f4d914f15f8dca2be65701bed9e87",
+        "plan_id": "7095b8274e586b63d4c4c8898a86872597626e72219e5ebbf3c56b925fb2256d",
+        "row_id": "QR-DQN/cartpole"
+      },
+      {
+        "contract_sha256": "88d7837cc0093aeff423cd5ca6822099fbac0e72c64bf32d1f472984cd85b54b",
+        "plan_id": "c5e78334d33b9c8fa77d79f3d56fa15bc6b5dcf6f97bef8f2917f954cee12dc4",
+        "row_id": "QR-DQN/mountain-car"
+      },
+      {
+        "contract_sha256": "e069a66f417d76d435b5936df13a40e315f32b1e5e141aeea593734d15c916ee",
+        "plan_id": "4cc8ea724a504fe001b6725ea61035e81e54b95a88a2887049c88bfe86f865b4",
+        "row_id": "QR-DQN/key-door-grid"
+      },
+      {
+        "contract_sha256": "0b00b3c053324c6ac8b479c6b16c23f2b1ecd76de0a288d86fe937c27ab9d331",
+        "plan_id": "e6ceaec37946bffec4386264b381f8b85c69488a5042a1f149170c7481b4beb4",
+        "row_id": "DDPG/lunar-lander"
+      },
+      {
+        "contract_sha256": "2c0f908bea64b6d0e0125fd111af2091464969d98c3752b7ca90ebfdf7b83891",
+        "plan_id": "9cc8314620cf1e6d3a7f2a2c637eca9ed919babdba4d5e42969380e299c77410",
+        "row_id": "TD3/lunar-lander"
+      },
+      {
+        "contract_sha256": "40cff79b1217c09a76e538032be07f39e4e4f94e1e6a79db7a535277af56e83b",
+        "plan_id": "5525a03b46e8beed32b7ca6603305524735e9cd7c5a0e2707e78511a6fbb5f03",
+        "row_id": "SAC/lunar-lander"
+      },
+      {
+        "contract_sha256": "56d560406d4c7bec19aaf04553d73baabb64845df3d5e4af75f9cb2f0b4ed3bf",
+        "plan_id": "f118b362b6fbd9c30665054947f2994a875bcd10be99c97120a1af5ed6ce417f",
+        "row_id": "SAC/pendulum"
+      },
+      {
+        "contract_sha256": "513d4c45828931678963a242845ab472e599b78af53fc5b86b164a9e5a2b4bee",
+        "plan_id": "7ad337e855cedf38c1f69bdb32bb363268a93dd73e9823a953ab34715e67b465",
+        "row_id": "CrossQ/lunar-lander"
+      },
+      {
+        "contract_sha256": "87146d3a0b052d7c9d2437b04b832fd6b9c54ed305fbb80229b9de4dcd491cdb",
+        "plan_id": "a1f17c4d4c7ed02f3a48110b16d415af3c28a77a4c920425f08bcd59129344cf",
+        "row_id": "TQC/lunar-lander"
+      },
+      {
+        "contract_sha256": "5faa96ac72468ace693b46ae7d116e4e4e346bdd0f54be2459f316f204642660",
+        "plan_id": "7eb4d4f2f64025dd4e30f1eeb50d6312b0b3c2a0ae6ce3311c3b382c1219816d",
+        "row_id": "ARS/cartpole"
+      },
+      {
+        "contract_sha256": "e88021faa066f89157c20e3469d06527ad1722fe62a93b88bbd97a3d2eacd1b0",
+        "plan_id": "50434967e14c04aa48aabcdad21b6a5ca6b21319810d6c419d442f66f6c09501",
+        "row_id": "ARS/mountain-car"
+      },
+      {
+        "contract_sha256": "3d6346099397821a831c2e67ffa6d4218675ed415b7bed52f1f4a240f9aecd4b",
+        "plan_id": "d954720f048d8acbf18316a3bcbb7193bb5be653a665790565e3bcf6b63c4757",
+        "row_id": "ARS/lunar-lander"
+      },
+      {
+        "contract_sha256": "86eea7bf5de174cd91e44d64cfa126db35245edc6eba0881831d7973068c1b43",
+        "plan_id": "f568446a774cdcd9128dd57026912f7e0aef8b7e9b4863c9fe0d5692bca6099b",
+        "row_id": "ARS/key-door-grid"
+      },
+      {
+        "contract_sha256": "4240a5a23de857edb9c533c4f16e79789935b38fc0b63568f8043c52b88f1283",
+        "plan_id": "e2e959786728055df24eca72b82cee9a166f4491a2332e60af4c62b5705ae644",
+        "row_id": "HER/goal-reaching"
+      },
+      {
+        "contract_sha256": "954af02d8734e5cb1df7a7b09eb85b9786cb2b491dce4269165b58fa9c760bd0",
+        "plan_id": "b4a3d416b1dd090f74b3cc91da39fd8e8b7641a0d6dbad7ffadbf570cb53015c",
+        "row_id": "connect4"
+      },
+      {
+        "contract_sha256": "0191af33569290e301e02810c5bc2f7cdaa60366c85a0b49f733c50d89bceec4",
+        "plan_id": "1be0778c2da43c7acda56a4df305460d2e41da9118aadab83fbca24d2020c79f",
+        "row_id": "othello"
+      },
+      {
+        "contract_sha256": "83ed06d07890d8ed0bc9c530279b1aab60258864c66c4bf102f8d8f6107d968b",
+        "plan_id": "592092f87e5bdf91da6ec0cdbe958a879075119acf4e473b80c18e52f5ca97db",
+        "row_id": "hex"
+      },
+      {
+        "contract_sha256": "2a09242488a3d87c73d2a9a1bd22f118bda90bc4898cd4d28ec2b289512eb073",
+        "plan_id": "9876668b4d1cdd74a03279e4ef811129264cdc1dfd56fabd94f1308af068a365",
+        "row_id": "gomoku"
+      },
+      {
+        "contract_sha256": "db3d651c28a80efa52b4465b23fcc10f8a0b3d5adcbb829dcd1ef7724bb4a4db",
+        "plan_id": "5fcef09cdaab17fdfa1fad975f49ecc7f6cbbad8c1b26cc9d40018a51bb9006a",
+        "row_id": "hyperparameter-tuning"
+      }
+    ]
+  },
+  "reviews": [
+    {
+      "source": {
+        "algorithm": 1,
+        "sha256": "19d1739ff8c7ebe8137078ca62456cbfb40ca04df22ef7c8bcb31d846091402c"
+      },
+      "lane": "linux-cpu",
+      "scope": "supervised",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+      "contract_set_sha256": "8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7",
+      "full_ordered55_context": {
+        "internal_json_pointer": "/ordered55_contexts/linux-cpu",
+        "row_count": 55,
+        "external_actual_export": {
+          "path": ".build/phase278-stateful-pv-fix-20261101-a/evidence-helper-sourcej-compile-export-prep-a/output-a/helper.stdout",
+          "bytes": 21726,
+          "sha256": "72af6089518d4fc071120780e55dfacf0eff317d253148572ddd7e27410a9a57"
+        },
+        "export_json_pointer": "/lanes/0/rows"
+      },
+      "adjudicated_scientific_row_ids": [
+        "mnist-shallow-mlp",
+        "mnist-deep-mlp",
+        "mnist-lenet",
+        "fashion-mnist-mlp",
+        "fashion-mnist-resnet",
+        "cifar10-resnet20",
+        "cifar10-resnet56",
+        "cifar100-wide-resnet",
+        "cifar10-vit",
+        "tiny-imagenet-resnet50",
+        "california-housing-mlp"
+      ],
+      "adjudicated_scientific_row_count": 11,
+      "context_only_row_ids": [
+        "PPO/cartpole",
+        "PPO/mountain-car",
+        "PPO/acrobot",
+        "PPO/lunar-lander",
+        "PPO/key-door-grid",
+        "PPO/gridworld-deterministic",
+        "A2C/cartpole",
+        "A2C/mountain-car",
+        "A2C/lunar-lander",
+        "A2C/key-door-grid",
+        "TRPO/cartpole",
+        "TRPO/mountain-car",
+        "TRPO/lunar-lander",
+        "TRPO/key-door-grid",
+        "MaskablePPO/cartpole",
+        "MaskablePPO/mountain-car",
+        "MaskablePPO/lunar-lander",
+        "MaskablePPO/key-door-grid",
+        "RecurrentPPO/cartpole",
+        "RecurrentPPO/mountain-car",
+        "RecurrentPPO/lunar-lander",
+        "RecurrentPPO/key-door-grid",
+        "DQN/cartpole",
+        "DQN/mountain-car",
+        "DQN/key-door-grid",
+        "QR-DQN/cartpole",
+        "QR-DQN/mountain-car",
+        "QR-DQN/key-door-grid",
+        "DDPG/lunar-lander",
+        "TD3/lunar-lander",
+        "SAC/lunar-lander",
+        "SAC/pendulum",
+        "CrossQ/lunar-lander",
+        "TQC/lunar-lander",
+        "ARS/cartpole",
+        "ARS/mountain-car",
+        "ARS/lunar-lander",
+        "ARS/key-door-grid",
+        "HER/goal-reaching",
+        "connect4",
+        "othello",
+        "hex",
+        "gomoku",
+        "hyperparameter-tuning"
+      ],
+      "allowed_interpretation_if_actual_future_evidence_passes": "Observed compact predictive improvement on the exact pinned held-out benchmark under the complete unchanged five-run rule.",
+      "preserved_numerical_contract": "Every actual current ordered row PlanId and contractSHA is bound here. All source-owned fixed recipes, full per-run budgets, seeds, data/evaluation/reset/model/optimizer semantics and old quality bars remain binding; no extra or substitute attempt is approved.",
+      "specific_lane_requirement": "Real oneDNN container execution and exact selected linux-cpu backend evidence remain required.",
+      "blocking_findings_for_this_prospective_applicability_scope": [],
+      "runtime_or_phase_obligations_satisfied_by_this_review": []
+    },
+    {
+      "source": {
+        "algorithm": 1,
+        "sha256": "19d1739ff8c7ebe8137078ca62456cbfb40ca04df22ef7c8bcb31d846091402c"
+      },
+      "lane": "linux-cpu",
+      "scope": "native",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+      "contract_set_sha256": "8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7",
+      "full_ordered55_context": {
+        "internal_json_pointer": "/ordered55_contexts/linux-cpu",
+        "row_count": 55,
+        "external_actual_export": {
+          "path": ".build/phase278-stateful-pv-fix-20261101-a/evidence-helper-sourcej-compile-export-prep-a/output-a/helper.stdout",
+          "bytes": 21726,
+          "sha256": "72af6089518d4fc071120780e55dfacf0eff317d253148572ddd7e27410a9a57"
+        },
+        "export_json_pointer": "/lanes/0/rows"
+      },
+      "adjudicated_scientific_row_ids": [
+        "PPO/cartpole",
+        "PPO/mountain-car",
+        "PPO/acrobot",
+        "PPO/lunar-lander",
+        "PPO/key-door-grid",
+        "PPO/gridworld-deterministic",
+        "A2C/cartpole",
+        "A2C/mountain-car",
+        "A2C/lunar-lander",
+        "A2C/key-door-grid",
+        "TRPO/cartpole",
+        "TRPO/mountain-car",
+        "TRPO/lunar-lander",
+        "TRPO/key-door-grid",
+        "MaskablePPO/cartpole",
+        "MaskablePPO/mountain-car",
+        "MaskablePPO/lunar-lander",
+        "MaskablePPO/key-door-grid",
+        "RecurrentPPO/cartpole",
+        "RecurrentPPO/mountain-car",
+        "RecurrentPPO/lunar-lander",
+        "RecurrentPPO/key-door-grid",
+        "DQN/cartpole",
+        "DQN/mountain-car",
+        "DQN/key-door-grid",
+        "QR-DQN/cartpole",
+        "QR-DQN/mountain-car",
+        "QR-DQN/key-door-grid",
+        "DDPG/lunar-lander",
+        "TD3/lunar-lander",
+        "SAC/lunar-lander",
+        "SAC/pendulum",
+        "CrossQ/lunar-lander",
+        "TQC/lunar-lander",
+        "ARS/cartpole",
+        "ARS/mountain-car",
+        "ARS/lunar-lander",
+        "ARS/key-door-grid",
+        "HER/goal-reaching",
+        "connect4",
+        "othello",
+        "hex",
+        "gomoku"
+      ],
+      "adjudicated_scientific_row_count": 43,
+      "context_only_row_ids": [
+        "mnist-shallow-mlp",
+        "mnist-deep-mlp",
+        "mnist-lenet",
+        "fashion-mnist-mlp",
+        "fashion-mnist-resnet",
+        "cifar10-resnet20",
+        "cifar10-resnet56",
+        "cifar100-wide-resnet",
+        "cifar10-vit",
+        "tiny-imagenet-resnet50",
+        "california-housing-mlp",
+        "hyperparameter-tuning"
+      ],
+      "allowed_interpretation_if_actual_future_evidence_passes": "Observed native learning on the exact fixed tasks/cases against the declared complete finite reference families under the complete unchanged five-run rule.",
+      "preserved_numerical_contract": "Every actual current ordered row PlanId and contractSHA is bound here. All source-owned fixed recipes, full per-run budgets, seeds, data/evaluation/reset/model/optimizer semantics and old quality bars remain binding; no extra or substitute attempt is approved.",
+      "specific_lane_requirement": "Real oneDNN container execution and exact selected linux-cpu backend evidence remain required.",
+      "blocking_findings_for_this_prospective_applicability_scope": [],
+      "runtime_or_phase_obligations_satisfied_by_this_review": []
+    },
+    {
+      "source": {
+        "algorithm": 1,
+        "sha256": "19d1739ff8c7ebe8137078ca62456cbfb40ca04df22ef7c8bcb31d846091402c"
+      },
+      "lane": "apple-silicon",
+      "scope": "supervised",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+      "contract_set_sha256": "a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c",
+      "full_ordered55_context": {
+        "internal_json_pointer": "/ordered55_contexts/apple-silicon",
+        "row_count": 55,
+        "external_actual_export": {
+          "path": ".build/phase278-stateful-pv-fix-20261101-a/evidence-helper-sourcej-compile-export-prep-a/output-a/helper.stdout",
+          "bytes": 21726,
+          "sha256": "72af6089518d4fc071120780e55dfacf0eff317d253148572ddd7e27410a9a57"
+        },
+        "export_json_pointer": "/lanes/1/rows"
+      },
+      "adjudicated_scientific_row_ids": [
+        "mnist-shallow-mlp",
+        "mnist-deep-mlp",
+        "mnist-lenet",
+        "fashion-mnist-mlp",
+        "fashion-mnist-resnet",
+        "cifar10-resnet20",
+        "cifar10-resnet56",
+        "cifar100-wide-resnet",
+        "cifar10-vit",
+        "tiny-imagenet-resnet50",
+        "california-housing-mlp"
+      ],
+      "adjudicated_scientific_row_count": 11,
+      "context_only_row_ids": [
+        "PPO/cartpole",
+        "PPO/mountain-car",
+        "PPO/acrobot",
+        "PPO/lunar-lander",
+        "PPO/key-door-grid",
+        "PPO/gridworld-deterministic",
+        "A2C/cartpole",
+        "A2C/mountain-car",
+        "A2C/lunar-lander",
+        "A2C/key-door-grid",
+        "TRPO/cartpole",
+        "TRPO/mountain-car",
+        "TRPO/lunar-lander",
+        "TRPO/key-door-grid",
+        "MaskablePPO/cartpole",
+        "MaskablePPO/mountain-car",
+        "MaskablePPO/lunar-lander",
+        "MaskablePPO/key-door-grid",
+        "RecurrentPPO/cartpole",
+        "RecurrentPPO/mountain-car",
+        "RecurrentPPO/lunar-lander",
+        "RecurrentPPO/key-door-grid",
+        "DQN/cartpole",
+        "DQN/mountain-car",
+        "DQN/key-door-grid",
+        "QR-DQN/cartpole",
+        "QR-DQN/mountain-car",
+        "QR-DQN/key-door-grid",
+        "DDPG/lunar-lander",
+        "TD3/lunar-lander",
+        "SAC/lunar-lander",
+        "SAC/pendulum",
+        "CrossQ/lunar-lander",
+        "TQC/lunar-lander",
+        "ARS/cartpole",
+        "ARS/mountain-car",
+        "ARS/lunar-lander",
+        "ARS/key-door-grid",
+        "HER/goal-reaching",
+        "connect4",
+        "othello",
+        "hex",
+        "gomoku",
+        "hyperparameter-tuning"
+      ],
+      "allowed_interpretation_if_actual_future_evidence_passes": "Observed compact predictive improvement on the exact pinned held-out benchmark under the complete unchanged five-run rule.",
+      "preserved_numerical_contract": "Every actual current ordered row PlanId and contractSHA is bound here. All source-owned fixed recipes, full per-run budgets, seeds, data/evaluation/reset/model/optimizer semantics and old quality bars remain binding; no extra or substitute attempt is approved.",
+      "specific_lane_requirement": "Real Mac-host Metal execution and exact selected apple-silicon backend evidence remain required; the Linux helper exported Apple contract DATA only.",
+      "blocking_findings_for_this_prospective_applicability_scope": [],
+      "runtime_or_phase_obligations_satisfied_by_this_review": []
+    },
+    {
+      "source": {
+        "algorithm": 1,
+        "sha256": "19d1739ff8c7ebe8137078ca62456cbfb40ca04df22ef7c8bcb31d846091402c"
+      },
+      "lane": "apple-silicon",
+      "scope": "native",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+      "contract_set_sha256": "a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c",
+      "full_ordered55_context": {
+        "internal_json_pointer": "/ordered55_contexts/apple-silicon",
+        "row_count": 55,
+        "external_actual_export": {
+          "path": ".build/phase278-stateful-pv-fix-20261101-a/evidence-helper-sourcej-compile-export-prep-a/output-a/helper.stdout",
+          "bytes": 21726,
+          "sha256": "72af6089518d4fc071120780e55dfacf0eff317d253148572ddd7e27410a9a57"
+        },
+        "export_json_pointer": "/lanes/1/rows"
+      },
+      "adjudicated_scientific_row_ids": [
+        "PPO/cartpole",
+        "PPO/mountain-car",
+        "PPO/acrobot",
+        "PPO/lunar-lander",
+        "PPO/key-door-grid",
+        "PPO/gridworld-deterministic",
+        "A2C/cartpole",
+        "A2C/mountain-car",
+        "A2C/lunar-lander",
+        "A2C/key-door-grid",
+        "TRPO/cartpole",
+        "TRPO/mountain-car",
+        "TRPO/lunar-lander",
+        "TRPO/key-door-grid",
+        "MaskablePPO/cartpole",
+        "MaskablePPO/mountain-car",
+        "MaskablePPO/lunar-lander",
+        "MaskablePPO/key-door-grid",
+        "RecurrentPPO/cartpole",
+        "RecurrentPPO/mountain-car",
+        "RecurrentPPO/lunar-lander",
+        "RecurrentPPO/key-door-grid",
+        "DQN/cartpole",
+        "DQN/mountain-car",
+        "DQN/key-door-grid",
+        "QR-DQN/cartpole",
+        "QR-DQN/mountain-car",
+        "QR-DQN/key-door-grid",
+        "DDPG/lunar-lander",
+        "TD3/lunar-lander",
+        "SAC/lunar-lander",
+        "SAC/pendulum",
+        "CrossQ/lunar-lander",
+        "TQC/lunar-lander",
+        "ARS/cartpole",
+        "ARS/mountain-car",
+        "ARS/lunar-lander",
+        "ARS/key-door-grid",
+        "HER/goal-reaching",
+        "connect4",
+        "othello",
+        "hex",
+        "gomoku"
+      ],
+      "adjudicated_scientific_row_count": 43,
+      "context_only_row_ids": [
+        "mnist-shallow-mlp",
+        "mnist-deep-mlp",
+        "mnist-lenet",
+        "fashion-mnist-mlp",
+        "fashion-mnist-resnet",
+        "cifar10-resnet20",
+        "cifar10-resnet56",
+        "cifar100-wide-resnet",
+        "cifar10-vit",
+        "tiny-imagenet-resnet50",
+        "california-housing-mlp",
+        "hyperparameter-tuning"
+      ],
+      "allowed_interpretation_if_actual_future_evidence_passes": "Observed native learning on the exact fixed tasks/cases against the declared complete finite reference families under the complete unchanged five-run rule.",
+      "preserved_numerical_contract": "Every actual current ordered row PlanId and contractSHA is bound here. All source-owned fixed recipes, full per-run budgets, seeds, data/evaluation/reset/model/optimizer semantics and old quality bars remain binding; no extra or substitute attempt is approved.",
+      "specific_lane_requirement": "Real Mac-host Metal execution and exact selected apple-silicon backend evidence remain required; the Linux helper exported Apple contract DATA only.",
+      "blocking_findings_for_this_prospective_applicability_scope": [],
+      "runtime_or_phase_obligations_satisfied_by_this_review": []
+    }
+  ],
+  "scientific_rows": [
+    {
+      "row_id": "mnist-shallow-mlp",
+      "scope": "supervised",
+      "dataset": "MNIST",
+      "model": "Dense",
+      "seeds": [
+        1001,
+        1002,
+        1003,
+        1004,
+        1005
+      ],
+      "served_index": 0,
+      "per_run": {
+        "epochs": 10,
+        "training_examples": 7000,
+        "evaluation_examples": 1000,
+        "batch_examples": 128,
+        "optimizer_updates": 550,
+        "gradient_example_visits": 70000,
+        "learning_rate": 0.001
+      },
+      "bar": {
+        "metric": "test_accuracy",
+        "target_literal": 0.97,
+        "slack_literal": 0.07,
+        "comparison": "binary64 target-minus-slack inclusive floor; unchanged at whole-five median and served0"
+      },
+      "shared_rule": "/shared_supervised_acceptance"
+    },
+    {
+      "row_id": "mnist-deep-mlp",
+      "scope": "supervised",
+      "dataset": "MNIST",
+      "model": "DeepDense",
+      "seeds": [
+        1002,
+        1003,
+        1004,
+        1005,
+        1006
+      ],
+      "served_index": 0,
+      "per_run": {
+        "epochs": 10,
+        "training_examples": 7000,
+        "evaluation_examples": 1000,
+        "batch_examples": 128,
+        "optimizer_updates": 550,
+        "gradient_example_visits": 70000,
+        "learning_rate": 0.001
+      },
+      "bar": {
+        "metric": "test_accuracy",
+        "target_literal": 0.98,
+        "slack_literal": 0.08,
+        "comparison": "binary64 target-minus-slack inclusive floor; unchanged at whole-five median and served0"
+      },
+      "shared_rule": "/shared_supervised_acceptance"
+    },
+    {
+      "row_id": "mnist-lenet",
+      "scope": "supervised",
+      "dataset": "MNIST",
+      "model": "Conv2D",
+      "seeds": [
+        1003,
+        1004,
+        1005,
+        1006,
+        1007
+      ],
+      "served_index": 0,
+      "per_run": {
+        "epochs": 10,
+        "training_examples": 7000,
+        "evaluation_examples": 1000,
+        "batch_examples": 128,
+        "optimizer_updates": 550,
+        "gradient_example_visits": 70000,
+        "learning_rate": 0.001
+      },
+      "bar": {
+        "metric": "test_accuracy",
+        "target_literal": 0.99,
+        "slack_literal": 0.69,
+        "comparison": "binary64 target-minus-slack inclusive floor; unchanged at whole-five median and served0"
+      },
+      "shared_rule": "/shared_supervised_acceptance"
+    },
+    {
+      "row_id": "fashion-mnist-mlp",
+      "scope": "supervised",
+      "dataset": "Fashion-MNIST",
+      "model": "Dense",
+      "seeds": [
+        1004,
+        1005,
+        1006,
+        1007,
+        1008
+      ],
+      "served_index": 0,
+      "per_run": {
+        "epochs": 10,
+        "training_examples": 7000,
+        "evaluation_examples": 1000,
+        "batch_examples": 128,
+        "optimizer_updates": 550,
+        "gradient_example_visits": 70000,
+        "learning_rate": 0.001
+      },
+      "bar": {
+        "metric": "test_accuracy",
+        "target_literal": 0.89,
+        "slack_literal": 0.08,
+        "comparison": "binary64 target-minus-slack inclusive floor; unchanged at whole-five median and served0"
+      },
+      "shared_rule": "/shared_supervised_acceptance"
+    },
+    {
+      "row_id": "fashion-mnist-resnet",
+      "scope": "supervised",
+      "dataset": "Fashion-MNIST",
+      "model": "ResidualBlock",
+      "seeds": [
+        1005,
+        1006,
+        1007,
+        1008,
+        1009
+      ],
+      "served_index": 0,
+      "per_run": {
+        "epochs": 10,
+        "training_examples": 7000,
+        "evaluation_examples": 1000,
+        "batch_examples": 128,
+        "optimizer_updates": 550,
+        "gradient_example_visits": 70000,
+        "learning_rate": 0.003
+      },
+      "bar": {
+        "metric": "test_accuracy",
+        "target_literal": 0.93,
+        "slack_literal": 0.12,
+        "comparison": "binary64 target-minus-slack inclusive floor; unchanged at whole-five median and served0"
+      },
+      "shared_rule": "/shared_supervised_acceptance"
+    },
+    {
+      "row_id": "cifar10-resnet20",
+      "scope": "supervised",
+      "dataset": "CIFAR-10",
+      "model": "ResidualBlock20",
+      "seeds": [
+        1006,
+        1007,
+        1008,
+        1009,
+        1010
+      ],
+      "served_index": 0,
+      "per_run": {
+        "epochs": 40,
+        "training_examples": 1000,
+        "evaluation_examples": 1000,
+        "batch_examples": 128,
+        "optimizer_updates": 320,
+        "gradient_example_visits": 40000,
+        "learning_rate": 0.0011
+      },
+      "bar": {
+        "metric": "test_accuracy",
+        "target_literal": 0.91,
+        "slack_literal": 0.66,
+        "comparison": "binary64 target-minus-slack inclusive floor; unchanged at whole-five median and served0"
+      },
+      "shared_rule": "/shared_supervised_acceptance"
+    },
+    {
+      "row_id": "cifar10-resnet56",
+      "scope": "supervised",
+      "dataset": "CIFAR-10",
+      "model": "ResidualBlock56",
+      "seeds": [
+        1007,
+        1008,
+        1009,
+        1010,
+        1011
+      ],
+      "served_index": 0,
+      "per_run": {
+        "epochs": 40,
+        "training_examples": 1000,
+        "evaluation_examples": 1000,
+        "batch_examples": 128,
+        "optimizer_updates": 320,
+        "gradient_example_visits": 40000,
+        "learning_rate": 0.001
+      },
+      "bar": {
+        "metric": "test_accuracy",
+        "target_literal": 0.93,
+        "slack_literal": 0.73,
+        "comparison": "binary64 target-minus-slack inclusive floor; unchanged at whole-five median and served0"
+      },
+      "shared_rule": "/shared_supervised_acceptance"
+    },
+    {
+      "row_id": "cifar100-wide-resnet",
+      "scope": "supervised",
+      "dataset": "CIFAR-100",
+      "model": "WideResidualBlock",
+      "seeds": [
+        1008,
+        1009,
+        1010,
+        1011,
+        1012
+      ],
+      "served_index": 0,
+      "per_run": {
+        "epochs": 10,
+        "training_examples": 7000,
+        "evaluation_examples": 1000,
+        "batch_examples": 128,
+        "optimizer_updates": 550,
+        "gradient_example_visits": 70000,
+        "learning_rate": 0.001
+      },
+      "bar": {
+        "metric": "test_accuracy",
+        "target_literal": 0.78,
+        "slack_literal": 0.74,
+        "comparison": "binary64 target-minus-slack inclusive floor; unchanged at whole-five median and served0"
+      },
+      "shared_rule": "/shared_supervised_acceptance"
+    },
+    {
+      "row_id": "cifar10-vit",
+      "scope": "supervised",
+      "dataset": "CIFAR-10",
+      "model": "VisionTransformer",
+      "seeds": [
+        1009,
+        1010,
+        1011,
+        1012,
+        1013
+      ],
+      "served_index": 0,
+      "per_run": {
+        "epochs": 40,
+        "training_examples": 2000,
+        "evaluation_examples": 1000,
+        "batch_examples": 128,
+        "optimizer_updates": 640,
+        "gradient_example_visits": 80000,
+        "learning_rate": 0.0015
+      },
+      "bar": {
+        "metric": "test_accuracy",
+        "target_literal": 0.93,
+        "slack_literal": 0.68,
+        "comparison": "binary64 target-minus-slack inclusive floor; unchanged at whole-five median and served0"
+      },
+      "shared_rule": "/shared_supervised_acceptance"
+    },
+    {
+      "row_id": "tiny-imagenet-resnet50",
+      "scope": "supervised",
+      "dataset": "Tiny ImageNet",
+      "model": "ResidualBlock50",
+      "seeds": [
+        1010,
+        1011,
+        1012,
+        1013,
+        1014
+      ],
+      "served_index": 0,
+      "per_run": {
+        "epochs": 15,
+        "training_examples": 8000,
+        "evaluation_examples": 1000,
+        "batch_examples": 128,
+        "optimizer_updates": 945,
+        "gradient_example_visits": 120000,
+        "learning_rate": 0.001
+      },
+      "bar": {
+        "metric": "test_accuracy",
+        "target_literal": 0.64,
+        "slack_literal": 0.632,
+        "comparison": "binary64 target-minus-slack inclusive floor; unchanged at whole-five median and served0"
+      },
+      "shared_rule": "/shared_supervised_acceptance"
+    },
+    {
+      "row_id": "california-housing-mlp",
+      "scope": "supervised",
+      "dataset": "California Housing",
+      "model": "Dense",
+      "seeds": [
+        1011,
+        1012,
+        1013,
+        1014,
+        1015
+      ],
+      "served_index": 0,
+      "per_run": {
+        "epochs": 100,
+        "training_examples": 7000,
+        "evaluation_examples": 1000,
+        "batch_examples": 128,
+        "optimizer_updates": 5500,
+        "gradient_example_visits": 700000,
+        "learning_rate": 0.001
+      },
+      "bar": {
+        "metric": "standardized rmse",
+        "target_literal": 0.9,
+        "slack_literal": 0.1,
+        "comparison": "binary64 target-plus-slack inclusive ceiling; unchanged at whole-five median and served0"
+      },
+      "shared_rule": "/shared_supervised_acceptance"
+    },
+    {
+      "row_id": "PPO/cartpole",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 475.0,
+        "slack_literal": 25.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "PPO/mountain-car",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": -110.0,
+        "slack_literal": 45.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "PPO/acrobot",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": -100.0,
+        "slack_literal": 50.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "PPO/lunar-lander",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 200.0,
+        "slack_literal": 40.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "PPO/key-door-grid",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 1.0,
+        "slack_literal": 0.5,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "PPO/gridworld-deterministic",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 1.0,
+        "slack_literal": 0.2,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "A2C/cartpole",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 475.0,
+        "slack_literal": 40.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "A2C/mountain-car",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": -110.0,
+        "slack_literal": 45.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "A2C/lunar-lander",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 200.0,
+        "slack_literal": 60.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "A2C/key-door-grid",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 1.0,
+        "slack_literal": 0.5,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "TRPO/cartpole",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 475.0,
+        "slack_literal": 75.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "TRPO/mountain-car",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": -110.0,
+        "slack_literal": 35.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "TRPO/lunar-lander",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 200.0,
+        "slack_literal": 45.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "TRPO/key-door-grid",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 1.0,
+        "slack_literal": 0.25,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "MaskablePPO/cartpole",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 475.0,
+        "slack_literal": 25.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "MaskablePPO/mountain-car",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": -110.0,
+        "slack_literal": 45.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "MaskablePPO/lunar-lander",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 200.0,
+        "slack_literal": 40.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "MaskablePPO/key-door-grid",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 1.0,
+        "slack_literal": 0.15,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "RecurrentPPO/cartpole",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 475.0,
+        "slack_literal": 40.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "RecurrentPPO/mountain-car",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": -110.0,
+        "slack_literal": 50.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "RecurrentPPO/lunar-lander",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 200.0,
+        "slack_literal": 60.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "RecurrentPPO/key-door-grid",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 1.0,
+        "slack_literal": 0.35,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "DQN/cartpole",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 475.0,
+        "slack_literal": 30.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "DQN/mountain-car",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": -110.0,
+        "slack_literal": 40.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "DQN/key-door-grid",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 1.0,
+        "slack_literal": 0.3,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "QR-DQN/cartpole",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 475.0,
+        "slack_literal": 25.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "QR-DQN/mountain-car",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": -110.0,
+        "slack_literal": 35.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "QR-DQN/key-door-grid",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 1.0,
+        "slack_literal": 0.25,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "DDPG/lunar-lander",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 200.0,
+        "slack_literal": 95.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "TD3/lunar-lander",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 200.0,
+        "slack_literal": 60.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "SAC/lunar-lander",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 200.0,
+        "slack_literal": 40.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "SAC/pendulum",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": -200.0,
+        "slack_literal": 180.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "CrossQ/lunar-lander",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 200.0,
+        "slack_literal": 40.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "TQC/lunar-lander",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 200.0,
+        "slack_literal": 40.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "ARS/cartpole",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 475.0,
+        "slack_literal": 75.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "ARS/mountain-car",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": -110.0,
+        "slack_literal": 80.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "ARS/lunar-lander",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 200.0,
+        "slack_literal": 120.0,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "ARS/key-door-grid",
+      "scope": "native",
+      "family": "RETURN",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "metric": "median_final_reward",
+        "target_literal": 1.0,
+        "slack_literal": 0.45,
+        "comparison": "unchanged binary64 target-minus-slack inclusive floor at full-five per-policy-quality median and served0"
+      },
+      "shared_rule": "/shared_native_acceptance/return",
+      "fixed_full_recipe": "Pinned canonicalProductRlSchedule in src/JitML/RL/ProductBudget.hs; PPO/mountain-car2457600 transitions/seed; all source-owned work/reset/trainer/optimizer settings preserved"
+    },
+    {
+      "row_id": "HER/goal-reaching",
+      "scope": "native",
+      "family": "HER",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "bar": {
+        "goal_success_rate": "unchanged0.90\u22120.05",
+        "achieved_goal_distance": "unchanged<=0.05; source nominal0.04 is not a learned observation"
+      },
+      "recipe": "exact canonicalProductRlSchedule(HER,goal-reaching), unchanged six-bit/six-step training; fixed20 sampler-only goals at42+104729",
+      "joint_rule": "same final policy strictly improves success AND exact normalized distance from authentic effective initial policy, and beats both extrema from complete6^6=46656 goal-blind length6 sequences; at least3of5 joint successes",
+      "reference_control": "success tie only if actual reference extremum and final both20; distance tie only if actual reference extremum and final both0; strict initial gains never relaxed",
+      "cohort_rule": "full-five per-policy median of both legacy statistics and served0 own joint/both bars, exact work and physical provenance"
+    },
+    {
+      "row_id": "connect4",
+      "scope": "native",
+      "family": "AlphaZero",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "recipe": {
+        "generations": 64,
+        "training_mcts_simulations_per_move": 128,
+        "evaluation": "fixed row-owned base7961/addressed nine-case common tape; player1 vs legal-uniform opponent; current search/horizon/pass/draw rules retained"
+      },
+      "bar": {
+        "arena_score": "unchanged strict>binary64(.45\u2212.05), excluding0.5 within1e-12",
+        "legal_move_rate": "unchanged>=1; complete legal transcript"
+      },
+      "joint_rule": "exact rational(2wins+draws)/18 strictly improves over authentic initial AND separately beats both actual plain legal-uniform and neutral-prior zero-value MCTS reference; at least3of5 joint successes",
+      "reference_control": "tie only when actual named reference and final both exact score1; no rounded/subset equality; initial gain always strict",
+      "cohort_rule": "full-five medians of both legacy statistics; served0 own joint/both bars, actual work, selected device, exact full graph/search/head replay and Store/journal checks"
+    },
+    {
+      "row_id": "othello",
+      "scope": "native",
+      "family": "AlphaZero",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "recipe": {
+        "generations": 96,
+        "training_mcts_simulations_per_move": 192,
+        "evaluation": "fixed row-owned base7961/addressed nine-case common tape; player1 vs legal-uniform opponent; current search/horizon/pass/draw rules retained"
+      },
+      "bar": {
+        "arena_score": "unchanged strict>binary64(.45\u2212.05), excluding0.5 within1e-12",
+        "legal_move_rate": "unchanged>=1; complete legal transcript"
+      },
+      "joint_rule": "exact rational(2wins+draws)/18 strictly improves over authentic initial AND separately beats both actual plain legal-uniform and neutral-prior zero-value MCTS reference; at least3of5 joint successes",
+      "reference_control": "tie only when actual named reference and final both exact score1; no rounded/subset equality; initial gain always strict",
+      "cohort_rule": "full-five medians of both legacy statistics; served0 own joint/both bars, actual work, selected device, exact full graph/search/head replay and Store/journal checks"
+    },
+    {
+      "row_id": "hex",
+      "scope": "native",
+      "family": "AlphaZero",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "recipe": {
+        "generations": 128,
+        "training_mcts_simulations_per_move": 256,
+        "evaluation": "fixed row-owned base7961/addressed nine-case common tape; player1 vs legal-uniform opponent; current search/horizon/pass/draw rules retained"
+      },
+      "bar": {
+        "arena_score": "unchanged strict>binary64(.45\u2212.05), excluding0.5 within1e-12",
+        "legal_move_rate": "unchanged>=1; complete legal transcript"
+      },
+      "joint_rule": "exact rational(2wins+draws)/18 strictly improves over authentic initial AND separately beats both actual plain legal-uniform and neutral-prior zero-value MCTS reference; at least3of5 joint successes",
+      "reference_control": "tie only when actual named reference and final both exact score1; no rounded/subset equality; initial gain always strict",
+      "cohort_rule": "full-five medians of both legacy statistics; served0 own joint/both bars, actual work, selected device, exact full graph/search/head replay and Store/journal checks"
+    },
+    {
+      "row_id": "gomoku",
+      "scope": "native",
+      "family": "AlphaZero",
+      "seeds": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "recipe": {
+        "generations": 128,
+        "training_mcts_simulations_per_move": 256,
+        "evaluation": "fixed row-owned base7961/addressed nine-case common tape; player1 vs legal-uniform opponent; current search/horizon/pass/draw rules retained"
+      },
+      "bar": {
+        "arena_score": "unchanged strict>binary64(.45\u2212.05), excluding0.5 within1e-12",
+        "legal_move_rate": "unchanged>=1; complete legal transcript"
+      },
+      "joint_rule": "exact rational(2wins+draws)/18 strictly improves over authentic initial AND separately beats both actual plain legal-uniform and neutral-prior zero-value MCTS reference; at least3of5 joint successes",
+      "reference_control": "tie only when actual named reference and final both exact score1; no rounded/subset equality; initial gain always strict",
+      "cohort_rule": "full-five medians of both legacy statistics; served0 own joint/both bars, actual work, selected device, exact full graph/search/head replay and Store/journal checks"
+    },
+    {
+      "row_id": "hyperparameter-tuning",
+      "scope": "context-only",
+      "seed": 1729,
+      "trials": 128,
+      "bar": "unchanged best_objective>=binary64(1.0\u22120.05)",
+      "judgment": "Not adjudicated for learning/convergence by supervised/native reviews; retain complete row identity in ordered55 context; ordinary full-lane admission still required"
+    }
+  ],
+  "shared_supervised_acceptance": {
+    "indices": [
+      0,
+      1,
+      2,
+      3,
+      4
+    ],
+    "seeds": "canonical row base+index, fixed before all qualifying execution",
+    "served_index": 0,
+    "complete_allocation": "Exactly five original finite budget-complete observations in original order. Missing, duplicate, reordered, substituted, nonfinite or wrong-budget children fail. All finite low/non-improving outcomes remain. No cherry picking, episode pooling, score-selected retries or budget extensions.",
+    "same_member_joint_success": "At least3 runs each strictly improves its own authentic before-update predictor AND passes its applicable independent reference control. Successes from different coordinates on different models cannot be combined.",
+    "classification": "Exact finalCorrect>initialCorrect; finalCorrect>maximum held-out class count; exact Binomial(n,1/C) upper-tail<=1/5000. The actual held-out label distribution may strengthen the majority threshold.",
+    "regression": "Exact rational interpretations of retained finite binary64 vectors require SSE_final<SSE_initial and SSE_final<SST, with finite positive target scale and nonzero held-out variance. No RMSE rounding or parity tolerance may manufacture a gain.",
+    "additional_unchanged_quality": "The median of allfive final primary metrics must clear the original source-owned historical bar; original index0 separately clears that bar and both learning conditions. Its own metric remains distinct from the median.",
+    "physical_requirements": "Producer-authenticated actual snapshots/graph/transforms/dataset/split, fixed work/counters, selected device, actual Store admission and exact served-byte replay remain required by the current producer/report/journal boundary. Mathematical DATA is insufficient."
+  },
+  "independent_statistical_reasoning": {
+    "method": "Fresh Python math.comb integer numerator sums, not repository implementation execution and not historical judgments",
+    "binomial_n1000_alpha_1_over_5000": [
+      {
+        "n": 1000,
+        "classes": 10,
+        "critical_uniform_correct": 136,
+        "tail_at_critical_approx": 0.0001693452442258408,
+        "tail_before_critical_approx": 0.00024394550714750528,
+        "exact_integer_decision_at_critical": true,
+        "exact_integer_decision_one_below": false
+      },
+      {
+        "n": 1000,
+        "classes": 100,
+        "critical_uniform_correct": 24,
+        "tail_at_critical_approx": 0.00010908385071228082,
+        "tail_before_critical_approx": 0.0002721563481729341,
+        "exact_integer_decision_at_critical": true,
+        "exact_integer_decision_one_below": false
+      },
+      {
+        "n": 1000,
+        "classes": 200,
+        "critical_uniform_correct": 16,
+        "tail_at_critical_approx": 6.515582032004274e-05,
+        "tail_before_critical_approx": 0.00021580336348481794,
+        "exact_integer_decision_at_critical": true,
+        "exact_integer_decision_one_below": false
+      }
+    ],
+    "cohort_null_bound": "If each of the five events has probability <=1/5000, E[N]<=5/5000, hence P[N>=3]<=1/3000; no between-seed independence needed. Joint success is a subset of the signal event.",
+    "finite_family_bound": "30 prospectively fixed all-five uniform-per-example-null classification cohorts have union bound <=30/3000=0.01.",
+    "excluded_interpretations": [
+      "mixed nulls",
+      "adaptive attempts or reused benchmark-driven edits",
+      "arbitrary random neural predictor null",
+      "regression confidence bound",
+      "population accuracy",
+      "native RL probability guarantee"
+    ]
+  },
+  "tiny_outcome_calibrated_floor": {
+    "actual_floor_binary64": 0.008000000000000007,
+    "current_n": 1000,
+    "current_uniform_critical_count": 16,
+    "minimum_metric_of_any_joint_success": 0.016,
+    "whole_five_median_implication": "at least3 same-model joint successes => at least3 metrics>=.016 => median of allfive>=.016 > unchanged legacy floor",
+    "served0_implication": "independent served0 eligibility requires its own learning signal => served0>=.016 > unchanged legacy floor",
+    "judgment": "Tiny historical floor retains outcome-calibrated provenance but is redundant on both accepted required scopes. It cannot replace the independent criterion or establish published convergence.",
+    "still_binding_or_claim_blockers": [
+      "The old floor remains syntactically checked, but is not necessary to determine any current accepted Tiny cohort.",
+      "Any interpretation claiming independent external provenance of that literal or published-model convergence remains unsupported.",
+      "Other higher historical/project floors can still reject a learning cohort; this review preserves them and does not rebaseline, relabel or waive a failed floor."
+    ]
+  },
+  "historical_floor_and_external_truth_judgment": {
+    "observed_self_referential_literal": "Tiny effective0.008 was chosen after measured0.012; it retains that provenance and is not an external anchor.",
+    "domination_conclusion": "At n1000 current independent uniform critical count is16. >=3 joint successes force whole-five median>=0.016, and independently eligible served0 has metric>=0.016. These both strictly dominate actual binary64(.64\u2212.632). Thus the old Tiny floor is redundant for every accepted current cohort at both required scopes.",
+    "other_still_binding_floors": "Higher SL floors and native target/slack bars remain real additional restrictions and may reject a cohort that learned. Their unproved/project origins are preserved; none is promoted to an independently justified published target. No failed floor is waived.",
+    "phase_owned_scope": "README Threshold methodology and Sprint278 Objective/Deliverables explicitly retain the user-approved exact compact predictive-learning reconciliation. I assess that finite procedure directly and preserve every physical/execution/journal obligation. I do not substitute a weaker singleton, callback, measured-score threshold or published-convergence claim.",
+    "blocking_unsupported_interpretations": [
+      "Independent external provenance for the Tiny literal or all target/slack numbers",
+      "Published architecture/model or Gymnasium/SB3 protocol parity without matched implementation/data/evaluation evidence",
+      "Any claimed generalization or adaptive-attempt probability guarantee",
+      "Phase278 closure inferred from this review or its linked helper/25focused+3guard build"
+    ]
+  },
+  "shared_native_acceptance": {
+    "training_members": "Exactly original indices0..4/seeds42..46, all unchanged full allocations and all outcomes retained, predetermined served0.",
+    "joint_rule": "At least3 same-policy strict effective-initial gains AND complete applicable finite-reference comparisons. Full-five medians of every legacy family quality statistic and served0 own full joint/quality eligibility remain additional restrictions.",
+    "return": "Same20 canonical starts and row horizon. Exact rational final median strictly beats own authentic effective initial and every fixed reference. Only current KeyDoor full-state/time legal-transition proof may allow both actual reference and final at its proved maximum; no other RETURN tie.",
+    "her": "Common fixed20 sampler-only goals at42+104729. Both success and exact normalized terminal-distance gains are strict. Complete46656 goal-blind reference sequences provide separate extrema. Ties require actual reference/final20success or actual reference/final0distance respectively.",
+    "arena": "Complete nine addressed row-tape cases at7961, actual player1/legal-uniform opponent and unchanged game-aware search/horizon/pass/draw rules. Exact score(2wins+draws)/18 strictly improves initialization and separately beats both plain-uniform and neutral-prior zero-value MCTS references, except actual reference/final exact1. All old arena/legal constraints and0.5 exclusion remain.",
+    "ars_and_warm_start": "ARS remains honest host-Double linear search including whole applied aggregate-step lineage; a positive sampled perturbation or unrelated neural witness is insufficient. SAC/pendulum preparation and its340000 warm Adam applications remain separately retained; strict gain starts from the actual effective initialization and does not relabel preparation as scheduled learning.",
+    "finite_claim_limits": "These are fixed finite task/reference comparisons, not all possible controllers, independent tasks, population/probability claims or published-model equivalence. Initial gains remain strict even at reference optima. No SL binomial probability claim transfers to native RL.",
+    "future_authentication": "Actual allfive models, before-dependent-work durable boundaries, full reference/attempt retention, original source/process/invocation, complete current parent and selected-policy/head/search replays, actual Store and authenticated full journal still must pass."
+  },
+  "source_J_representation_change_assessment": {
+    "observation": "Current SupervisedQualification refines the same full evaluation/five raw members and exact policies, then packs feature/label/target storage with explicit row lengths and unboxed binary64 values. Public projection reconstructs the original order, bytes and fields; initial/final blobs and review bytes are copied to detach backing storage.",
+    "scientific_implication": "I find no changed acceptance arithmetic or numerical allocation in this private representation. Actual current110 contract vectors bind the claimed public contracts. The retained focused tests exercise exact public projection and signed-zero bits;25qualification+3phasing results are scoped engineering evidence, not full-unit, runtime memory-fit, training or scientific qualification evidence.",
+    "remaining_limit": "No whole55 retained-memory or actual new qualifying source-J cohort execution was assessed by this review."
+  },
+  "tuning_context": {
+    "row_id": "hyperparameter-tuning",
+    "seed": 1729,
+    "trials": 128,
+    "scope": "Ordered55 context only in allfour reviews; no tuning-learning result or source provenance fabricated. Full current tuning contract and ordinary lane admission remain required; source binding is explicitly absent in its retained original wire."
+  },
+  "current_source_and_governance_pins": [
+    {
+      "path": "src/JitML/Product/Matrix.hs",
+      "bytes": 89038,
+      "sha256": "7a020368dc1423a68f12a624e1f4d256ab3543e2f5c572d20b367866b5de1855"
+    },
+    {
+      "path": "src/JitML/SL/Canonicals.hs",
+      "bytes": 5193,
+      "sha256": "e61bf672f0076c08a337f673c879d6aa7f97e9053ea6260af502efba175d77f3"
+    },
+    {
+      "path": "src/JitML/SL/ConvergenceThresholds.hs",
+      "bytes": 6145,
+      "sha256": "ca87a62ed2b1718595dcf5c7328f0cf261a148a791e6fc42ad37803cd1002ab6"
+    },
+    {
+      "path": "src/JitML/RL/ConvergenceThresholds.hs",
+      "bytes": 15245,
+      "sha256": "5275585e1cfa6caff46fea1e9180f6af9b018d6971bad2bd5c9b86c20be24e1c"
+    },
+    {
+      "path": "src/JitML/Product/Convergence.hs",
+      "bytes": 5489,
+      "sha256": "d8b581628ffaf04693d2afa1d8b109b0c9685f114ff797740fa8a1627737786e"
+    },
+    {
+      "path": "src/JitML/Product/LearningSignal.hs",
+      "bytes": 7023,
+      "sha256": "f21727b739073aa3d0bc2118ee3b7818690cff57ec30bea01bb35df6ad5b2f31"
+    },
+    {
+      "path": "src/JitML/Product/SupervisedQualificationPolicy.hs",
+      "bytes": 14275,
+      "sha256": "50e89bd9078bfe25055bcf5e1be6ccf7e36c0ca1b69488eedf2904e944b70c9d"
+    },
+    {
+      "path": "src/JitML/Product/SupervisedQualification.hs",
+      "bytes": 36933,
+      "sha256": "2c28b93d9366c4259a4ab45d04d5903768483d4869bebf487d1b9a9e64108fce"
+    },
+    {
+      "path": "src/JitML/Product/SupervisedQualificationReceipt.hs",
+      "bytes": 29201,
+      "sha256": "acc0c28c639e810904aa5bfa0823c98f27cc570eb215b8e32a6fd388d214fe23"
+    },
+    {
+      "path": "src/JitML/Product/NativeRlCohortPlan.hs",
+      "bytes": 36360,
+      "sha256": "95b39c4123e31642ec98dcf3721b1e652444565d6df879dfd0e3d7e55d36362a"
+    },
+    {
+      "path": "src/JitML/Product/NativeReturnLearningPolicy.hs",
+      "bytes": 15540,
+      "sha256": "f028b706b40387d29e3e43257d750e2b243dc6f70632ab1e4fba633714258274"
+    },
+    {
+      "path": "src/JitML/Product/NativeHerLearningPolicy.hs",
+      "bytes": 31241,
+      "sha256": "6f0c617b901bc2318a13b5a07efef4dd900f509bf57a693f360984fe28ba67df"
+    },
+    {
+      "path": "src/JitML/Product/NativeArenaLearningPolicy.hs",
+      "bytes": 28996,
+      "sha256": "af62169d3656d559deeaaed8d2c281a8a192cf9c6f781ee1610c3fc905eccb0d"
+    },
+    {
+      "path": "src/JitML/RL/NativeReturnReferences.hs",
+      "bytes": 18535,
+      "sha256": "59e53e6704d4c1e45bce96a863e7a9823dbffa1188c25fa97f03bfdee56ad36e"
+    },
+    {
+      "path": "src/JitML/RL/NativeReturnCeiling.hs",
+      "bytes": 9774,
+      "sha256": "8e2784c126881767d74d40d3de3dcea6663232a8433f0c86e4a3be6b32fda5d6"
+    },
+    {
+      "path": "src/JitML/RL/NativeHerReferences.hs",
+      "bytes": 14869,
+      "sha256": "8772d3d1a9571459ad3edaa6e733772c47511cba53e59456b456291a4ae37de6"
+    },
+    {
+      "path": "src/JitML/RL/AlphaZero/NativeArenaReferences.hs",
+      "bytes": 21421,
+      "sha256": "eb2d2158dd812fba91dcfbaeb6fd2df6ec44f2dc13658bea6abd8f3a0fcee492"
+    },
+    {
+      "path": "src/JitML/Test/RegisteredLaneEvidence.hs",
+      "bytes": 8554,
+      "sha256": "3c7b24be74b3544d5cf599e23a8d0057d7d3968db494cab01d68fb7976536328"
+    },
+    {
+      "path": "src/JitML/Product/CriterionReviewData.hs",
+      "bytes": 16933,
+      "sha256": "a3adda9f708de936aaaa2425ed03ced94ff055667ea7b3a257263a2074cc7735"
+    },
+    {
+      "path": "src/JitML/Product/CriterionReview.hs",
+      "bytes": 7566,
+      "sha256": "aae45be4ec713e11a2f3f835ba0330c1a6676574f2a8e730ba6e8fdbc400dac9"
+    },
+    {
+      "path": "src/JitML/Product/LaneRegistrationData.hs",
+      "bytes": 17302,
+      "sha256": "a2b8f87d824fd3ec14947152ed1c74a0ea276aa6bae71b05c01227334f587857"
+    },
+    {
+      "path": "src/JitML/Product/LaneRegistration.hs",
+      "bytes": 7462,
+      "sha256": "a45823a2131bb3ef6d38d1b5e490399af6a2e1ddf4923c8cbe67932017fedce6"
+    },
+    {
+      "path": "src/JitML/SL/Regression.hs",
+      "bytes": 20754,
+      "sha256": "51e39bfc3d7e91f1381d7b15be7f4062b4c63bb8c53e0f643d60bd3a10375fb2"
+    },
+    {
+      "path": "src/JitML/SL/TinyImageNet.hs",
+      "bytes": 24164,
+      "sha256": "af26e749446e7736029e4f9fca81fe4f7254a32edbd89d28262db955354d0a2c"
+    },
+    {
+      "path": "src/JitML/RL/ProductBudget.hs",
+      "bytes": 28073,
+      "sha256": "5d33151e8af6f8ec60b2a30bd44800b2d7e310bdfbd1e3839865eec543c3c145"
+    },
+    {
+      "path": "README.md",
+      "bytes": 354270,
+      "sha256": "d40d8e86f14413fc8e8cddedbeed0102a6dbdd632b7a6c1346831c574ef326c2"
+    },
+    {
+      "path": "AGENTS.md",
+      "bytes": 9964,
+      "sha256": "dfb911a7eb54f4f5032e72a9bb6acf8c87a3f00e36a41893dc2cf4c42aefcb5e"
+    },
+    {
+      "path": "DEVELOPMENT_PLAN/development_plan_standards.md",
+      "bytes": 88153,
+      "sha256": "c828b1b5988de806043bfaeb0178dad196a58910fc7c9f7de035672d8648139a"
+    },
+    {
+      "path": "DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md",
+      "bytes": 295309,
+      "sha256": "1d84dd922945d2e4576bab28e362d94de3f1441c91a34136bbb9d48eb72552b0"
+    },
+    {
+      "path": "documents/engineering/training_metrics_and_splits.md",
+      "bytes": 64342,
+      "sha256": "bbce002cfed7ca3fd1722e519ccb7295d3ca2ecdf6b239549a27f9593e9e48a8"
+    },
+    {
+      "path": "src/JitML/Product/ExternalBars.hs",
+      "bytes": 29462,
+      "sha256": "3f7ecd28a5faf1edef49bdda7566e611e45e478be3780dfae47fd26e84455406"
+    },
+    {
+      "path": "src/JitML/Test/Report.hs",
+      "bytes": 150198,
+      "sha256": "2e877cab2c0253094e4ac3492a208e770b125b54c382a820373ce8f1aa444fe0"
+    },
+    {
+      "path": "test/unit/SupervisedQualification.hs",
+      "bytes": 41554,
+      "sha256": "515a0105fb16a761e2bf8578cb6115366e9dac59d7be2e5c032e425c8eeee3ff"
+    }
+  ],
+  "primary_external_sources": [
+    {
+      "url": "https://www.itl.nist.gov/div898/handbook/eda/section3/eda366i.htm",
+      "supports": "Binomial mass and cumulative probability for fixed p; numeric critical counts are my inference."
+    },
+    {
+      "url": "https://www.itl.nist.gov/div898/handbook/prc/section4/prc473.htm",
+      "supports": "General finite-family probability inequality; cohort calculation is my inference."
+    },
+    {
+      "url": "https://scikit-learn.org/stable/modules/generated/sklearn.metrics.r2_score.html",
+      "supports": "R2 best-constant definition, not external utility threshold."
+    },
+    {
+      "url": "https://www.jmlr.org/papers/v11/cawley10a.html",
+      "supports": "Finite model-selection criterion optimization can bias evaluations; frozen review does not create fresh data."
+    }
+  ],
+  "historical_supporting_inputs": [
+    {
+      "path": "DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/compact-criterion-review/raw/proposal/primary-sources.json",
+      "bytes": 2153,
+      "sha256": "2c8dacc1f78a75e3b10ee0e007584e2a3079f99b531bae553d2109cedd00f08e",
+      "historical": true
+    },
+    {
+      "path": "DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-review/supervised-anchor-inputs.json",
+      "bytes": 2822,
+      "sha256": "7d24a893d5b94bc0dce1d5b8689d0a4d8b6ce3d618e2136e38f9def275903eb6",
+      "historical": true
+    },
+    {
+      "path": "DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/rl-criterion-review/README.md",
+      "bytes": 9649,
+      "sha256": "38d9aceb03b0d02df1170b8eed919f63cb4d6699d3c018dc39b11ea28694c056",
+      "historical": true
+    }
+  ],
+  "own_preparatory_artifacts": [
+    {
+      "path": ".build/phase278-stateful-pv-fix-20261101-a/criterion-review-j-drafts-a/preparation-a.json",
+      "bytes": 9762,
+      "sha256": "46813a9071137fb38ac30fefb1fdf4de5fff8ed92bf5ff7c7089412b692f7d20"
+    },
+    {
+      "path": ".build/phase278-stateful-pv-fix-20261101-a/criterion-review-j-drafts-a/criterion-analysis-a.json",
+      "bytes": 73214,
+      "sha256": "43be9acbe709ff8e901cc0beb88ba8c39af91d67783b516298c629b889352f42"
+    },
+    {
+      "path": ".build/phase278-stateful-pv-fix-20261101-a/criterion-review-j-drafts-a/actual-export-binding-a.json",
+      "bytes": 3121,
+      "sha256": "10005d4ec5494b4902201713650ea886835d283f70009d13fefea2c4eff012d3"
+    },
+    {
+      "path": ".build/phase278-stateful-pv-fix-20261101-a/criterion-review-j-drafts-a/independent-four-scope-judgment-a.json",
+      "bytes": 139127,
+      "sha256": "a52129d12779fd28d3d50a6e8ee91c54e788ad3b14f044078755abf3db7541dc",
+      "role": "own larger explanatory draft; current final is authoritative reviewer-A artifact"
+    }
+  ],
+  "outstanding_phase_obligations_not_closed": [
+    "Authentic current-source full CPU55 and Apple55 five-run qualification with all prescribed members and exact unchanged recipes/bars",
+    "Both complete authenticated lane journals and separate genuine current registrations",
+    "Real selected-device and exact served-byte/Store replay obligations",
+    "Required unfiltered standing gates, docs and code-quality results; existing failed full-unit remains literal",
+    "Resource supervision/memory-fit and runtime/application preservation/Ready/DATA obligations at their separate real scopes"
+  ],
+  "explicit_nonclaims": [
+    "No new model training or qualification executed",
+    "No hardware lane or provider validated by this reviewer",
+    "No new Ready or application-DATA readback",
+    "No lane admission, registration, journal acceptance or publication",
+    "No full-unit/standing-gate or phase closure",
+    "No source or canonical criterion file modified; no materialization performed",
+    "No git staging, commit or push"
+  ],
+  "artifact_role": "FINAL_REVIEWER_A_JUDGMENT; earlier larger own-authored judgment retained as explanatory draft only"
+}

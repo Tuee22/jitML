@@ -1,0 +1,89 @@
+{
+  "source": {
+    "algorithm": 1,
+    "sha256": "15c6dbdabc9048216ff3a13cb00d08c3e0b4f5ff89fc7b17a5474a0f04380248"
+  },
+  "observations": [
+    {
+      "path": "src/JitML/Product/SupervisedCohortPlan.hs",
+      "reason": "Opaque cohort owns exactly five singleton seed plans0..4; policy and full child transports enter cohort PlanId."
+    },
+    {
+      "path": "src/JitML/Product/SupervisedQualificationPolicy.hs",
+      "reason": "Exact ordered5, planned complete work, finite outcomes, joint>=3, median over all5, index0 independently passes signal/improvement/unchanged floor. Finite failed members remain in raw assessment."
+    },
+    {
+      "path": "src/JitML/Product/SupervisedQualification.hs",
+      "reason": "Refinement binds original source/lane/row/cohort, dataset-at-read/evaluation digest, each child attempt/PlanId/transport/work, device, actual initial/final bytes and replay. Pure mathematical qualification alone is not authenticated completion."
+    },
+    {
+      "path": "src/JitML/Product/SupervisedQualificationReceipt.hs",
+      "reason": "Parent source/executable/invocation and admitted manifest/Store serving replay must match before publication; portable retained data preserves original authenticated identities."
+    },
+    {
+      "path": "src/JitML/Test/ProductScenarioRunner.hs",
+      "reason": "Parent computes current source and captures current fixed review before supervised child effects; same source/review and pinned executable are rechecked afterward. Missing/stale review refuses. No child-provided source pin grants authority."
+    },
+    {
+      "path": "src/JitML/Product/CriterionReview.hs",
+      "reason": "Actual FILE loader checks fixed source/lane/scope selection, canonical receipt, current full55 contract digest and complete SHA/count artifact closure. It checks integrity, not reviewer independence."
+    }
+  ],
+  "current_source_files": [
+    {
+      "path": "src/JitML/Product/SupervisedCohortPlan.hs",
+      "bytes": 4209,
+      "sha256": "c952f30a32a8ce8e1ef8ff255e2cfd85ee98fb11a07a87f33c30f38031b55a5c"
+    },
+    {
+      "path": "src/JitML/Product/SupervisedQualificationPolicy.hs",
+      "bytes": 14275,
+      "sha256": "50e89bd9078bfe25055bcf5e1be6ccf7e36c0ca1b69488eedf2904e944b70c9d"
+    },
+    {
+      "path": "src/JitML/Product/SupervisedQualification.hs",
+      "bytes": 28933,
+      "sha256": "02d0318386a2fa9aa3890d16b1f67f9463ce8f9ba0e041d72242a505947ad095"
+    },
+    {
+      "path": "src/JitML/Product/SupervisedQualificationReceipt.hs",
+      "bytes": 29201,
+      "sha256": "acc0c28c639e810904aa5bfa0823c98f27cc570eb215b8e32a6fd388d214fe23"
+    },
+    {
+      "path": "src/JitML/Test/ProductScenarioRunner.hs",
+      "bytes": 34366,
+      "sha256": "600cc041c1d78576dbd9e85b0487aa99303d7b8bde61142d0ba5f5b66f9541fd"
+    },
+    {
+      "path": "src/JitML/Product/CriterionReview.hs",
+      "bytes": 7566,
+      "sha256": "aae45be4ec713e11a2f3f835ba0330c1a6676574f2a8e730ba6e8fdbc400dac9"
+    },
+    {
+      "path": "src/JitML/Product/LearningSignal.hs",
+      "bytes": 7023,
+      "sha256": "f21727b739073aa3d0bc2118ee3b7818690cff57ec30bea01bb35df6ad5b2f31"
+    },
+    {
+      "path": "src/JitML/SL/Canonicals.hs",
+      "bytes": 5193,
+      "sha256": "e61bf672f0076c08a337f673c879d6aa7f97e9053ea6260af502efba175d77f3"
+    },
+    {
+      "path": "src/JitML/SL/ConvergenceThresholds.hs",
+      "bytes": 6222,
+      "sha256": "f0c61dccac013c190cee680d04f575cb3a6819a9a22954893902f640bba81cb8"
+    },
+    {
+      "path": "src/JitML/Product/Matrix.hs",
+      "bytes": 88600,
+      "sha256": "eb8af4c00c4b96eee037843f0af9c323305afcd239cd9b3ff2704def8e3d3607"
+    },
+    {
+      "path": "src/JitML/Product/Convergence.hs",
+      "bytes": 5489,
+      "sha256": "d8b581628ffaf04693d2afa1d8b109b0c9685f114ff797740fa8a1627737786e"
+    }
+  ]
+}

@@ -52,6 +52,7 @@ where
 import Codec.Serialise (Serialise, deserialiseOrFail, serialise)
 import Control.Monad (zipWithM)
 import Data.ByteString (ByteString)
+import Data.ByteString qualified as ByteString
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.List qualified as List
 import Data.List.NonEmpty qualified as NonEmpty
@@ -179,17 +180,158 @@ data BudgetCompleteSupervisedSeedOutcome
       !Text
   deriving stock (Eq, Show)
 
+-- The refined value owns compact evaluation storage, rather than retaining the
+-- decoded raw DTO and its boxed feature lists. Core fields are independent:
+-- selecting one cannot keep a raw qualification alive through a lazy selector.
+data QualificationCore = QualificationCore
+  { coreVersion :: !Word64
+  , corePolicy :: !Text
+  , coreRowId :: !Text
+  , coreSubstrate :: !Text
+  , coreCohortPlanId :: !Text
+  , coreCohortTransport :: !Text
+  , coreDatasetSha256 :: !Text
+  , coreProducer :: !RawQualificationProducer
+  , coreEvaluationSha256 :: !Text
+  , coreRuntime :: !Runtime.RawSupervisedRuntime
+  , coreGraphMetadata :: !LayerGraphMetadata
+  }
+  deriving stock (Eq)
+
+-- Row boundaries remain explicit; reconstruction preserves the exact original
+-- row order and binary64 values without assuming a uniform row width.
+data PackedQualificationEvaluation
+  = PackedClassificationEvaluation
+      !(VU.Vector Int)
+      !(VU.Vector Double)
+      !(VU.Vector Int)
+  | PackedRegressionEvaluation
+      !Double
+      !(VU.Vector Int)
+      !(VU.Vector Double)
+      !(VU.Vector Double)
+  deriving stock (Eq)
+
 data SupervisedQualification
   = SupervisedQualification
-      !RawSupervisedQualification
+      !QualificationCore
+      !PackedQualificationEvaluation
       !(NonEmpty.NonEmpty BudgetCompleteSupervisedSeedOutcome)
       !Policy.SupervisedCohortAssessment
-  deriving stock (Eq, Show)
+  deriving stock (Eq)
+
+-- Preserve the existing opaque value's diagnostic rendering. Reconstruction is
+-- demanded only by this explicit projection; no raw value is cached inside it.
+instance Show SupervisedQualification where
+  showsPrec precedence value@(SupervisedQualification _ _ outcomes assessment) =
+    showParen (precedence > 10) $
+      showString "SupervisedQualification "
+        . showsPrec 11 (supervisedQualificationToRaw value)
+        . showChar ' '
+        . showsPrec 11 outcomes
+        . showChar ' '
+        . showsPrec 11 assessment
 
 -- | Mathematical qualification only. Producer authentication, actual initial
 -- capture and physical Store admission are still required by the publisher.
 newtype QualifiedSupervisedCohort = QualifiedSupervisedCohort SupervisedQualification
   deriving stock (Eq, Show)
+
+qualificationCoreFromRaw :: RawSupervisedQualification -> QualificationCore
+qualificationCoreFromRaw raw =
+  QualificationCore
+    { coreVersion = rawQualificationVersion raw
+    , corePolicy = rawQualificationPolicy raw
+    , coreRowId = rawQualificationRowId raw
+    , coreSubstrate = rawQualificationSubstrate raw
+    , coreCohortPlanId = rawQualificationCohortPlanId raw
+    , coreCohortTransport = rawQualificationCohortTransport raw
+    , coreDatasetSha256 = rawQualificationDatasetSha256 raw
+    , coreProducer = detachProducer (rawQualificationProducer raw)
+    , coreEvaluationSha256 = rawQualificationEvaluationSha256 raw
+    , coreRuntime = rawQualificationRuntime raw
+    , coreGraphMetadata = rawQualificationGraphMetadata raw
+    }
+
+-- Small decoded opaque byte fields may be slices of the whole CBOR input.
+-- Copy each retained field once, so it cannot pin that larger backing buffer.
+detachProducer :: RawQualificationProducer -> RawQualificationProducer
+detachProducer producer = case producer of
+  RawQualificationProducer {} -> producer
+  RawObservedReviewedQualificationProducer source executable invocation identity ->
+    RawObservedReviewedQualificationProducer source executable invocation (ByteString.copy identity)
+  RawSuppliedReviewedQualificationProducer source executable invocation identity ->
+    RawSuppliedReviewedQualificationProducer source executable invocation (ByteString.copy identity)
+
+detachSeed :: RawSupervisedSeedOutcome -> RawSupervisedSeedOutcome
+detachSeed raw =
+  raw
+    { rawSeedInitialSnapshotBytes = ByteString.copy (rawSeedInitialSnapshotBytes raw)
+    , rawSeedFinalJmw1Bytes = ByteString.copy (rawSeedFinalJmw1Bytes raw)
+    }
+
+packEvaluation :: RawQualificationEvaluation -> PackedQualificationEvaluation
+packEvaluation evaluation = case evaluation of
+  RawClassificationEvaluation examples ->
+    PackedClassificationEvaluation
+      (VU.fromList (fmap (length . fst) examples))
+      (VU.fromList (concatMap fst examples))
+      (VU.fromList (fmap snd examples))
+  RawRegressionEvaluation scale examples ->
+    PackedRegressionEvaluation
+      scale
+      (VU.fromList (fmap (length . fst) examples))
+      (VU.fromList (concatMap fst examples))
+      (VU.fromList (fmap snd examples))
+
+unpackEvaluation :: PackedQualificationEvaluation -> RawQualificationEvaluation
+unpackEvaluation packed = case packed of
+  PackedClassificationEvaluation lengths features labels ->
+    RawClassificationEvaluation (zip (unpackRows lengths features) (VU.toList labels))
+  PackedRegressionEvaluation scale lengths features targets ->
+    RawRegressionEvaluation scale (zip (unpackRows lengths features) (VU.toList targets))
+
+unpackRows :: VU.Vector Int -> VU.Vector Double -> [[Double]]
+unpackRows lengths features = go 0 0
+ where
+  go row offset
+    | row == VU.length lengths = []
+    | otherwise =
+        let width = lengths VU.! row
+         in VU.toList (VU.slice offset width features) : go (row + 1) (offset + width)
+
+-- Fully settle every retained list and scalar. Merely forcing an outer record
+-- or list constructor could leave prediction or policy tails closing over the
+-- original evaluation, even after its feature vectors have been copied.
+forceDoubles :: [Double] -> ()
+forceDoubles = List.foldl' (\() value -> value `seq` ()) ()
+
+forceTexts :: [Text] -> ()
+forceTexts = List.foldl' (\() value -> value `seq` ()) ()
+
+forceObservation :: Policy.SupervisedSeedObservation -> ()
+forceObservation observation = case Policy.observationPredictions observation of
+  Policy.ClassificationPredictionPair initial final -> initial `seq` final `seq` ()
+  Policy.RegressionPredictionPair initial final -> forceDoubles initial `seq` forceDoubles final
+
+forceOutcome :: BudgetCompleteSupervisedSeedOutcome -> ()
+forceOutcome (BudgetCompleteSupervisedSeedOutcome raw observation initialSha finalSha) =
+  raw `seq` forceObservation observation `seq` initialSha `seq` finalSha `seq` ()
+
+forceAssessment :: Policy.SupervisedCohortAssessment -> ()
+forceAssessment assessment =
+  List.foldl'
+    (\() observation -> forceObservation observation)
+    ()
+    (Policy.supervisedCohortObservations assessment)
+    `seq` Policy.supervisedCohortJointSuccessCount assessment
+    `seq` Policy.supervisedCohortMedian assessment
+    `seq` Policy.supervisedCohortServedMetric assessment
+    `seq` List.foldl'
+      (\() (index, messages) -> index `seq` forceTexts messages)
+      ()
+      (Policy.supervisedCohortSeedFindings assessment)
+    `seq` forceTexts (Policy.supervisedCohortFailures assessment)
 
 qualificationEvaluationSha256 :: RawQualificationEvaluation -> Text
 qualificationEvaluationSha256 = hashCanonical
@@ -299,7 +441,8 @@ refineSupervisedQualification plan raw = do
   if fmap rawSeedIndex (rawQualificationSeeds raw) == [0 .. 4]
     then Right ()
     else Left "qualification requires exactly five ordered raw seed outcomes 0..4"
-  outcomes <- zipWithM (refineSeed raw work) children (rawQualificationSeeds raw)
+  let core = qualificationCoreFromRaw raw
+  outcomes <- zipWithM (refineSeed core evaluation work) children (rawQualificationSeeds raw)
   let base = Cohort.supervisedSeedPlanSeed firstChild
       headroom =
         case Matrix.productProjectionRowClass projection of
@@ -313,26 +456,32 @@ refineSupervisedQualification plan raw = do
       policyEvaluation
       (fmap supervisedSeedOutcomeObservation outcomes)
   case NonEmpty.nonEmpty outcomes of
-    Just complete -> Right (SupervisedQualification raw complete assessment)
+    Just complete ->
+      let value = SupervisedQualification core (packEvaluation evaluation) complete assessment
+       in List.foldl' (\() outcome -> forceOutcome outcome) () outcomes `seq`
+            forceAssessment assessment `seq`
+              value `seq`
+                Right value
     Nothing -> Left "qualification has no index0 outcome"
  where
   projection = Cohort.supervisedCohortPlanProjection plan
   substrate = Matrix.productProjectionSubstrate projection
 
 refineSeed
-  :: RawSupervisedQualification
+  :: QualificationCore
+  -> RawQualificationEvaluation
   -> Policy.SupervisedExpectedWork
   -> Cohort.SupervisedSeedPlan
   -> RawSupervisedSeedOutcome
   -> Either Text BudgetCompleteSupervisedSeedOutcome
-refineSeed common work child raw = do
+refineSeed common evaluation work child raw = do
   let workload = Cohort.supervisedSeedPlanWorkload child
       expectedIndex = Policy.supervisedSeedIndexValue (Cohort.supervisedSeedPlanIndex child)
       projection = Cohort.supervisedSeedPlanBaseProjection child
       substrate = Matrix.productProjectionSubstrate projection
-      producer = rawQualificationProducer common
-      runtime = rawQualificationRuntime common
-      metadata = rawQualificationGraphMetadata common
+      producer = coreProducer common
+      runtime = coreRuntime common
+      metadata = coreGraphMetadata common
   requireEqual "qualification child index" expectedIndex (rawSeedIndex raw)
   requireEqual "qualification child seed" (Cohort.supervisedSeedPlanSeed child) (rawSeedValue raw)
   requireEqual
@@ -349,11 +498,11 @@ refineSeed common work child raw = do
     (rawSeedAttemptIdentity raw)
   requireEqual
     "qualification child dataset-at-read SHA"
-    (rawQualificationDatasetSha256 common)
+    (coreDatasetSha256 common)
     (rawSeedDatasetSha256 raw)
   requireEqual
     "qualification child evaluation SHA"
-    (rawQualificationEvaluationSha256 common)
+    (coreEvaluationSha256 common)
     (rawSeedEvaluationSha256 raw)
   requireEqual
     "qualification child final runtime SHA"
@@ -390,7 +539,7 @@ refineSeed common work child raw = do
   initial <- Initial.decodeInitialComparisonSnapshot (rawSeedInitialSnapshotBytes raw)
   comparison <-
     Initial.prepareSupervisedComparison initial runtime metadata (rawSeedFinalJmw1Bytes raw)
-  predictions <- replayEvaluation comparison (rawQualificationEvaluation common)
+  predictions <- replayEvaluation comparison evaluation
   let observation =
         Policy.SupervisedSeedObservation
           { Policy.observationSeedIndex = rawSeedIndex raw
@@ -402,7 +551,7 @@ refineSeed common work child raw = do
           }
   Right
     ( BudgetCompleteSupervisedSeedOutcome
-        raw
+        (detachSeed raw)
         observation
         (Initial.initialComparisonJmw1Sha256 initial)
         (hashBytes (rawSeedFinalJmw1Bytes raw))
@@ -571,7 +720,22 @@ decodeSupervisedQualification plan bytes = do
     else Left "qualification CBOR encoding is not canonical"
 
 supervisedQualificationToRaw :: SupervisedQualification -> RawSupervisedQualification
-supervisedQualificationToRaw (SupervisedQualification raw _ _) = raw
+supervisedQualificationToRaw (SupervisedQualification core evaluation outcomes _) =
+  RawSupervisedQualification
+    { rawQualificationVersion = coreVersion core
+    , rawQualificationPolicy = corePolicy core
+    , rawQualificationRowId = coreRowId core
+    , rawQualificationSubstrate = coreSubstrate core
+    , rawQualificationCohortPlanId = coreCohortPlanId core
+    , rawQualificationCohortTransport = coreCohortTransport core
+    , rawQualificationDatasetSha256 = coreDatasetSha256 core
+    , rawQualificationProducer = coreProducer core
+    , rawQualificationEvaluation = unpackEvaluation evaluation
+    , rawQualificationEvaluationSha256 = coreEvaluationSha256 core
+    , rawQualificationRuntime = coreRuntime core
+    , rawQualificationGraphMetadata = coreGraphMetadata core
+    , rawQualificationSeeds = fmap supervisedSeedOutcomeToRaw (NonEmpty.toList outcomes)
+    }
 
 supervisedQualificationSha256 :: SupervisedQualification -> Text
 supervisedQualificationSha256 = hashBytes . encodeSupervisedQualification
@@ -586,29 +750,29 @@ qualifiedSupervisedCohortData :: QualifiedSupervisedCohort -> SupervisedQualific
 qualifiedSupervisedCohortData (QualifiedSupervisedCohort value) = value
 
 supervisedQualificationAssessment :: SupervisedQualification -> Policy.SupervisedCohortAssessment
-supervisedQualificationAssessment (SupervisedQualification _ _ value) = value
+supervisedQualificationAssessment (SupervisedQualification _ _ _ value) = value
 
 supervisedQualificationOutcomes :: SupervisedQualification -> [BudgetCompleteSupervisedSeedOutcome]
-supervisedQualificationOutcomes (SupervisedQualification _ values _) = NonEmpty.toList values
+supervisedQualificationOutcomes (SupervisedQualification _ _ values _) = NonEmpty.toList values
 
 supervisedQualificationEvaluation :: SupervisedQualification -> RawQualificationEvaluation
-supervisedQualificationEvaluation = rawQualificationEvaluation . supervisedQualificationToRaw
+supervisedQualificationEvaluation (SupervisedQualification _ evaluation _ _) = unpackEvaluation evaluation
 
 supervisedQualificationEvaluationBytes :: SupervisedQualification -> ByteString
 supervisedQualificationEvaluationBytes = LazyByteString.toStrict . serialise . supervisedQualificationEvaluation
 
 supervisedQualificationRuntime :: SupervisedQualification -> Runtime.RawSupervisedRuntime
-supervisedQualificationRuntime = rawQualificationRuntime . supervisedQualificationToRaw
+supervisedQualificationRuntime (SupervisedQualification core _ _ _) = coreRuntime core
 
 supervisedQualificationGraphMetadata :: SupervisedQualification -> LayerGraphMetadata
-supervisedQualificationGraphMetadata = rawQualificationGraphMetadata . supervisedQualificationToRaw
+supervisedQualificationGraphMetadata (SupervisedQualification core _ _ _) = coreGraphMetadata core
 
 supervisedQualificationIndex0Metric :: SupervisedQualification -> Double
 supervisedQualificationIndex0Metric = Policy.supervisedCohortServedMetric . supervisedQualificationAssessment
 
 supervisedQualificationIndex0Outcome
   :: SupervisedQualification -> BudgetCompleteSupervisedSeedOutcome
-supervisedQualificationIndex0Outcome (SupervisedQualification _ values _) = NonEmpty.head values
+supervisedQualificationIndex0Outcome (SupervisedQualification _ _ values _) = NonEmpty.head values
 
 supervisedSeedOutcomeToRaw :: BudgetCompleteSupervisedSeedOutcome -> RawSupervisedSeedOutcome
 supervisedSeedOutcomeToRaw (BudgetCompleteSupervisedSeedOutcome raw _ _ _) = raw

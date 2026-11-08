@@ -1,0 +1,162 @@
+{
+  "source": {
+    "algorithm": 1,
+    "sha256": "57cf61d1cf6149f353d852e21d8c663418d40e0ecc415e30d54dbdf5ef57ae16"
+  },
+  "initial_capture": {
+    "providers": [
+      "src/JitML/Product/NativePreparedNeuralAttempt.hs",
+      "src/JitML/Product/NativePreparedArsAttempt.hs",
+      "src/JitML/Product/NativePreparedAlphaZeroAttempt.hs"
+    ],
+    "assessment": "Neural preparation captures actual cold/effective snapshots, evaluates effective initial params on the same selected device before continuing the same single-use prepared attempt, and binds returned initial params/state. SAC/pendulum actual warm fitting is800*25*17=340000 Adam applications; effective actor after warm fitting is the strict comparison initial. SAC/lunar has no pendulum warm actor. ARS captures actual host-linear theta/normalizer/generator before evaluation and continues that exact prepared state. AlphaZero captures actual policy/value/Adam and original network shape before initial arena. No reconstructed nominal random tensor is substituted.",
+    "actual_provider_files": [
+      {
+        "path": "src/JitML/Product/NativePreparedNeuralAttempt.hs",
+        "bytes": 38368,
+        "sha256": "8ea292f8655c89a748d72b371c24c4ae44f48acc56b439a59f8f9158da8790d6"
+      },
+      {
+        "path": "src/JitML/Product/NativePreparedArsAttempt.hs",
+        "bytes": 40447,
+        "sha256": "1f0c2d146cbef91f169514c5dbade464ce1d2bab032171e979f0f7fbc54ec452"
+      },
+      {
+        "path": "src/JitML/Product/NativePreparedAlphaZeroAttempt.hs",
+        "bytes": 43947,
+        "sha256": "bbc777901ef49367d16a8ac2869263d8282c570bc65a209767707701bcccf491"
+      }
+    ]
+  },
+  "cohort_and_work": {
+    "providers": [
+      "src/JitML/Product/NativeRlCohortPlan.hs",
+      "src/JitML/Product/NativeRlProducer.hs",
+      "src/JitML/Product/NativeRlAssessment.hs",
+      "src/JitML/Product/NativeRlServingCandidate.hs"
+    ],
+    "assessment": "Canonical children and produced/assessed children require original ordered indices0..4,seeds42..46; same reference prelude/inventory and child plans bind observations. Comparison retains all complete finite outcomes, including failures. Serving candidate requires empty complete learning findings, then physically budget-validates every original child. Auxiliary seeds need not pass the served positive-update/curve/artifact gate individually; they still must complete their full real budget and remain in the full-five medians. Served0 alone is prospectively fixed and must pass its own joint learning, unchanged quality and strict positive-update/curve/weight/evidence gates. No filtering, replacement seed, result-selected checkpoint or work extension is justified.",
+    "actual_provider_files": [
+      {
+        "path": "src/JitML/Product/NativeRlCohortPlan.hs",
+        "bytes": 36360,
+        "sha256": "95b39c4123e31642ec98dcf3721b1e652444565d6df879dfd0e3d7e55d36362a"
+      },
+      {
+        "path": "src/JitML/Product/NativeRlProducer.hs",
+        "bytes": 78389,
+        "sha256": "c2a4be679394153c57fd2025d3233366547435fd95b93a5c82e817f5702b0742"
+      },
+      {
+        "path": "src/JitML/Product/NativeRlAssessment.hs",
+        "bytes": 23989,
+        "sha256": "5f920685385fcebf0e2d731ca5f1ea844fc2e2cde8bd14a79ef2eabed95d42a2"
+      },
+      {
+        "path": "src/JitML/Product/NativeRlServingCandidate.hs",
+        "bytes": 17019,
+        "sha256": "b287d726e83248a25a6c69bf6d4464eb5f83cf838a0859280fc7c9b64269a2f0"
+      }
+    ]
+  },
+  "numeric_evaluation": {
+    "providers": [
+      "src/JitML/RL/NativeReturnEvaluation.hs",
+      "src/JitML/RL/NativeHerEvaluation.hs",
+      "src/JitML/RL/AlphaZero/NativeArenaEvaluation.hs",
+      "src/JitML/Product/NativeRlEvaluationReplay.hs",
+      "src/JitML/Product/NativeParentEvaluationReplay.hs"
+    ],
+    "assessment": "Exact finite binary64 medians/distance and exact integer WDL supply improvement/reference math. Legacy quality retains its Double reducer. Transcript/action/rule replay checks full input/output/state, but current parent selected-device re-evaluation supplies numerical ownership beyond recorded actions. The ten original initial/final evaluations and the eleventh physical FINAL-serving replay remain distinct required operations. NeutralMCTS is freshly parent-recomputed, not established merely by a recorded legal move/search-visit list.",
+    "actual_provider_files": [
+      {
+        "path": "src/JitML/RL/NativeReturnEvaluation.hs",
+        "bytes": 21308,
+        "sha256": "e9d1530976fcc324452e94bac3889a365cf6d41e8b9905e7b9214c6cb0459a9a"
+      },
+      {
+        "path": "src/JitML/RL/NativeHerEvaluation.hs",
+        "bytes": 16274,
+        "sha256": "a418734948e58f6a5e7262de8e200a35e20c8851724b38589fe61c43973d9ab2"
+      },
+      {
+        "path": "src/JitML/RL/AlphaZero/NativeArenaEvaluation.hs",
+        "bytes": 38014,
+        "sha256": "f502db4e8752890b549b049afa246ac11a3e4fcf42ea195ca558c547eec4702d"
+      },
+      {
+        "path": "src/JitML/Product/NativeRlEvaluationReplay.hs",
+        "bytes": 18199,
+        "sha256": "6928dcae24c8215e343103eb4e649104a7d435ef41769de51040beef499eb6ca"
+      },
+      {
+        "path": "src/JitML/Product/NativeParentEvaluationReplay.hs",
+        "bytes": 32907,
+        "sha256": "7e9553c437999d046bfee0d5f4d80df3791854e840e349e20f7779b78b1286d5"
+      }
+    ]
+  },
+  "physical_serving": {
+    "providers": [
+      "src/JitML/Product/NativeRlCompletedServing.hs",
+      "src/JitML/Product/NativeRlStoreLoadedReplay.hs",
+      "src/JitML/Checkpoint/Store.hs",
+      "src/JitML/Checkpoint/NativeParentPolicyData.hs"
+    ],
+    "assessment": "Completed serving derives exact original0 training/completion/metrics/weights. Store admission physically fetches actual tensors; StoreLoadedReplay binds admitted completion bytes, full ordered tensor descriptors, exact F64 bit weights/manifest metrics and source-final replay capture to that completed candidate, then re-evaluates loaded weights on selected lane. ARS uses its genuine host-linear evaluator and host trace rather than an unrelated MLP/GPU witness. A candidate, successful decoder, comparison or source pin alone is not physical admission or served-byte replay.",
+    "actual_provider_files": [
+      {
+        "path": "src/JitML/Product/NativeRlCompletedServing.hs",
+        "bytes": 15690,
+        "sha256": "0133840ce8ce5884bcb628326787b7ef9b0b8be4a5a04e52e1ff3dd8fe2a6f79"
+      },
+      {
+        "path": "src/JitML/Product/NativeRlStoreLoadedReplay.hs",
+        "bytes": 31431,
+        "sha256": "65edd5bbb1fa382624d881842bdd7059bac65bc8aa6040ec4075610d15483882"
+      },
+      {
+        "path": "src/JitML/Checkpoint/Store.hs",
+        "bytes": 282521,
+        "sha256": "665bbb949bfa8321601d80dde73c019f5a94d1cdc304f7341472f1ff9e43d304"
+      },
+      {
+        "path": "src/JitML/Checkpoint/NativeParentPolicyData.hs",
+        "bytes": 44107,
+        "sha256": "b3bab219bee8c9890e8a8a8731802bbaf225967c3ac3da4109ee763e0dfc8128"
+      }
+    ]
+  },
+  "prelaunch_authentication": {
+    "providers": [
+      "src/JitML/Product/CriterionReview.hs",
+      "src/JitML/Product/NativeParentExecution.hs",
+      "src/JitML/Test/ProductScenarioRunner.hs",
+      "src/JitML/Test/ProductLaneJournal.hs"
+    ],
+    "assessment": "Current SourceStamp, exact full55 receipt identities and independent scope artifacts must be captured by the genuine prelaunch review/source/journal chain. Original reservation/invocation/executable/process and retained all-five prefix, reference and work evidence remain necessary. New ordinary files can be materialized as unadopted candidates; they cannot relabel historical cohorts as current, manufacture producer capabilities, authenticate data or grant qualification.",
+    "actual_provider_files": [
+      {
+        "path": "src/JitML/Product/CriterionReview.hs",
+        "bytes": 7566,
+        "sha256": "aae45be4ec713e11a2f3f835ba0330c1a6676574f2a8e730ba6e8fdbc400dac9"
+      },
+      {
+        "path": "src/JitML/Product/NativeParentExecution.hs",
+        "bytes": 43816,
+        "sha256": "ebdfd1475177ebfd3be469a10b6549fa312735089c3d50a444f4bac4aec12635"
+      },
+      {
+        "path": "src/JitML/Test/ProductScenarioRunner.hs",
+        "bytes": 34366,
+        "sha256": "600cc041c1d78576dbd9e85b0487aa99303d7b8bde61142d0ba5f5b66f9541fd"
+      },
+      {
+        "path": "src/JitML/Test/ProductLaneJournal.hs",
+        "bytes": 51300,
+        "sha256": "4f5a9c979c60aa24f38261e224cf6b24b357b2a73a8a46dd262074613ab0de1d"
+      }
+    ]
+  },
+  "metal_boundary": "Apple native neural training and evaluation must actually consume the current selected Metal device through the fixed host bridge and executable-source binding. Host simulator/game transitions and canonical references are finite host computation. ARS training/evaluation is the documented host-Double linear exception with trace/producer lineage. No current runtime/hardware result is inferred in this static review."
+}

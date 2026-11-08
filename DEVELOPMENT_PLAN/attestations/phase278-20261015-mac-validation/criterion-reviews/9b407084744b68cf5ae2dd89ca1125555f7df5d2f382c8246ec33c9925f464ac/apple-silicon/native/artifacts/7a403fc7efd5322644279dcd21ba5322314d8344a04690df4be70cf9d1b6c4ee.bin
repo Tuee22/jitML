@@ -1,0 +1,3153 @@
+{
+  "source": {
+    "algorithm": 1,
+    "sha256": "57cf61d1cf6149f353d852e21d8c663418d40e0ecc415e30d54dbdf5ef57ae16"
+  },
+  "scope": "Fresh current-declaration/planner finite arithmetic only; no Haskell execution, replay, trained models or attained references",
+  "actual_full55_hashes": [
+    {
+      "lane": "linux-cpu",
+      "rows": 55,
+      "sha256": "555aa3ad727fec53c2e2b361df5f8f10e6c89875c89ed4ca7d1f2cbdc9331b2c"
+    },
+    {
+      "lane": "apple-silicon",
+      "rows": 55,
+      "sha256": "2d256900ff740e5ec6b392d1a60c9d36813b4147b9fba0a4a49a46dcb73b53f3"
+    }
+  ],
+  "RETURN_rows": [
+    {
+      "full55_index": 11,
+      "actual_contract": {
+        "contract_sha256": "97d97b5a9115dc44c57543d7fd8552ead3ffd4407e2c7b5cfaaacf26ff29179e",
+        "plan_id": "66ff26f1e3efeaf4cb0b7b6cb8b45c69fd9780793e428704f82b180fc11b713b",
+        "row_id": "PPO/cartpole"
+      },
+      "algorithm": "PPO",
+      "environment": "cartpole",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 16,
+        "maximum_episode_steps": 500,
+        "target_environment_steps": 1228800
+      },
+      "five_original_models_scheduled_environment_steps": 6144000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 500,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1
+        ],
+        "complete_count": 2,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "475.0",
+        "source_slack_literal": "25.0",
+        "decimal_floor_for_exposition": "450",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 12,
+      "actual_contract": {
+        "contract_sha256": "4f128168a4ba25e1f647b995df7b503e59681da84868543cd76e07152cf7fe18",
+        "plan_id": "33dd8d471e83e7a595c59bd58bb3b4d06e0c86a888fb423b095290e57730f033",
+        "row_id": "PPO/mountain-car"
+      },
+      "algorithm": "PPO",
+      "environment": "mountain-car",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 16,
+        "maximum_episode_steps": 200,
+        "target_environment_steps": 1228800
+      },
+      "five_original_models_scheduled_environment_steps": 6144000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "complete_count": 3,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "-110.0",
+        "source_slack_literal": "45.0",
+        "decimal_floor_for_exposition": "-155",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 13,
+      "actual_contract": {
+        "contract_sha256": "a8290e19575cf6ffe5b3acb668c2a54a9e6762f7ea7fc255170129b917382678",
+        "plan_id": "469fdfc0a380601f913635a1656dc4d51b634875d5d4d29c6a6e53eccc217c16",
+        "row_id": "PPO/acrobot"
+      },
+      "algorithm": "PPO",
+      "environment": "acrobot",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 16,
+        "maximum_episode_steps": 500,
+        "target_environment_steps": 1228800
+      },
+      "five_original_models_scheduled_environment_steps": 6144000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 500,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "complete_count": 3,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "-100.0",
+        "source_slack_literal": "50.0",
+        "decimal_floor_for_exposition": "-150",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 14,
+      "actual_contract": {
+        "contract_sha256": "9cf6d8de8ae265ec9051352b0ee431b137e82cc2a82b902e7ef9c770f2d4defa",
+        "plan_id": "3492799add8b166ce431798ad6df73f2dca7cfed00ac75f59a785107220444de",
+        "row_id": "PPO/lunar-lander"
+      },
+      "algorithm": "PPO",
+      "environment": "lunar-lander",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 1000,
+        "vector_environments": 16,
+        "maximum_episode_steps": 1000,
+        "target_environment_steps": 2400000
+      },
+      "five_original_models_scheduled_environment_steps": 12000000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 1000,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "complete_count": 4,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "200.0",
+        "source_slack_literal": "40.0",
+        "decimal_floor_for_exposition": "160",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 15,
+      "actual_contract": {
+        "contract_sha256": "cb42a67176df531e55104b7020518f4711c83b9f312755b5d7468d22042e2889",
+        "plan_id": "df6c00e43401011b2c59d6946d306c8ecb95dd563f2e1829d632324d997d201b",
+        "row_id": "PPO/key-door-grid"
+      },
+      "algorithm": "PPO",
+      "environment": "key-door-grid",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 16,
+        "maximum_episode_steps": 200,
+        "target_environment_steps": 1228800
+      },
+      "five_original_models_scheduled_environment_steps": 6144000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "all legal-mask action preferences",
+        "complete_count": 720,
+        "comparison": "strict against every actual median; equality only if reference and final equal the current complete canonical full-state/time solver maximum; never equality to own initialization"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "1.0",
+        "source_slack_literal": "0.5",
+        "decimal_floor_for_exposition": "1/2",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 16,
+      "actual_contract": {
+        "contract_sha256": "c8f003ba579ee3ef22734824e601f6b9967e662c21cf8223a714a5a75516e524",
+        "plan_id": "8929bd4f8063c46b29468d00037513fa38e46cc2b400024cb2eea6669f9c30cf",
+        "row_id": "PPO/gridworld-deterministic"
+      },
+      "algorithm": "PPO",
+      "environment": "gridworld-deterministic",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 16,
+        "maximum_episode_steps": 200,
+        "target_environment_steps": 1228800
+      },
+      "five_original_models_scheduled_environment_steps": 6144000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "complete_count": 4,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "1.0",
+        "source_slack_literal": "0.20",
+        "decimal_floor_for_exposition": "4/5",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 17,
+      "actual_contract": {
+        "contract_sha256": "52d29a3ace1c218f7757e07452f58d627fa76b1aa70145f6f1cff415e617115e",
+        "plan_id": "175fbb46c8c539b756c3841517ce21c2bfad9081bf6f9e9b6c01b86d5856a015",
+        "row_id": "A2C/cartpole"
+      },
+      "algorithm": "A2C",
+      "environment": "cartpole",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 16,
+        "maximum_episode_steps": 500,
+        "target_environment_steps": 1228800
+      },
+      "five_original_models_scheduled_environment_steps": 6144000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 500,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1
+        ],
+        "complete_count": 2,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "475.0",
+        "source_slack_literal": "40.0",
+        "decimal_floor_for_exposition": "435",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 18,
+      "actual_contract": {
+        "contract_sha256": "cca1477d56c18c29098afc210c721dd3994a967f55060b9dc8dc214d2a04fc16",
+        "plan_id": "e6f3c46364f44227e435af5c79a0e6c5640bccfb7549bd15a66d0c2156d961c2",
+        "row_id": "A2C/mountain-car"
+      },
+      "algorithm": "A2C",
+      "environment": "mountain-car",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 16,
+        "maximum_episode_steps": 200,
+        "target_environment_steps": 1228800
+      },
+      "five_original_models_scheduled_environment_steps": 6144000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "complete_count": 3,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "-110.0",
+        "source_slack_literal": "45.0",
+        "decimal_floor_for_exposition": "-155",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 19,
+      "actual_contract": {
+        "contract_sha256": "e900dc2c10d59c03ffd856deb1ce897cfd270ffc8d37940350c83881917f3463",
+        "plan_id": "e0ab7366874911b3c365f44edb2d881c2afcfa92b2401fcef0bc78018bf1c6df",
+        "row_id": "A2C/lunar-lander"
+      },
+      "algorithm": "A2C",
+      "environment": "lunar-lander",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 1000,
+        "vector_environments": 16,
+        "maximum_episode_steps": 1000,
+        "target_environment_steps": 2400000
+      },
+      "five_original_models_scheduled_environment_steps": 12000000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 1000,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "complete_count": 4,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "200.0",
+        "source_slack_literal": "60.0",
+        "decimal_floor_for_exposition": "140",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 20,
+      "actual_contract": {
+        "contract_sha256": "5d6a2cae120623af83b4cee41d5ae3617beb5061a93bd4aa20509c4854c00b1d",
+        "plan_id": "927870a09414a2290b0733b9e769f4894efb57d578400983f3eeb4d7b4f82933",
+        "row_id": "A2C/key-door-grid"
+      },
+      "algorithm": "A2C",
+      "environment": "key-door-grid",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 16,
+        "maximum_episode_steps": 200,
+        "target_environment_steps": 1228800
+      },
+      "five_original_models_scheduled_environment_steps": 6144000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "all legal-mask action preferences",
+        "complete_count": 720,
+        "comparison": "strict against every actual median; equality only if reference and final equal the current complete canonical full-state/time solver maximum; never equality to own initialization"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "1.0",
+        "source_slack_literal": "0.5",
+        "decimal_floor_for_exposition": "1/2",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 21,
+      "actual_contract": {
+        "contract_sha256": "aa761aaf510c4061e633a5ae14b2e3d164a748c5ab1158400364574b6a0f7c50",
+        "plan_id": "64f3d41c00fc97046e50652def2eb18c0102ec12af10cc16e364595706f5c4fc",
+        "row_id": "TRPO/cartpole"
+      },
+      "algorithm": "TRPO",
+      "environment": "cartpole",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 16,
+        "maximum_episode_steps": 500,
+        "target_environment_steps": 1228800
+      },
+      "five_original_models_scheduled_environment_steps": 6144000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 500,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1
+        ],
+        "complete_count": 2,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "475.0",
+        "source_slack_literal": "75.0",
+        "decimal_floor_for_exposition": "400",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 22,
+      "actual_contract": {
+        "contract_sha256": "e54b3975118ebb3f40f8188d0af4f0fb24d9c61a435370bd7175f5480af86f0a",
+        "plan_id": "7b9bfbd360484e060dd7930c7c280b5dae66b5d453ba42e9ea221aa965e6ae07",
+        "row_id": "TRPO/mountain-car"
+      },
+      "algorithm": "TRPO",
+      "environment": "mountain-car",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 16,
+        "maximum_episode_steps": 200,
+        "target_environment_steps": 1228800
+      },
+      "five_original_models_scheduled_environment_steps": 6144000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "complete_count": 3,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "-110.0",
+        "source_slack_literal": "35.0",
+        "decimal_floor_for_exposition": "-145",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 23,
+      "actual_contract": {
+        "contract_sha256": "67111fb370e4d4f57683f10c7bf74720ae0961eda9ba1b6f894b7630dbd8b844",
+        "plan_id": "c285ef2a46d8f044a3c7caa07a91cfae24e37b2c339cad400b54bb080914baf8",
+        "row_id": "TRPO/lunar-lander"
+      },
+      "algorithm": "TRPO",
+      "environment": "lunar-lander",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 1000,
+        "vector_environments": 16,
+        "maximum_episode_steps": 1000,
+        "target_environment_steps": 2400000
+      },
+      "five_original_models_scheduled_environment_steps": 12000000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 1000,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "complete_count": 4,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "200.0",
+        "source_slack_literal": "45.0",
+        "decimal_floor_for_exposition": "155",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 24,
+      "actual_contract": {
+        "contract_sha256": "5ee6cd27bc5e589825a0d8df932fcd593bd83a6be41e8a56387214c1a2cb466f",
+        "plan_id": "1a5d4700dd7a7676e9ca5ac8337b7286675cfe6d45cea9f59be1865b6f8afb12",
+        "row_id": "TRPO/key-door-grid"
+      },
+      "algorithm": "TRPO",
+      "environment": "key-door-grid",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 16,
+        "maximum_episode_steps": 200,
+        "target_environment_steps": 1228800
+      },
+      "five_original_models_scheduled_environment_steps": 6144000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "all legal-mask action preferences",
+        "complete_count": 720,
+        "comparison": "strict against every actual median; equality only if reference and final equal the current complete canonical full-state/time solver maximum; never equality to own initialization"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "1.0",
+        "source_slack_literal": "0.25",
+        "decimal_floor_for_exposition": "3/4",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 25,
+      "actual_contract": {
+        "contract_sha256": "8044640163f2109f5ac0329c3dc9d8c7d031a70f0fe2dbbbb98bb1b278c9e694",
+        "plan_id": "0b227fd91cf61a6a6137338e19d1aa73e8a49175d34a49e9af5ff6064ccab876",
+        "row_id": "MaskablePPO/cartpole"
+      },
+      "algorithm": "MaskablePPO",
+      "environment": "cartpole",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 16,
+        "maximum_episode_steps": 500,
+        "target_environment_steps": 1228800
+      },
+      "five_original_models_scheduled_environment_steps": 6144000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 500,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1
+        ],
+        "complete_count": 2,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "475.0",
+        "source_slack_literal": "25.0",
+        "decimal_floor_for_exposition": "450",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 26,
+      "actual_contract": {
+        "contract_sha256": "a0b22bfd24e3d2deb160e2c2b5c41556aa26385bee6040e4cf22e81339f327bb",
+        "plan_id": "323f7b2a1c2af6a8fdb0d45febc4077b8019b2e12f4e21fa8cc840e079477f1a",
+        "row_id": "MaskablePPO/mountain-car"
+      },
+      "algorithm": "MaskablePPO",
+      "environment": "mountain-car",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 16,
+        "maximum_episode_steps": 200,
+        "target_environment_steps": 1228800
+      },
+      "five_original_models_scheduled_environment_steps": 6144000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "complete_count": 3,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "-110.0",
+        "source_slack_literal": "45.0",
+        "decimal_floor_for_exposition": "-155",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 27,
+      "actual_contract": {
+        "contract_sha256": "874ac25d604204279d8a47178e850f1af1094eb016b543f29387874636e30024",
+        "plan_id": "3ff30bbf32692ad80fac4f939121737ab034eff285c13e71e7f5cf33c8271bfc",
+        "row_id": "MaskablePPO/lunar-lander"
+      },
+      "algorithm": "MaskablePPO",
+      "environment": "lunar-lander",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 1000,
+        "vector_environments": 16,
+        "maximum_episode_steps": 1000,
+        "target_environment_steps": 2400000
+      },
+      "five_original_models_scheduled_environment_steps": 12000000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 1000,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "complete_count": 4,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "200.0",
+        "source_slack_literal": "40.0",
+        "decimal_floor_for_exposition": "160",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 28,
+      "actual_contract": {
+        "contract_sha256": "29e08ac7ecb31016c12a3ac7eeee603a669fe4e980552119906a0042c6ff7965",
+        "plan_id": "900a30029bc6d587ad24821a4b8e96b08a7277467869e19bbd12632018bfe3f7",
+        "row_id": "MaskablePPO/key-door-grid"
+      },
+      "algorithm": "MaskablePPO",
+      "environment": "key-door-grid",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 16,
+        "maximum_episode_steps": 200,
+        "target_environment_steps": 1228800
+      },
+      "five_original_models_scheduled_environment_steps": 6144000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "all legal-mask action preferences",
+        "complete_count": 720,
+        "comparison": "strict against every actual median; equality only if reference and final equal the current complete canonical full-state/time solver maximum; never equality to own initialization"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "1.0",
+        "source_slack_literal": "0.15",
+        "decimal_floor_for_exposition": "17/20",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 29,
+      "actual_contract": {
+        "contract_sha256": "aa9216ccecf0b2255caaa28de69bfc723472d384fdec838cf8479e8abeeb3420",
+        "plan_id": "78e77b75b3e4d4cfaad7fbb4f12c9110ffa5c8898c2f69e79563d0ae477329f7",
+        "row_id": "RecurrentPPO/cartpole"
+      },
+      "algorithm": "RecurrentPPO",
+      "environment": "cartpole",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 16,
+        "maximum_episode_steps": 500,
+        "target_environment_steps": 1228800
+      },
+      "five_original_models_scheduled_environment_steps": 6144000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 500,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1
+        ],
+        "complete_count": 2,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "475.0",
+        "source_slack_literal": "40.0",
+        "decimal_floor_for_exposition": "435",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 30,
+      "actual_contract": {
+        "contract_sha256": "5864085e1a780b79181c48aa92f5939252ced2be83cc461ea314e06c296e800e",
+        "plan_id": "07ef5aafa97a4c56cc3a96b0d04f7d7fe9aba77aeaa82d9db9ad5c807e2711ca",
+        "row_id": "RecurrentPPO/mountain-car"
+      },
+      "algorithm": "RecurrentPPO",
+      "environment": "mountain-car",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 16,
+        "maximum_episode_steps": 200,
+        "target_environment_steps": 1228800
+      },
+      "five_original_models_scheduled_environment_steps": 6144000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "complete_count": 3,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "-110.0",
+        "source_slack_literal": "50.0",
+        "decimal_floor_for_exposition": "-160",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 31,
+      "actual_contract": {
+        "contract_sha256": "269319914eeb69624848db421d91d04d69d4331c3787d2890b4dfc9c592441a6",
+        "plan_id": "2e7832fba7f6007461e6605d910e2717b62a0e87b7156af5cd29d2d027d98ae2",
+        "row_id": "RecurrentPPO/lunar-lander"
+      },
+      "algorithm": "RecurrentPPO",
+      "environment": "lunar-lander",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 1000,
+        "vector_environments": 16,
+        "maximum_episode_steps": 1000,
+        "target_environment_steps": 2400000
+      },
+      "five_original_models_scheduled_environment_steps": 12000000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 1000,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "complete_count": 4,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "200.0",
+        "source_slack_literal": "60.0",
+        "decimal_floor_for_exposition": "140",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 32,
+      "actual_contract": {
+        "contract_sha256": "9b98e80190bc4a2e2089cf6d399e2cb419f6b7090453d5c049e5bb447993b6ec",
+        "plan_id": "3ef4586036819f29fcf0959109af2b8ef296ae627ef9c6872b2789f4ffb9246c",
+        "row_id": "RecurrentPPO/key-door-grid"
+      },
+      "algorithm": "RecurrentPPO",
+      "environment": "key-door-grid",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "on_policy",
+        "iterations": 150,
+        "rollout_ticks_per_environment": 512,
+        "vector_environments": 4,
+        "maximum_episode_steps": 200,
+        "target_environment_steps": 307200
+      },
+      "five_original_models_scheduled_environment_steps": 1536000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "all legal-mask action preferences",
+        "complete_count": 720,
+        "comparison": "strict against every actual median; equality only if reference and final equal the current complete canonical full-state/time solver maximum; never equality to own initialization"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "1.0",
+        "source_slack_literal": "0.35",
+        "decimal_floor_for_exposition": "13/20",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 33,
+      "actual_contract": {
+        "contract_sha256": "fc7fbcf1c0bd5760b97a09fef18926c600b65284e5fb3ec79d0e21a7ec69d0a4",
+        "plan_id": "9accaa1e159511d9406b6620398fee2f455e5aaed52a1b544f73aa1bdcd3420a",
+        "row_id": "DQN/cartpole"
+      },
+      "algorithm": "DQN",
+      "environment": "cartpole",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "fixed_step",
+        "maximum_episode_steps": 500,
+        "target_environment_steps": 50000
+      },
+      "five_original_models_scheduled_environment_steps": 250000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 500,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1
+        ],
+        "complete_count": 2,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "475.0",
+        "source_slack_literal": "30.0",
+        "decimal_floor_for_exposition": "445",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 34,
+      "actual_contract": {
+        "contract_sha256": "c8174517988359bd1c168eee6ecff627e47bc13edc841cacd0c701cce239bff0",
+        "plan_id": "9fbfc4d264c1153c36a1af7dcfaa533a19401eb3fd33a15b7392127b327cd9b7",
+        "row_id": "DQN/mountain-car"
+      },
+      "algorithm": "DQN",
+      "environment": "mountain-car",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "fixed_step",
+        "maximum_episode_steps": 200,
+        "target_environment_steps": 120000
+      },
+      "five_original_models_scheduled_environment_steps": 600000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "complete_count": 3,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "-110.0",
+        "source_slack_literal": "40.0",
+        "decimal_floor_for_exposition": "-150",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 35,
+      "actual_contract": {
+        "contract_sha256": "87636ad94509940be447668573843aaa842ca5e2a7c319e24d39eb961fd38413",
+        "plan_id": "aebcd29d5939a0fd88af2baef8c1849da90122877a4368d0a95e3830d7d9723f",
+        "row_id": "DQN/key-door-grid"
+      },
+      "algorithm": "DQN",
+      "environment": "key-door-grid",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "fixed_step",
+        "maximum_episode_steps": 200,
+        "target_environment_steps": 50000
+      },
+      "five_original_models_scheduled_environment_steps": 250000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "all legal-mask action preferences",
+        "complete_count": 720,
+        "comparison": "strict against every actual median; equality only if reference and final equal the current complete canonical full-state/time solver maximum; never equality to own initialization"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "1.0",
+        "source_slack_literal": "0.30",
+        "decimal_floor_for_exposition": "7/10",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 36,
+      "actual_contract": {
+        "contract_sha256": "dfbf05098a3bafe59db3edb0bdcb5b9f050f4d914f15f8dca2be65701bed9e87",
+        "plan_id": "7095b8274e586b63d4c4c8898a86872597626e72219e5ebbf3c56b925fb2256d",
+        "row_id": "QR-DQN/cartpole"
+      },
+      "algorithm": "QR-DQN",
+      "environment": "cartpole",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "fixed_step",
+        "maximum_episode_steps": 500,
+        "target_environment_steps": 50000
+      },
+      "five_original_models_scheduled_environment_steps": 250000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 500,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1
+        ],
+        "complete_count": 2,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "475.0",
+        "source_slack_literal": "25.0",
+        "decimal_floor_for_exposition": "450",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 37,
+      "actual_contract": {
+        "contract_sha256": "88d7837cc0093aeff423cd5ca6822099fbac0e72c64bf32d1f472984cd85b54b",
+        "plan_id": "c5e78334d33b9c8fa77d79f3d56fa15bc6b5dcf6f97bef8f2917f954cee12dc4",
+        "row_id": "QR-DQN/mountain-car"
+      },
+      "algorithm": "QR-DQN",
+      "environment": "mountain-car",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "fixed_step",
+        "maximum_episode_steps": 200,
+        "target_environment_steps": 120000
+      },
+      "five_original_models_scheduled_environment_steps": 600000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "complete_count": 3,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "-110.0",
+        "source_slack_literal": "35.0",
+        "decimal_floor_for_exposition": "-145",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 38,
+      "actual_contract": {
+        "contract_sha256": "e069a66f417d76d435b5936df13a40e315f32b1e5e141aeea593734d15c916ee",
+        "plan_id": "4cc8ea724a504fe001b6725ea61035e81e54b95a88a2887049c88bfe86f865b4",
+        "row_id": "QR-DQN/key-door-grid"
+      },
+      "algorithm": "QR-DQN",
+      "environment": "key-door-grid",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "fixed_step",
+        "maximum_episode_steps": 200,
+        "target_environment_steps": 120000
+      },
+      "five_original_models_scheduled_environment_steps": 600000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "all legal-mask action preferences",
+        "complete_count": 720,
+        "comparison": "strict against every actual median; equality only if reference and final equal the current complete canonical full-state/time solver maximum; never equality to own initialization"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "1.0",
+        "source_slack_literal": "0.25",
+        "decimal_floor_for_exposition": "3/4",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 39,
+      "actual_contract": {
+        "contract_sha256": "0b00b3c053324c6ac8b479c6b16c23f2b1ecd76de0a288d86fe937c27ab9d331",
+        "plan_id": "e6ceaec37946bffec4386264b381f8b85c69488a5042a1f149170c7481b4beb4",
+        "row_id": "DDPG/lunar-lander"
+      },
+      "algorithm": "DDPG",
+      "environment": "lunar-lander",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "fixed_step",
+        "maximum_episode_steps": 1000,
+        "target_environment_steps": 120000
+      },
+      "five_original_models_scheduled_environment_steps": 600000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 1000,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "native-zero, actual-low-endpoint, actual-high-endpoint",
+        "complete_count": 3,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "200.0",
+        "source_slack_literal": "95.0",
+        "decimal_floor_for_exposition": "105",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 40,
+      "actual_contract": {
+        "contract_sha256": "2c0f908bea64b6d0e0125fd111af2091464969d98c3752b7ca90ebfdf7b83891",
+        "plan_id": "9cc8314620cf1e6d3a7f2a2c637eca9ed919babdba4d5e42969380e299c77410",
+        "row_id": "TD3/lunar-lander"
+      },
+      "algorithm": "TD3",
+      "environment": "lunar-lander",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "fixed_step",
+        "maximum_episode_steps": 1000,
+        "target_environment_steps": 50000
+      },
+      "five_original_models_scheduled_environment_steps": 250000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 1000,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "native-zero, actual-low-endpoint, actual-high-endpoint",
+        "complete_count": 3,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "200.0",
+        "source_slack_literal": "60.0",
+        "decimal_floor_for_exposition": "140",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 41,
+      "actual_contract": {
+        "contract_sha256": "40cff79b1217c09a76e538032be07f39e4e4f94e1e6a79db7a535277af56e83b",
+        "plan_id": "5525a03b46e8beed32b7ca6603305524735e9cd7c5a0e2707e78511a6fbb5f03",
+        "row_id": "SAC/lunar-lander"
+      },
+      "algorithm": "SAC",
+      "environment": "lunar-lander",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "fixed_step",
+        "maximum_episode_steps": 1000,
+        "target_environment_steps": 50000
+      },
+      "five_original_models_scheduled_environment_steps": 250000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 1000,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "native-zero, actual-low-endpoint, actual-high-endpoint",
+        "complete_count": 3,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "200.0",
+        "source_slack_literal": "40.0",
+        "decimal_floor_for_exposition": "160",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 42,
+      "actual_contract": {
+        "contract_sha256": "56d560406d4c7bec19aaf04553d73baabb64845df3d5e4af75f9cb2f0b4ed3bf",
+        "plan_id": "f118b362b6fbd9c30665054947f2994a875bcd10be99c97120a1af5ed6ce417f",
+        "row_id": "SAC/pendulum"
+      },
+      "algorithm": "SAC",
+      "environment": "pendulum",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "fixed_step",
+        "maximum_episode_steps": 200,
+        "target_environment_steps": 4000
+      },
+      "five_original_models_scheduled_environment_steps": 20000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "native-zero, actual-low-endpoint, actual-high-endpoint",
+        "complete_count": 3,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "-200.0",
+        "source_slack_literal": "180.0",
+        "decimal_floor_for_exposition": "-380",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 43,
+      "actual_contract": {
+        "contract_sha256": "513d4c45828931678963a242845ab472e599b78af53fc5b86b164a9e5a2b4bee",
+        "plan_id": "7ad337e855cedf38c1f69bdb32bb363268a93dd73e9823a953ab34715e67b465",
+        "row_id": "CrossQ/lunar-lander"
+      },
+      "algorithm": "CrossQ",
+      "environment": "lunar-lander",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "fixed_step",
+        "maximum_episode_steps": 1000,
+        "target_environment_steps": 50000
+      },
+      "five_original_models_scheduled_environment_steps": 250000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 1000,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "native-zero, actual-low-endpoint, actual-high-endpoint",
+        "complete_count": 3,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "200.0",
+        "source_slack_literal": "40.0",
+        "decimal_floor_for_exposition": "160",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 44,
+      "actual_contract": {
+        "contract_sha256": "87146d3a0b052d7c9d2437b04b832fd6b9c54ed305fbb80229b9de4dcd491cdb",
+        "plan_id": "a1f17c4d4c7ed02f3a48110b16d415af3c28a77a4c920425f08bcd59129344cf",
+        "row_id": "TQC/lunar-lander"
+      },
+      "algorithm": "TQC",
+      "environment": "lunar-lander",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "fixed_step",
+        "maximum_episode_steps": 1000,
+        "target_environment_steps": 50000
+      },
+      "five_original_models_scheduled_environment_steps": 250000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 1000,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "native-zero, actual-low-endpoint, actual-high-endpoint",
+        "complete_count": 3,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "200.0",
+        "source_slack_literal": "40.0",
+        "decimal_floor_for_exposition": "160",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 45,
+      "actual_contract": {
+        "contract_sha256": "5faa96ac72468ace693b46ae7d116e4e4e346bdd0f54be2459f316f204642660",
+        "plan_id": "7eb4d4f2f64025dd4e30f1eeb50d6312b0b3c2a0ae6ce3311c3b382c1219816d",
+        "row_id": "ARS/cartpole"
+      },
+      "algorithm": "ARS",
+      "environment": "cartpole",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "host_ARS",
+        "iterations": 50,
+        "directions": 16,
+        "signed_perturbations_per_direction": 2,
+        "physical_steps_per_perturbation": 500,
+        "target_environment_steps": 800000
+      },
+      "five_original_models_scheduled_environment_steps": 4000000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 500,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1
+        ],
+        "complete_count": 2,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "475.0",
+        "source_slack_literal": "75.0",
+        "decimal_floor_for_exposition": "400",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 46,
+      "actual_contract": {
+        "contract_sha256": "e88021faa066f89157c20e3469d06527ad1722fe62a93b88bbd97a3d2eacd1b0",
+        "plan_id": "50434967e14c04aa48aabcdad21b6a5ca6b21319810d6c419d442f66f6c09501",
+        "row_id": "ARS/mountain-car"
+      },
+      "algorithm": "ARS",
+      "environment": "mountain-car",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "host_ARS",
+        "iterations": 50,
+        "directions": 16,
+        "signed_perturbations_per_direction": 2,
+        "physical_steps_per_perturbation": 200,
+        "target_environment_steps": 320000
+      },
+      "five_original_models_scheduled_environment_steps": 1600000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1,
+          2
+        ],
+        "complete_count": 3,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "-110.0",
+        "source_slack_literal": "80.0",
+        "decimal_floor_for_exposition": "-190",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 47,
+      "actual_contract": {
+        "contract_sha256": "3d6346099397821a831c2e67ffa6d4218675ed415b7bed52f1f4a240f9aecd4b",
+        "plan_id": "d954720f048d8acbf18316a3bcbb7193bb5be653a665790565e3bcf6b63c4757",
+        "row_id": "ARS/lunar-lander"
+      },
+      "algorithm": "ARS",
+      "environment": "lunar-lander",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "host_ARS",
+        "iterations": 50,
+        "directions": 16,
+        "signed_perturbations_per_direction": 2,
+        "physical_steps_per_perturbation": 1000,
+        "target_environment_steps": 1600000
+      },
+      "five_original_models_scheduled_environment_steps": 8000000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 1000,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "every constant discrete action",
+        "actions": [
+          0,
+          1,
+          2,
+          3
+        ],
+        "complete_count": 4,
+        "comparison": "strict against each actual median; no tie exception"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "200.0",
+        "source_slack_literal": "120.0",
+        "decimal_floor_for_exposition": "80",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    },
+    {
+      "full55_index": 48,
+      "actual_contract": {
+        "contract_sha256": "86eea7bf5de174cd91e44d64cfa126db35245edc6eba0881831d7973068c1b43",
+        "plan_id": "f568446a774cdcd9128dd57026912f7e0aef8b7e9b4863c9fe0d5692bca6099b",
+        "row_id": "ARS/key-door-grid"
+      },
+      "algorithm": "ARS",
+      "environment": "key-door-grid",
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "schedule": {
+        "kind": "host_ARS",
+        "iterations": 50,
+        "directions": 16,
+        "signed_perturbations_per_direction": 2,
+        "physical_steps_per_perturbation": 200,
+        "target_environment_steps": 320000
+      },
+      "five_original_models_scheduled_environment_steps": 1600000,
+      "evaluation": {
+        "cases": 20,
+        "horizon": 200,
+        "ids": [
+          0,
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "reset": "each case starts at actual canonical deterministic reset; these are not20 independent environments"
+      },
+      "references": {
+        "kind": "all legal-mask action preferences",
+        "complete_count": 720,
+        "comparison": "strict against every actual median; equality only if reference and final equal the current complete canonical full-state/time solver maximum; never equality to own initialization"
+      },
+      "unchanged_quality": {
+        "source_target_literal": "1.0",
+        "source_slack_literal": "0.45",
+        "decimal_floor_for_exposition": "11/20",
+        "actual_comparison": "Double measured >= Double(target-slack), as current passesConvergence; separate whole-five median and served0-own requirements"
+      },
+      "independent_rationale": "Strict paired effective-initial increase rules out unchanged own policy; the complete simple task reference family rules out the named goal-blind/fixed alternatives. Neither requirement follows merely from the existing quality floor. Same-member conjunction in at least three originals prevents separate dimensions/members from filling different parts. Existing quality floor and full budget remain additional restrictions; no external calibration origin, attainability or population guarantee is inferred."
+    }
+  ],
+  "HER_row": {
+    "full55_index": 49,
+    "actual_contract": {
+      "contract_sha256": "4240a5a23de857edb9c533c4f16e79789935b38fc0b63568f8043c52b88f1283",
+      "plan_id": "e2e959786728055df24eca72b82cee9a166f4491a2332e60af4c62b5705ae644",
+      "row_id": "HER/goal-reaching"
+    },
+    "training_seed_order": [
+      42,
+      43,
+      44,
+      45,
+      46
+    ],
+    "served_index": 0,
+    "training_episodes": 334,
+    "physical_steps_each_episode": 6,
+    "physical_environment_steps_each_model": 2004,
+    "five_model_environment_steps": 10020,
+    "reference_count": 46656,
+    "goal_cases": 20,
+    "bit_count": 6,
+    "evaluation_horizon": 6,
+    "sampler_only_goal_seed": 104771,
+    "reference_goal_outcome_pairs": 933120,
+    "joint_learning": "Both strict final-success>own-initial-success AND exact final-mean-distance<own-initial-distance, and both exhaustive-reference dimensions, all in the SAME member; references tied only at actual20/20 success and exact0 distance. Never waive initial gains.",
+    "unchanged_quality": "Double success >=0.90-0.05 and distance <=0.05, each whole-five median plus served0 own both. Decimal17/20 is exposition of the source success subtraction, not replacement arithmetic.",
+    "rationale": "Success and distance are complementary: progress on only one cannot satisfy the joint condition. The full46656 goal-blind sequence family is finite and exact, with all20 outcomes/extrema/attainers retained and replayed; duplicates do not become independent goals. Endpoint equality is the only attainable response when a reference already reaches global success20 or distance0. A final policy still must strictly improve over its actual own initial values."
+  },
+  "arena_rows": [
+    {
+      "full55_index": 50,
+      "actual_contract": {
+        "contract_sha256": "954af02d8734e5cb1df7a7b09eb85b9786cb2b491dce4269165b58fa9c760bd0",
+        "plan_id": "b4a3d416b1dd090f74b3cc91da39fd8e8b7641a0d6dbad7ffadbf570cb53015c",
+        "row_id": "connect4"
+      },
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "generations": 64,
+      "self_play_games_per_generation": 2,
+      "training_MCTS_simulations_per_move": 128,
+      "max_plies": 42,
+      "optimizer_updates_per_generation": 8,
+      "scheduled_self_play_games_per_model": 128,
+      "scheduled_optimizer_updates_per_model": 512,
+      "arena_games": 9,
+      "addressed_tape_seed": 7961,
+      "neutral_reference_simulations": 48,
+      "joint_learning": "Exact final(2W+D)/18 > actual own initial exact score AND each actual plain-uniform/neutral-MCTS reference separately. An actual score1 reference can only be tied by final1; this never waives own-initial gain.",
+      "actual_quality": "Budget CriterionAtLeastExcluding uses score>=binary64(0.45-0.05), abs(score-0.5)>1e-12, and legal>=1.0. Apply all-five medians and served0 own gates.",
+      "neutral_tie_scope": "Connect4/Hex/Gomoku are endpoint-tie candidates only if the actual parent-recomputed reference has nine keyed wins and final has nine wins. No supplied historical score proves current attainment.",
+      "rationale": "Same addressed game/ply/role/purpose tape prevents policy-dependent game length from changing later random inputs. Search-only skill is an explicit reference, distinct from strict learned-network improvement. Score1 is a structural ceiling because all nine game scores lie in{0,1/2,1}; endpoint equality is never a general >= baseline rule."
+    },
+    {
+      "full55_index": 51,
+      "actual_contract": {
+        "contract_sha256": "0191af33569290e301e02810c5bc2f7cdaa60366c85a0b49f733c50d89bceec4",
+        "plan_id": "1be0778c2da43c7acda56a4df305460d2e41da9118aadab83fbca24d2020c79f",
+        "row_id": "othello"
+      },
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "generations": 96,
+      "self_play_games_per_generation": 4,
+      "training_MCTS_simulations_per_move": 192,
+      "max_plies": 60,
+      "optimizer_updates_per_generation": 16,
+      "scheduled_self_play_games_per_model": 384,
+      "scheduled_optimizer_updates_per_model": 1536,
+      "arena_games": 9,
+      "addressed_tape_seed": 7961,
+      "neutral_reference_simulations": 128,
+      "joint_learning": "Exact final(2W+D)/18 > actual own initial exact score AND each actual plain-uniform/neutral-MCTS reference separately. An actual score1 reference can only be tied by final1; this never waives own-initial gain.",
+      "actual_quality": "Budget CriterionAtLeastExcluding uses score>=binary64(0.45-0.05), abs(score-0.5)>1e-12, and legal>=1.0. Apply all-five medians and served0 own gates.",
+      "neutral_tie_scope": "Othello retains strict actual-baseline comparison; no current9/9 attainment is supplied by this review.",
+      "rationale": "Same addressed game/ply/role/purpose tape prevents policy-dependent game length from changing later random inputs. Search-only skill is an explicit reference, distinct from strict learned-network improvement. Score1 is a structural ceiling because all nine game scores lie in{0,1/2,1}; endpoint equality is never a general >= baseline rule."
+    },
+    {
+      "full55_index": 52,
+      "actual_contract": {
+        "contract_sha256": "83ed06d07890d8ed0bc9c530279b1aab60258864c66c4bf102f8d8f6107d968b",
+        "plan_id": "592092f87e5bdf91da6ec0cdbe958a879075119acf4e473b80c18e52f5ca97db",
+        "row_id": "hex"
+      },
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "generations": 128,
+      "self_play_games_per_generation": 2,
+      "training_MCTS_simulations_per_move": 256,
+      "max_plies": 121,
+      "optimizer_updates_per_generation": 8,
+      "scheduled_self_play_games_per_model": 256,
+      "scheduled_optimizer_updates_per_model": 1024,
+      "arena_games": 9,
+      "addressed_tape_seed": 7961,
+      "neutral_reference_simulations": 192,
+      "joint_learning": "Exact final(2W+D)/18 > actual own initial exact score AND each actual plain-uniform/neutral-MCTS reference separately. An actual score1 reference can only be tied by final1; this never waives own-initial gain.",
+      "actual_quality": "Budget CriterionAtLeastExcluding uses score>=binary64(0.45-0.05), abs(score-0.5)>1e-12, and legal>=1.0. Apply all-five medians and served0 own gates.",
+      "neutral_tie_scope": "Connect4/Hex/Gomoku are endpoint-tie candidates only if the actual parent-recomputed reference has nine keyed wins and final has nine wins. No supplied historical score proves current attainment.",
+      "rationale": "Same addressed game/ply/role/purpose tape prevents policy-dependent game length from changing later random inputs. Search-only skill is an explicit reference, distinct from strict learned-network improvement. Score1 is a structural ceiling because all nine game scores lie in{0,1/2,1}; endpoint equality is never a general >= baseline rule."
+    },
+    {
+      "full55_index": 53,
+      "actual_contract": {
+        "contract_sha256": "2a09242488a3d87c73d2a9a1bd22f118bda90bc4898cd4d28ec2b289512eb073",
+        "plan_id": "9876668b4d1cdd74a03279e4ef811129264cdc1dfd56fabd94f1308af068a365",
+        "row_id": "gomoku"
+      },
+      "training_seed_order": [
+        42,
+        43,
+        44,
+        45,
+        46
+      ],
+      "served_index": 0,
+      "generations": 128,
+      "self_play_games_per_generation": 2,
+      "training_MCTS_simulations_per_move": 256,
+      "max_plies": 225,
+      "optimizer_updates_per_generation": 8,
+      "scheduled_self_play_games_per_model": 256,
+      "scheduled_optimizer_updates_per_model": 1024,
+      "arena_games": 9,
+      "addressed_tape_seed": 7961,
+      "neutral_reference_simulations": 192,
+      "joint_learning": "Exact final(2W+D)/18 > actual own initial exact score AND each actual plain-uniform/neutral-MCTS reference separately. An actual score1 reference can only be tied by final1; this never waives own-initial gain.",
+      "actual_quality": "Budget CriterionAtLeastExcluding uses score>=binary64(0.45-0.05), abs(score-0.5)>1e-12, and legal>=1.0. Apply all-five medians and served0 own gates.",
+      "neutral_tie_scope": "Connect4/Hex/Gomoku are endpoint-tie candidates only if the actual parent-recomputed reference has nine keyed wins and final has nine wins. No supplied historical score proves current attainment.",
+      "rationale": "Same addressed game/ply/role/purpose tape prevents policy-dependent game length from changing later random inputs. Search-only skill is an explicit reference, distinct from strict learned-network improvement. Score1 is a structural ceiling because all nine game scores lie in{0,1/2,1}; endpoint equality is never a general >= baseline rule."
+    }
+  ],
+  "complete9game_WDL_partitions": [
+    {
+      "wins": 0,
+      "draws": 0,
+      "losses": 9,
+      "score": "0",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 0,
+      "draws": 1,
+      "losses": 8,
+      "score": "1/18",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 0,
+      "draws": 2,
+      "losses": 7,
+      "score": "1/9",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 0,
+      "draws": 3,
+      "losses": 6,
+      "score": "1/6",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 0,
+      "draws": 4,
+      "losses": 5,
+      "score": "2/9",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 0,
+      "draws": 5,
+      "losses": 4,
+      "score": "5/18",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 0,
+      "draws": 6,
+      "losses": 3,
+      "score": "1/3",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 0,
+      "draws": 7,
+      "losses": 2,
+      "score": "7/18",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 0,
+      "draws": 8,
+      "losses": 1,
+      "score": "4/9",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 0,
+      "draws": 9,
+      "losses": 0,
+      "score": "1/2",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 1,
+      "draws": 0,
+      "losses": 8,
+      "score": "1/9",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 1,
+      "draws": 1,
+      "losses": 7,
+      "score": "1/6",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 1,
+      "draws": 2,
+      "losses": 6,
+      "score": "2/9",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 1,
+      "draws": 3,
+      "losses": 5,
+      "score": "5/18",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 1,
+      "draws": 4,
+      "losses": 4,
+      "score": "1/3",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 1,
+      "draws": 5,
+      "losses": 3,
+      "score": "7/18",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 1,
+      "draws": 6,
+      "losses": 2,
+      "score": "4/9",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 1,
+      "draws": 7,
+      "losses": 1,
+      "score": "1/2",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 1,
+      "draws": 8,
+      "losses": 0,
+      "score": "5/9",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 2,
+      "draws": 0,
+      "losses": 7,
+      "score": "2/9",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 2,
+      "draws": 1,
+      "losses": 6,
+      "score": "5/18",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 2,
+      "draws": 2,
+      "losses": 5,
+      "score": "1/3",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 2,
+      "draws": 3,
+      "losses": 4,
+      "score": "7/18",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 2,
+      "draws": 4,
+      "losses": 3,
+      "score": "4/9",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 2,
+      "draws": 5,
+      "losses": 2,
+      "score": "1/2",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 2,
+      "draws": 6,
+      "losses": 1,
+      "score": "5/9",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 2,
+      "draws": 7,
+      "losses": 0,
+      "score": "11/18",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 3,
+      "draws": 0,
+      "losses": 6,
+      "score": "1/3",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 3,
+      "draws": 1,
+      "losses": 5,
+      "score": "7/18",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 3,
+      "draws": 2,
+      "losses": 4,
+      "score": "4/9",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 3,
+      "draws": 3,
+      "losses": 3,
+      "score": "1/2",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 3,
+      "draws": 4,
+      "losses": 2,
+      "score": "5/9",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 3,
+      "draws": 5,
+      "losses": 1,
+      "score": "11/18",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 3,
+      "draws": 6,
+      "losses": 0,
+      "score": "2/3",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 4,
+      "draws": 0,
+      "losses": 5,
+      "score": "4/9",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 4,
+      "draws": 1,
+      "losses": 4,
+      "score": "1/2",
+      "legacy_quality_pass": false
+    },
+    {
+      "wins": 4,
+      "draws": 2,
+      "losses": 3,
+      "score": "5/9",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 4,
+      "draws": 3,
+      "losses": 2,
+      "score": "11/18",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 4,
+      "draws": 4,
+      "losses": 1,
+      "score": "2/3",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 4,
+      "draws": 5,
+      "losses": 0,
+      "score": "13/18",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 5,
+      "draws": 0,
+      "losses": 4,
+      "score": "5/9",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 5,
+      "draws": 1,
+      "losses": 3,
+      "score": "11/18",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 5,
+      "draws": 2,
+      "losses": 2,
+      "score": "2/3",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 5,
+      "draws": 3,
+      "losses": 1,
+      "score": "13/18",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 5,
+      "draws": 4,
+      "losses": 0,
+      "score": "7/9",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 6,
+      "draws": 0,
+      "losses": 3,
+      "score": "2/3",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 6,
+      "draws": 1,
+      "losses": 2,
+      "score": "13/18",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 6,
+      "draws": 2,
+      "losses": 1,
+      "score": "7/9",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 6,
+      "draws": 3,
+      "losses": 0,
+      "score": "5/6",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 7,
+      "draws": 0,
+      "losses": 2,
+      "score": "7/9",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 7,
+      "draws": 1,
+      "losses": 1,
+      "score": "5/6",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 7,
+      "draws": 2,
+      "losses": 0,
+      "score": "8/9",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 8,
+      "draws": 0,
+      "losses": 1,
+      "score": "8/9",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 8,
+      "draws": 1,
+      "losses": 0,
+      "score": "17/18",
+      "legacy_quality_pass": true
+    },
+    {
+      "wins": 9,
+      "draws": 0,
+      "losses": 0,
+      "score": "1",
+      "legacy_quality_pass": true
+    }
+  ],
+  "arena_exact_score_maximum_proof": "For nonnegative W,D,L with W+D+L=9,2W+D<=18. Equality requires2L+D=0, henceW9,D0,L0. All55 partitions independently enumerated; all3025 score-pair comparisons allow equality only at1. No score equals the existing binary64 quality floor; >= and > coincide on validated9-game outcomes and their five-member median.",
+  "SAC_pendulum_warm_applications": 340000,
+  "control_limits": "Arithmetic checks neither evaluate actual current references nor validate producer/device/authentication. KeyDoor ties require actual current canonical solver; all unsupported RETURN comparisons stay strict. No native3of5 population/error-rate claim is supplied."
+}

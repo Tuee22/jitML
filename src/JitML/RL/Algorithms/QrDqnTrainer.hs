@@ -453,7 +453,7 @@ loopEither initialSnapshot environment config update online target adam gen buff
               obs
               action
               ( simStepReward stepResult
-                  + RewardShaping.shapingBonus (envName environment) (qrGamma config) obs nextObs
+                  + RewardShaping.shapingBonusForTransition (envName environment) (qrGamma config) envDone obs nextObs
               )
               nextObs
               envDone

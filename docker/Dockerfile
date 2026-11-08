@@ -1,4 +1,6 @@
-FROM ubuntu:24.04
+# Retain the verified base across VM/cache moves; a floating tag invalidates
+# every toolchain layer even when the project and toolchain pins are unchanged.
+FROM ubuntu:24.04@sha256:24737cef17f4e22b1977df7d9a05e77c4e28b7da5b8911f8d8ccda136bf3573c
 
 ARG GHC_VERSION=9.12.4
 ARG CABAL_VERSION=3.16.1.0

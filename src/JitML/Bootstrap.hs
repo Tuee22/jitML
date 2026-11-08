@@ -29,12 +29,12 @@ module JitML.Bootstrap
   , selectLiveKindRecovery
   , selectLiveLease
   , topicStatsPollDecision
+  , topicConvergenceEvidenceWith
   , uniformImageId
   )
 where
 
 import Control.Concurrent (threadDelay)
-import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception.Safe (displayException, tryAny)
 import Control.Monad (filterM, when)
 import Data.Aeson
@@ -55,6 +55,7 @@ import Data.Aeson.KeyMap qualified as KeyMap
 import Data.ByteString qualified as StrictByteString
 import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Char (isHexDigit)
+import Data.IORef (newIORef, readIORef, writeIORef)
 import Data.List (isPrefixOf, isSuffixOf, nub)
 import Data.Map.Strict (Map)
 import Data.Map.Strict qualified as Map
@@ -73,6 +74,7 @@ import System.Directory
   )
 import System.Environment (lookupEnv)
 import System.FilePath (takeDirectory, (</>))
+import System.Timeout (timeout)
 
 import JitML.Cluster.DockerImage
   ( dockerBuildAndKindLoadPlan
@@ -90,12 +92,13 @@ import JitML.Cluster.Helm
   , kindCreateSubprocess
   , kindGetClustersSubprocess
   , phasedReleases
+  , pulsarChartPreparationRequired
   , releaseName
   , renderHelmDependencyBuildPlan
   )
 import JitML.Cluster.Kind
   ( kindConfigForEdgePortAndWorkers
-  , renderKindConfig
+  , renderKindConfigWithResourcePolicy
   , substrateKindNodeContainerNames
   )
 import JitML.Cluster.Lifecycle qualified as ClusterLifecycle
@@ -115,6 +118,7 @@ import JitML.Cluster.Publication
   )
 import JitML.Cluster.PulsarBootstrap (runPulsarTopicCreatesIO)
 import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
+import JitML.Cluster.PulsarChart (preparePulsarChart, preparedPulsarChartPath)
 import JitML.Cluster.Readiness (platformReadinessSubprocesses, runMinioBucketReadinessIO)
 import JitML.Cluster.Readiness qualified as Readiness
 import JitML.Cluster.ReconcileStamp
@@ -127,20 +131,34 @@ import JitML.Cluster.ReconcileStamp
   , fingerprintWorkspace
   , mkReconcileStamp
   )
+import JitML.Cluster.ResourceBudget
+  ( ResourceEnvelope
+  , kubeletSystemReservation
+  , renderResourceEnvelope
+  )
+import JitML.Cluster.ResourceNodes (validateNodeAllocatable, validateNodeHardCaps)
+import JitML.Cluster.ResourcePods (renderPodBudgetReport, validateAdmittedPodBudgets)
+import JitML.Cluster.ResourceRuntime (checkResourceEnvelopeIO, reconcileKubeletResourcesIO)
 import JitML.Cluster.Resources
   ( ClusterResources
   , clusterNodeCapSubprocesses
   , defaultClusterResources
   , loadClusterResourcesOrDefault
+  , nodeSystemCpus
+  , nodeSystemMemoryMiB
+  , numericalWorkload
   , renderClusterResourcesDhall
+  , scheduleOnControlPlane
   , validateEngineTopology
   , validateLocalPlatformTopology
   , workerCount
   )
+import JitML.Cluster.StatefulPV qualified as StatefulPV
 import JitML.Cluster.Storage
   ( ManualPV (..)
   , manualPVs
   , manualPVsFor
+  , pvIsPostgres
   , pvLocalDataPath
   , pvNodeDataPath
   , renderManualPV
@@ -155,16 +173,20 @@ import JitML.Service.BootConfig
   , renderBootConfigDhall
   )
 import JitML.Service.ConfigMap
-  ( renderServiceConfigMaps
+  ( renderClusterResourceValues
+  , renderPlatformResourceDefaults
+  , renderServiceConfigMaps
   , renderServiceDeployment
   , renderServiceRBAC
   , renderServiceValues
   )
 import JitML.Service.LiveConfig (defaultLiveConfig, renderLiveConfigDhall)
 import JitML.Sub.Outcome
-  ( ProcessFailure
+  ( ObservedProcessFailure (..)
+  , ProcessFailure
   , ProcessOutcome (..)
   , ProcessTranscript (..)
+  , renderObservedProcessFailure
   , renderProcessFailure
   , renderProcessOutcome
   )
@@ -211,7 +233,11 @@ materializeBootstrapFiles root substrate =
 -- live retained-cluster reconcile supplies the port recovered from its
 -- publication before checking whether any input changed.
 materializeBootstrapFilesForPort :: FilePath -> Substrate -> Int -> IO Bool
-materializeBootstrapFilesForPort root substrate edgePort = do
+materializeBootstrapFilesForPort = materializeBootstrapFilesWithEnvelope Nothing
+
+materializeBootstrapFilesWithEnvelope
+  :: Maybe ResourceEnvelope -> FilePath -> Substrate -> Int -> IO Bool
+materializeBootstrapFilesWithEnvelope envelope root substrate edgePort = do
   let buildRoot = root </> ".build"
       runtimeRoot = buildRoot </> "runtime"
       clusterConfRoot = buildRoot </> "conf" </> "cluster"
@@ -236,7 +262,15 @@ materializeBootstrapFilesForPort root substrate edgePort = do
     sequence
       [ writeTextFileIfChanged
           (kindRoot </> "cluster-" <> Text.unpack (renderSubstrate substrate) <> ".yaml")
-          ( renderKindConfig
+          ( renderKindConfigWithResourcePolicy
+              (scheduleOnControlPlane clusterResources)
+              ( Just
+                  ( maybe
+                      (nodeSystemCpus clusterResources, Text.pack (show (nodeSystemMemoryMiB clusterResources)) <> "Mi")
+                      kubeletSystemReservation
+                      envelope
+                  )
+              )
               (kindConfigForEdgePortAndWorkers substrate edgePort (workerCount clusterResources))
           )
       , writeTextFileIfChanged (chartTemplatesRoot </> "storageclass-jitml-manual.yaml") renderStorageClass
@@ -245,7 +279,7 @@ materializeBootstrapFilesForPort root substrate edgePort = do
           (chartTemplatesRoot </> "gateway-jitml-edge.yaml")
           (renderGateway edgePort)
       , writeTextFileIfChanged (chartTemplatesRoot </> "envoyproxy-jitml-edge.yaml") $
-          renderEnvoyProxy edgePort
+          renderEnvoyProxy clusterResources edgePort
       ]
   let configuredManualPVs = manualPVsFor clusterResources
   pvResults <- traverse (materializePv chartTemplatesRoot) configuredManualPVs
@@ -257,12 +291,16 @@ materializeBootstrapFilesForPort root substrate edgePort = do
   routeResults <- traverse (writeRoute chartTemplatesRoot) routeRegistry
   legacyValuesChanged <- removeFileIfExists (chartTemplatesRoot </> "minio-values.yaml")
   standaloneValuesChanged <- removeFileIfExists (chartRoot </> "minio-values.yaml")
-  let clusterBoot = defaultBootConfig substrate Cluster
+  let clusterBoot =
+        (defaultBootConfig substrate Cluster) {bootNumericalWorkload = numericalWorkload clusterResources}
   configResults <-
     sequence
       [ writeTextFileIfChanged
           (clusterConfRoot </> "Resources.dhall")
           (renderClusterResourcesDhall clusterResources)
+      , writeTextFileIfChanged
+          (clusterConfRoot </> "NamespaceResources.yaml")
+          (renderPlatformResourceDefaults clusterResources)
       , writeTextFileIfChanged
           (clusterConfRoot </> Text.unpack (renderSubstrate substrate) <> ".dhall")
           (renderBootConfigDhall clusterBoot)
@@ -277,6 +315,13 @@ materializeBootstrapFilesForPort root substrate edgePort = do
       , writeTextFileIfChanged (chartRoot </> "local/jitml-service/values.yaml") $
           renderServiceValues clusterResources
       ]
+  resourceResults <-
+    traverse
+      ( \(path, contents) -> do
+          createDirectoryIfMissing True (takeDirectory (root </> path))
+          writeTextFileIfChanged (root </> path) contents
+      )
+      (renderClusterResourceValues clusterResources)
   hostResults <- case substrate of
     AppleSilicon ->
       let lease =
@@ -305,6 +350,7 @@ materializeBootstrapFilesForPort root substrate edgePort = do
             <> stalePvResults
             <> routeResults
             <> configResults
+            <> resourceResults
             <> hostResults
             <> [legacyValuesChanged, standaloneValuesChanged, regcredChanged]
         )
@@ -384,19 +430,25 @@ livePreGrantSubprocessesForPort :: Substrate -> Int -> ClusterResources -> FileP
 livePreGrantSubprocessesForPort substrate edgePort resources chartPath =
   [ kindCreateSubprocess substrate kindConfigPath
   ]
+    <> clusterNodeCapSubprocesses substrate resources
+    <> StatefulPV.statefulPVFreshInstallSubprocesses substrate resources
     <> kindNodeInotifyCapSubprocesses substrate resources
     <> [ kubectlRestartPodsByLabelSubprocess "kube-system" "k8s-app=kube-proxy"
        , kubectlRestartPodsByLabelSubprocess "local-path-storage" "app=local-path-provisioner"
        ]
-    <> clusterNodeCapSubprocesses substrate resources
     <> [helmDependencyBuildSubprocess chartPath]
-    <> kindPrepareStatefulPvSubprocesses substrate resources
+    <> ( case substrate of
+           LinuxCUDA -> kindPrepareStatefulPvSubprocesses substrate resources
+           _ -> []
+       )
     <> cachedThirdPartyImageLoadSteps substrate
     <> foundationManifestApplySubprocesses chartPath
     -- Sprint 2.14 — bind the host Docker Hub login to the platform namespace's
     -- default ServiceAccount (regcred imagePullSecret) before any release pulls,
     -- so the kind node's pods pull Docker Hub images authenticated (no 429).
-    <> [kubectlApplyFileSubprocess regcredManifestPath]
+    <> [ kubectlApplyFileSubprocess regcredManifestPath
+       , kubectlApplyFileSubprocess ".build/conf/cluster/NamespaceResources.yaml"
+       ]
     <> concatMap releaseSteps minioBootstrapReleases
     <> Readiness.minioBootstrapReadinessSubprocesses
     -- The registry stores layers in the bucket MinIO just provisioned, so it
@@ -477,6 +529,7 @@ cachedThirdPartyRolloutImages =
   , "docker.io/grafana/grafana:11.6.0"
   , "registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.15.0"
   , "quay.io/prometheus-operator/prometheus-operator:v0.81.0"
+  , "quay.io/prometheus-operator/prometheus-config-reloader:v0.81.0"
   , "quay.io/prometheus/prometheus:v3.2.1"
   , "registry.k8s.io/ingress-nginx/kube-webhook-certgen:v1.5.2"
   , "python:3.11-slim"
@@ -532,9 +585,9 @@ kindPrepareStatefulPvSubprocesses :: Substrate -> ClusterResources -> [Subproces
 kindPrepareStatefulPvSubprocesses substrate resources =
   case substrate of
     AppleSilicon ->
-      fmap kindMountStatefulPvNodeLocalSubprocess nodeNames
+      fmap (\node -> StatefulPV.statefulPVInitializeSubprocess node (manualPVsFor resources)) nodeNames
     LinuxCPU ->
-      fmap kindMountStatefulPvNodeLocalSubprocess nodeNames
+      fmap (\node -> StatefulPV.statefulPVInitializeSubprocess node (manualPVsFor resources)) nodeNames
     LinuxCUDA
       -- The ownership fixup takes the Postgres PV paths as its operands, so an
       -- empty registry would render `chown -R 26:26` with nothing to chown and
@@ -544,55 +597,9 @@ kindPrepareStatefulPvSubprocesses substrate resources =
  where
   nodeNames = substrateKindNodeContainerNames substrate (workerCount resources)
 
-kindMountStatefulPvNodeLocalSubprocess :: Text -> Subprocess
-kindMountStatefulPvNodeLocalSubprocess nodeName =
-  subprocess
-    "docker"
-    [ "exec"
-    , nodeName
-    , "sh"
-    , "-c"
-    , Text.unwords
-        ( ["set -e;"]
-            <> fmap mountOne manualPVs
-        )
-    ]
- where
-  mountOne pv =
-    let nodePath = pvNodeDataPath pv
-        localPath = "/var/local/jitml-stateful-pv" <> nodePath
-     in Text.unwords
-          [ "mkdir -p"
-          , localPath
-          , nodePath <> ";"
-          , "mountpoint -q"
-          , nodePath
-          , "|| mount --bind"
-          , localPath
-          , nodePath <> ";"
-          , pvOwnershipCommand pv
-          , localPath <> ";"
-          ]
-
-pvOwnershipCommand :: ManualPV -> Text
-pvOwnershipCommand pv
-  | pvIsPostgres pv = "chown -R 26:26"
-  | otherwise = "chmod 0777"
-
 postgresManualPVs :: [ManualPV]
 postgresManualPVs =
   filter pvIsPostgres manualPVs
-
-pvIsPostgres :: ManualPV -> Bool
-pvIsPostgres pv =
-  any
-    ( \cluster ->
-        pvNamespace pv == perconaNamespace cluster
-          && ( pvStatefulSet pv == perconaClusterName cluster
-                 || pvStatefulSet pv == perconaClusterName cluster <> "-repo1"
-             )
-    )
-    postgresRegistry
 
 foundationManifestApplySubprocesses :: FilePath -> [Subprocess]
 foundationManifestApplySubprocesses chartPath =
@@ -1231,31 +1238,46 @@ topicStatsPollDecision attemptsRemaining capturedStdout
       _ -> False
 
 topicConvergenceEvidenceIO :: IO ReconcileEvidence
-topicConvergenceEvidenceIO = do
-  observed <- mapConcurrently observeTopic PulsarBootstrap.pulsarTopics
-  pure
-    ReconcileEvidence
-      { reconcileEvidenceExpected = fmap fst observed
-      , reconcileEvidenceObserved = observed
-      }
+topicConvergenceEvidenceIO = topicConvergenceEvidenceWith (probeTopic (3 :: Int))
  where
-  observeTopic topic =
-    (PulsarBootstrap.topicName topic,) <$> probeTopic (3 :: Int) topic
   probeTopic attemptsRemaining topic = do
     outcome <-
-      runStreaming
-        defaultSubprocessEnv
+      PulsarBootstrap.runPulsarAdminIO
         (PulsarBootstrap.pulsarTopicStatsSubprocess topic)
     let capturedStdout =
-          case outcome of
-            ProcessSucceeded transcript -> Just (processTranscriptStdout transcript)
-            ProcessFailed _ -> Nothing
+          case PulsarBootstrap.classifyTopicStatsAttempt outcome of
+            Right body -> Just body
+            Left _failure -> Nothing
     case topicStatsPollDecision attemptsRemaining capturedStdout of
       TopicStatsObserved -> pure True
       TopicStatsExhausted -> pure False
       TopicStatsRetry -> do
         threadDelay 500_000
         probeTopic (attemptsRemaining - 1) topic
+
+-- | One remote admin at a time. Stop launching after a failed/unknown topic,
+-- retaining every expected address while recording only gathered observations.
+-- The injected observer makes the actual serial/fail-closed scheduler testable.
+topicConvergenceEvidenceWith
+  :: (Monad m)
+  => (PulsarBootstrap.AnyTopic -> m Bool)
+  -> m ReconcileEvidence
+topicConvergenceEvidenceWith observe = do
+  observed <- go PulsarBootstrap.pulsarTopics
+  pure
+    ReconcileEvidence
+      { reconcileEvidenceExpected = fmap PulsarBootstrap.topicName PulsarBootstrap.pulsarTopics
+      , reconcileEvidenceObserved = observed
+      }
+ where
+  go [] = pure []
+  go (topic : rest) = do
+    present <- observe topic
+    remaining <-
+      if present
+        then go rest
+        else pure []
+    pure ((PulsarBootstrap.topicName topic, present) : remaining)
 
 nodeImageConvergenceEvidenceIO
   :: Substrate
@@ -1688,6 +1710,30 @@ liveExecutePhasedRolloutWithLease
   :: PVSnapshotPosix.LifecycleLease -> Substrate -> FilePath -> IO LiveExecutionResult
 liveExecutePhasedRolloutWithLease lifecycleLease substrate chartPath = do
   resources <- loadClusterResourcesOrDefault "."
+  envelopeOutcome <- checkResourceEnvelopeIO resources
+  case envelopeOutcome of
+    Left reason ->
+      pure
+        LiveExecutionResult
+          { liveStepsExecuted = ["cluster resource preflight"]
+          , liveStepsFailed = [LiveStepInvariantFailure "cluster resource preflight" reason]
+          , livePublication = defaultPublication substrate
+          , liveAlreadyConverged = False
+          }
+    Right (_, envelope) -> do
+      createDirectoryIfMissing True ".build/conf/cluster"
+      _ <-
+        writeTextFileIfChanged ".build/conf/cluster/ResourceEnvelope.txt" (renderResourceEnvelope envelope)
+      liveExecuteWithinResourceEnvelope lifecycleLease substrate chartPath resources envelope
+
+liveExecuteWithinResourceEnvelope
+  :: PVSnapshotPosix.LifecycleLease
+  -> Substrate
+  -> FilePath
+  -> ClusterResources
+  -> ResourceEnvelope
+  -> IO LiveExecutionResult
+liveExecuteWithinResourceEnvelope lifecycleLease substrate chartPath selectedResources envelope = do
   presenceOutcome <- probeKindClusterPresenceIO substrate
   case presenceOutcome of
     Left failure ->
@@ -1712,9 +1758,15 @@ liveExecutePhasedRolloutWithLease lifecycleLease substrate chartPath = do
         Right (kindAction, lease, publication) -> do
           reusable <- tryAny $ case kindAction of
             CreateLiveKindCluster -> pure ()
-            ReuseLiveKindCluster -> ClusterLifecycle.assertClusterReusable lifecycleLease "." substrate resources
+            ReuseLiveKindCluster -> do
+              ClusterLifecycle.assertClusterReusable lifecycleLease "." substrate selectedResources
+              kubeconfig <- writeKindKubeconfigIO substrate
+              either (ioError . userError . Text.unpack . renderLiveStepFailure) pure kubeconfig
+              projected <- StatefulPV.verifyStatefulPVReuseIO substrate selectedResources
+              either (ioError . userError . Text.unpack) pure projected
           case reusable of
-            Left err ->
+            Left err -> do
+              _ <- writeLivePublication "." publication
               pure
                 LiveExecutionResult
                   { liveStepsExecuted =
@@ -1730,26 +1782,37 @@ liveExecutePhasedRolloutWithLease lifecycleLease substrate chartPath = do
             Right () -> do
               let port = EdgePort.leasedPort lease
               materializationChanged <-
-                materializeBootstrapFilesForPort "." substrate port
+                materializeBootstrapFilesWithEnvelope (Just envelope) "." substrate port
               convergence <-
                 observeLiveConvergenceIO
                   "."
                   substrate
-                  resources
+                  selectedResources
                   kindAction
                   port
                   materializationChanged
               case convergence of
-                LiveClusterAlreadyConverged currentPublication ->
+                LiveClusterAlreadyConverged currentPublication -> do
+                  nodeOutcome <- verifyBoundedNodes
+                  resourceOutcome <- case nodeOutcome of
+                    Left failure -> pure (Left failure)
+                    Right () -> observePodBudgetSnapshot
+                  case resourceOutcome of
+                    Left _ -> do
+                      _ <- writeLivePublication "." publication
+                      pure ()
+                    Right () -> pure ()
                   pure $
                     LiveExecutionResult
                       { liveStepsExecuted =
                           [ renderSubprocess kindGetClustersSubprocess
                           , "cluster convergence observation: already converged"
+                          , nodeBudgetLabel
+                          , "actual admitted Pod resource budgets"
                           ]
-                      , liveStepsFailed = []
-                      , livePublication = currentPublication
-                      , liveAlreadyConverged = True
+                      , liveStepsFailed = either (: []) (const []) resourceOutcome
+                      , livePublication = either (const publication) (const currentPublication) resourceOutcome
+                      , liveAlreadyConverged = either (const False) (const True) resourceOutcome
                       }
                 LiveClusterNeedsReconcile reason -> do
                   -- Invalidate prior live evidence only after retained coordinates,
@@ -1758,7 +1821,7 @@ liveExecutePhasedRolloutWithLease lifecycleLease substrate chartPath = do
                   -- coordinates without advertising stale readiness.
                   _ <- writeLivePublication "." publication
                   executeRequiredReconcile
-                    resources
+                    selectedResources
                     kindAction
                     lease
                     publication
@@ -1783,28 +1846,53 @@ liveExecutePhasedRolloutWithLease lifecycleLease substrate chartPath = do
           (livePreGrantSubprocessesForPort substrate port resources chartPath)
     case preGrantSubs of
       [] -> runAfterPreGrant resources port publication probeExecuted
-      kindSub : remainingPreGrantSubs -> do
+      kindSub : nodeAndPreGrantSubs -> do
+        -- These are the first steps after creation in the shared rendered plan.
+        -- Run them before snapshot helpers can write into the new node volumes.
+        let (nodeCapSubs, afterCaps) =
+              splitAt (length (clusterNodeCapSubprocesses substrate resources)) nodeAndPreGrantSubs
+            (projectionInstallSubs, remainingPreGrantSubs) =
+              splitAt (length (StatefulPV.statefulPVFreshInstallSubprocesses substrate resources)) afterCaps
         (kindExecuted, kindFailure) <-
           case kindAction of
             CreateLiveKindCluster -> do
-              (created, createFailure) <- runStepList [kindSub]
+              (created, createFailure) <- runStepList (kindSub : nodeCapSubs)
               case createFailure of
+                -- Kind may have created partial nodes even when it returns
+                -- nonzero. Restoration remains forbidden; the operator's
+                -- explicitly bounded VM contains those uncapped leftovers.
                 Just failure -> pure (created, Just failure)
                 Nothing -> do
-                  restored <- tryAny (ClusterLifecycle.restoreCreatedCluster lifecycleLease "." substrate resources)
-                  let label = "fresh Kind node-local PV restoration"
-                  pure $ case restored of
-                    Left err -> (created <> [label], Just (LiveStepInvariantFailure label (Text.pack (displayException err))))
-                    Right outcome -> (created <> [label <> ": " <> Text.pack (show outcome)], Nothing)
+                  caps <- verifyNodeHardCaps
+                  case caps of
+                    Left failure -> pure (created <> [nodeHardCapLabel], Just failure)
+                    Right () -> do
+                      restored <- tryAny (ClusterLifecycle.restoreCreatedCluster lifecycleLease "." substrate resources)
+                      let label = "fresh Kind node-local PV restoration"
+                      case restored of
+                        Left err ->
+                          pure
+                            ( created <> [nodeHardCapLabel, label]
+                            , Just (LiveStepInvariantFailure label (Text.pack (displayException err)))
+                            )
+                        Right outcome -> do
+                          -- Fresh nodes have no platform PV consumers yet.
+                          -- Restore first, then persist startup dependencies
+                          -- before resource calibration can restart kubelet.
+                          (installed, failed) <- runStepList projectionInstallSubs
+                          pure (created <> [nodeHardCapLabel, label <> ": " <> Text.pack (show outcome)] <> installed, failed)
             ReuseLiveKindCluster -> do
               eligible <- tryAny (ClusterLifecycle.assertClusterReusable lifecycleLease "." substrate resources)
               let label = "existing Kind node-local PV reuse guard"
-              pure $ case eligible of
-                Left err -> ([label], Just (LiveStepInvariantFailure label (Text.pack (displayException err))))
-                Right () ->
-                  ( ["kind cluster " <> substrateClusterName substrate <> " already present; create skipped", label]
-                  , Nothing
-                  )
+              case eligible of
+                Left err -> pure ([label], Just (LiveStepInvariantFailure label (Text.pack (displayException err))))
+                Right () -> do
+                  (capped, failure) <- runStepList nodeCapSubs
+                  pure
+                    ( ["kind cluster " <> substrateClusterName substrate <> " already present; create skipped", label]
+                        <> capped
+                    , failure
+                    )
         case kindFailure of
           Just failure ->
             pure $
@@ -1828,7 +1916,7 @@ liveExecutePhasedRolloutWithLease lifecycleLease substrate chartPath = do
                     , liveAlreadyConverged = False
                     }
               Right () -> do
-                (preRestExecuted, preFailure) <- runStepList remainingPreGrantSubs
+                (preRestExecuted, preFailure) <- runBoundedPreGrant remainingPreGrantSubs
                 let preExecuted =
                       probeExecuted
                         <> kindExecuted
@@ -1844,6 +1932,145 @@ liveExecutePhasedRolloutWithLease lifecycleLease substrate chartPath = do
                         , liveAlreadyConverged = False
                         }
                   Nothing -> runAfterPreGrant resources port publication preExecuted
+
+  -- Check observed scheduler capacity after every node has its hard cgroup cap,
+  -- before Helm can create any platform workload. Nested-node cAdvisor may
+  -- report the outer VM's capacity; that must refuse rather than over-admit.
+  runBoundedPreGrant steps = do
+    let (nodeSteps, platformSteps) = break ((== "helm") . subprocessPath) steps
+    (executed, failed) <- runStepList nodeSteps
+    case failed of
+      Just failure -> pure (executed, Just failure)
+      Nothing -> do
+        calibration <- reconcileKubeletResourcesIO substrate selectedResources envelope
+        case calibration of
+          Left reason -> pure (executed <> [nodeBudgetLabel], Just (LiveStepInvariantFailure nodeBudgetLabel reason))
+          Right calibrationSteps -> do
+            outcome <- retryResourceObservation verifyBoundedNodes
+            case outcome of
+              Left failure -> pure (executed <> calibrationSteps <> [nodeBudgetLabel], Just failure)
+              Right () -> do
+                (remaining, failure) <- runStepList platformSteps
+                pure (executed <> calibrationSteps <> [nodeBudgetLabel] <> remaining, failure)
+
+  nodeBudgetLabel = "bounded node hard caps, allocatable and placement"
+
+  nodeHardCapLabel = "bounded node hard caps"
+
+  verifyBoundedNodes = do
+    outcome <- timeout 15000000 observeBoundedNodes
+    pure
+      ( fromMaybe
+          ( Left
+              (LiveStepInvariantFailure nodeBudgetLabel "node resource observation exceeded its 15-second budget")
+          )
+          outcome
+      )
+
+  verifyNodeHardCaps = do
+    outcome <- timeout 15000000 observeNodeHardCaps
+    pure
+      ( fromMaybe
+          ( Left
+              (LiveStepInvariantFailure nodeHardCapLabel "node hard-cap observation exceeded its 15-second budget")
+          )
+          outcome
+      )
+
+  observeNodeHardCaps = do
+    let capProbe =
+          subprocess
+            "docker"
+            ( [ "inspect"
+              , "--type"
+              , "container"
+              , "--format"
+              , "{\"Name\":{{json .Name}},\"Memory\":{{.HostConfig.Memory}},\"MemorySwap\":{{.HostConfig.MemorySwap}},\"NanoCpus\":{{.HostConfig.NanoCpus}},\"Running\":{{.State.Running}},\"Paused\":{{.State.Paused}},\"Restarting\":{{.State.Restarting}},\"Pid\":{{.State.Pid}}}"
+              ]
+                <> substrateKindNodeContainerNames substrate (workerCount selectedResources)
+            )
+    capOutcome <- runStreaming defaultSubprocessEnv capProbe
+    case capOutcome of
+      ProcessFailed failure -> pure (Left (LiveStepProcessFailure nodeHardCapLabel failure))
+      ProcessSucceeded capTranscript ->
+        case validateNodeHardCaps substrate selectedResources (processTranscriptStdout capTranscript) of
+          Left reason -> pure (Left (LiveStepInvariantFailure nodeHardCapLabel reason))
+          Right () -> pure (Right ())
+
+  observeBoundedNodes = do
+    caps <- observeNodeHardCaps
+    case caps of
+      Left failure -> pure (Left failure)
+      Right () -> do
+        let probe =
+              subprocess
+                "kubectl"
+                ["--kubeconfig", "./.build/jitml.kubeconfig", "--request-timeout=3s", "get", "nodes", "-o", "json"]
+        outcome <- runStreaming defaultSubprocessEnv probe
+        pure $ case outcome of
+          ProcessFailed failure -> Left (LiveStepProcessFailure nodeBudgetLabel failure)
+          ProcessSucceeded transcript ->
+            case validateNodeAllocatable substrate selectedResources envelope (processTranscriptStdout transcript) of
+              Left reason -> Left (LiveStepInvariantFailure nodeBudgetLabel reason)
+              Right () -> Right ()
+
+  -- A changed kubelet or an ordinary rolling replacement may need a brief
+  -- status update. The deadline remains finite; no resources are inferred
+  -- from pending Pods and no failed snapshot can publish convergence.
+  retryResourceObservation action = do
+    latestFailure <- newIORef Nothing
+    let loop = do
+          outcome <- action
+          case outcome of
+            Left failure -> writeIORef latestFailure (Just failure) >> threadDelay 1000000 >> loop
+            Right () -> pure outcome
+    bounded <- timeout 30000000 loop
+    case bounded of
+      Just outcome -> pure outcome
+      Nothing -> do
+        latest <- readIORef latestFailure
+        pure
+          ( Left
+              ( fromMaybe
+                  ( LiveStepInvariantFailure
+                      "bounded resource observation"
+                      "resource observation exceeded its 30-second budget"
+                  )
+                  latest
+              )
+          )
+
+  observePodBudgetSnapshot = retryResourceObservation $ do
+    boundedNodes <- verifyBoundedNodes
+    case boundedNodes of
+      Left failure -> pure (Left failure)
+      Right () -> observeAdmittedPodSnapshot
+
+  observeAdmittedPodSnapshot = do
+    let command arguments =
+          subprocess
+            "kubectl"
+            (["--kubeconfig", "./.build/jitml.kubeconfig", "--request-timeout=3s"] <> arguments)
+        label = "actual admitted Pod resource budgets"
+    nodesOutcome <- runStreaming defaultSubprocessEnv (command ["get", "nodes", "-o", "json"])
+    case nodesOutcome of
+      ProcessFailed failure -> pure (Left (LiveStepProcessFailure label failure))
+      ProcessSucceeded nodesTranscript -> do
+        podsOutcome <-
+          runStreaming defaultSubprocessEnv (command ["get", "pods", "--all-namespaces", "-o", "json"])
+        case podsOutcome of
+          ProcessFailed failure -> pure (Left (LiveStepProcessFailure label failure))
+          ProcessSucceeded podsTranscript ->
+            case validateAdmittedPodBudgets
+              substrate
+              selectedResources
+              envelope
+              (processTranscriptStdout nodesTranscript)
+              (processTranscriptStdout podsTranscript) of
+              Left reason -> pure (Left (LiveStepInvariantFailure label reason))
+              Right report -> do
+                _ <- writeTextFileIfChanged ".build/conf/cluster/PodBudgetReport.txt" (renderPodBudgetReport report)
+                pure (Right ())
 
   runAfterPreGrant resources port publication preExecuted = do
     bucketsOutcome <- runMinioBucketReadinessIO
@@ -1918,13 +2145,20 @@ liveExecutePhasedRolloutWithLease lifecycleLease substrate chartPath = do
         allExecuted = executed <> [topicsLabel]
     case topicsOutcome of
       Left (PulsarBootstrap.TopicCreateFailed _topic err) ->
-        pure $
-          LiveExecutionResult
-            { liveStepsExecuted = allExecuted
-            , liveStepsFailed = [LiveStepProcessFailure topicsLabel err]
-            , livePublication = publication
-            , liveAlreadyConverged = False
-            }
+        let failure = case err of
+              PulsarBootstrap.PulsarAdminProcessFailure (ObservedProcessExitFailure actual) ->
+                LiveStepProcessFailure topicsLabel actual
+              PulsarBootstrap.PulsarAdminProcessFailure actual ->
+                LiveStepInvariantFailure topicsLabel (renderObservedProcessFailure actual)
+              PulsarBootstrap.PulsarAdminInvalidResult message transcript ->
+                LiveStepInvalidResult topicsLabel message transcript
+         in pure $
+              LiveExecutionResult
+                { liveStepsExecuted = allExecuted
+                , liveStepsFailed = [failure]
+                , livePublication = publication
+                , liveAlreadyConverged = False
+                }
       Left (PulsarBootstrap.InvalidTopicFamilyEvidence evidenceError) ->
         pure $
           LiveExecutionResult
@@ -1938,83 +2172,114 @@ liveExecutePhasedRolloutWithLease lifecycleLease substrate chartPath = do
             , liveAlreadyConverged = False
             }
       Right _evidence -> do
-        measuredPublication <- measureLivePublication publication
-        let publicationLabel = "cluster publication readiness"
-            measuredExecuted = allExecuted <> [publicationLabel]
-        if publicationHasLiveEvidence measuredPublication
-          then do
-            stampResult <-
-              buildExpectedReconcileStampIO
-                "."
-                substrate
-                (publicationEdgePort measuredPublication)
-            case stampResult of
-              Left failure ->
-                pure $
-                  LiveExecutionResult
-                    { liveStepsExecuted = measuredExecuted <> ["cluster reconcile stamp"]
-                    , liveStepsFailed = [failure]
-                    , livePublication = measuredPublication
-                    , liveAlreadyConverged = False
-                    }
-              Right stamp -> do
-                releaseEvidence <- releaseConvergenceEvidenceIO
-                topicEvidence <- topicConvergenceEvidenceIO
-                let expectedImageIds = reconcileStampRepoAppImageIds stamp
-                (nodeImageEvidence, liveConfigImageIds) <-
-                  nodeImageConvergenceEvidenceIO substrate resources expectedImageIds
-                appImageEvidence <-
-                  appImageConvergenceEvidenceIO substrate liveConfigImageIds
-                let postReconcileObservation =
-                      ReconcileObservation
-                        { reconcileExpectedStamp = stamp
-                        , reconcilePersistedStamp = Just stamp
-                        , reconcileLivePublication = LivePublicationReady
-                        , reconcileReleaseEvidence = releaseEvidence
-                        , reconcileReadinessEvidence =
-                            readinessConvergenceEvidence measuredPublication
-                        , reconcileTopicEvidence = topicEvidence
-                        , reconcileNodeImageEvidence = nodeImageEvidence
-                        , reconcileAppImageEvidence = appImageEvidence
-                        , reconcilePortAwareMaterializationUnchanged = True
-                        }
-                    proofLabel = "post-reconcile convergence proof"
-                    proofExecuted = measuredExecuted <> [proofLabel]
-                case classifyReconcileObservation postReconcileObservation of
-                  NeedsReconcile reasons ->
-                    pure $
-                      LiveExecutionResult
-                        { liveStepsExecuted = proofExecuted
-                        , liveStepsFailed =
-                            [ LiveStepInvariantFailure
-                                proofLabel
-                                (Text.pack (show reasons))
-                            ]
-                        , livePublication = measuredPublication
-                        , liveAlreadyConverged = False
-                        }
-                  AlreadyConverged -> do
-                    _ <- writeLivePublication "." measuredPublication
-                    _ <- writeReconcileStamp "." stamp
-                    pure $
-                      LiveExecutionResult
-                        { liveStepsExecuted = proofExecuted <> ["cluster reconcile stamp"]
-                        , liveStepsFailed = []
-                        , livePublication = measuredPublication
-                        , liveAlreadyConverged = False
-                        }
-          else
+        resourceOutcome <- observePodBudgetSnapshot
+        case resourceOutcome of
+          Left failure ->
+            pure
+              LiveExecutionResult
+                { liveStepsExecuted = allExecuted <> ["actual admitted Pod resource budgets"]
+                , liveStepsFailed = [failure]
+                , livePublication = publication
+                , liveAlreadyConverged = False
+                }
+          Right () ->
+            finishResourceCheckedPublication
+              resources
+              publication
+              (allExecuted <> ["actual admitted Pod resource budgets"])
+
+  finishResourceCheckedPublication resources publication allExecuted = do
+    projected <- StatefulPV.verifyStatefulPVReuseIO substrate resources
+    let label = "actual stateful PV projection and consumer identities"
+    case projected of
+      Left reason ->
+        pure
+          LiveExecutionResult
+            { liveStepsExecuted = allExecuted <> [label]
+            , liveStepsFailed = [LiveStepInvariantFailure label reason]
+            , livePublication = publication
+            , liveAlreadyConverged = False
+            }
+      Right () -> finishProjectionCheckedPublication resources publication (allExecuted <> [label])
+
+  finishProjectionCheckedPublication resources publication allExecuted = do
+    measuredPublication <- measureLivePublication publication
+    let publicationLabel = "cluster publication readiness"
+        measuredExecuted = allExecuted <> [publicationLabel]
+    if publicationHasLiveEvidence measuredPublication
+      then do
+        stampResult <-
+          buildExpectedReconcileStampIO
+            "."
+            substrate
+            (publicationEdgePort measuredPublication)
+        case stampResult of
+          Left failure ->
             pure $
               LiveExecutionResult
-                { liveStepsExecuted = measuredExecuted
-                , liveStepsFailed =
-                    [ LiveStepInvariantFailure
-                        publicationLabel
-                        (renderIncompletePublication measuredPublication)
-                    ]
+                { liveStepsExecuted = measuredExecuted <> ["cluster reconcile stamp"]
+                , liveStepsFailed = [failure]
                 , livePublication = measuredPublication
                 , liveAlreadyConverged = False
                 }
+          Right stamp -> do
+            releaseEvidence <- releaseConvergenceEvidenceIO
+            topicEvidence <- topicConvergenceEvidenceIO
+            let expectedImageIds = reconcileStampRepoAppImageIds stamp
+            (nodeImageEvidence, liveConfigImageIds) <-
+              nodeImageConvergenceEvidenceIO substrate resources expectedImageIds
+            appImageEvidence <-
+              appImageConvergenceEvidenceIO substrate liveConfigImageIds
+            let postReconcileObservation =
+                  ReconcileObservation
+                    { reconcileExpectedStamp = stamp
+                    , reconcilePersistedStamp = Just stamp
+                    , reconcileLivePublication = LivePublicationReady
+                    , reconcileReleaseEvidence = releaseEvidence
+                    , reconcileReadinessEvidence =
+                        readinessConvergenceEvidence measuredPublication
+                    , reconcileTopicEvidence = topicEvidence
+                    , reconcileNodeImageEvidence = nodeImageEvidence
+                    , reconcileAppImageEvidence = appImageEvidence
+                    , reconcilePortAwareMaterializationUnchanged = True
+                    }
+                proofLabel = "post-reconcile convergence proof"
+                proofExecuted = measuredExecuted <> [proofLabel]
+            case classifyReconcileObservation postReconcileObservation of
+              NeedsReconcile reasons ->
+                pure $
+                  LiveExecutionResult
+                    { liveStepsExecuted = proofExecuted
+                    , liveStepsFailed =
+                        [ LiveStepInvariantFailure
+                            proofLabel
+                            (Text.pack (show reasons))
+                        ]
+                    , livePublication = measuredPublication
+                    , liveAlreadyConverged = False
+                    }
+              AlreadyConverged -> do
+                _ <- writeLivePublication "." measuredPublication
+                _ <- writeReconcileStamp "." stamp
+                pure $
+                  LiveExecutionResult
+                    { liveStepsExecuted = proofExecuted <> ["cluster reconcile stamp"]
+                    , liveStepsFailed = []
+                    , livePublication = measuredPublication
+                    , liveAlreadyConverged = False
+                    }
+      else
+        pure $
+          LiveExecutionResult
+            { liveStepsExecuted = measuredExecuted
+            , liveStepsFailed =
+                [ LiveStepInvariantFailure
+                    publicationLabel
+                    (renderIncompletePublication measuredPublication)
+                ]
+            , livePublication = measuredPublication
+            , liveAlreadyConverged = False
+            }
 
   runStepList :: [Subprocess] -> IO ([Text], Maybe LiveStepFailure)
   runStepList = go []
@@ -2022,6 +2287,27 @@ liveExecutePhasedRolloutWithLease lifecycleLease substrate chartPath = do
     go executed [] = pure (reverse executed, Nothing)
     go executed (subprocessValue : rest) = do
       let rendered = renderSubprocess subprocessValue
+          preparationLabel = "prepare pinned Pulsar 3.6.0 startup JVM chart " <> Text.pack preparedPulsarChartPath
+          refusePreparation reason =
+            pure
+              ( reverse (preparationLabel : executed)
+              , Just (LiveStepInvariantFailure preparationLabel reason)
+              )
+      case pulsarChartPreparationRequired subprocessValue of
+        Left reason ->
+          refusePreparation reason
+        Right preparesPulsar -> do
+          preparation <- if preparesPulsar then preparePulsarChart chartPath else pure (Right ())
+          case preparation of
+            Left reason -> refusePreparation reason
+            Right () ->
+              execute
+                (if preparesPulsar then preparationLabel : executed else executed)
+                rendered
+                subprocessValue
+                rest
+
+    execute executed rendered subprocessValue rest = do
       outcome <- runStreaming defaultSubprocessEnv subprocessValue
       case outcome of
         ProcessSucceeded _ -> go (rendered : executed) rest

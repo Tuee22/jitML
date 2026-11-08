@@ -68,11 +68,548 @@ full **198 / 198** live integration gate and the other listed validation.
 [Phase 276 → Closure Evidence](phase-276-journal-derived-product-aggregation.md#closure-evidence)
 records the result. Phase `278` is the first open owner and retains CPU/Apple
 qualification, complete journals, local/live-daemon/backend gates and quality.
+Source `79bbe30b…` passes the supported native, canonical container and Linux
+root builds, all test-stanza prebuilds, exact image/root CLI comparisons and
+focused CPU regression/browser-plan gates and unfiltered CPU negative/backend
+gates. Initial genuine CPU Ready, all twelve uploads, complete dataset
+GET/bucket checks and original fixture readbacks before down pass. The normal
+down attempt is interrupted and supplies no pass. Docker's exit-event rejection
+is confirmed; its timestamp-order trigger remains unproved. Controllers and
+original PV data are preserved; Ready recovery and original-data readback pass.
+The strict preservation comparison remains Failed on two Docker resource
+differences. A separate preparatory shutdown and full selected-snapshot readback
+pass, leaving the cluster stopped before the upgrade. The Docker **29.6.1** upgrade
+approved on **2026-10-24** is applied and verified. The shared restart interrupted
+the unrelated validation, which returned container exit **143**; no foreign
+preservation pass is claimed. Source `79bbe30b…` CPU recovery passes actual Ready,
+pre-service restoration manifests and all original-data readbacks. A subsequent
+supported down leaves the cluster stopped with data retained; no complete
+normal-cycle pass follows. Bootstrap's permission-preservation repair is
+implemented: the old producer fails the metadata counterexample, and the repaired
+producer passes **5 / 5** Linux projection regressions plus **1 / 1** rollout
+renderer case. Four-file HLint and test-module formatter checks pass;
+native shared state was restored and verified before the supported native build
+passed. The retained Source605 helper export identifies Source `576d3731…` with
+**605 inputs** and confirms all **110** ordered CPU/Apple contract objects are
+unchanged. Fresh scoped native controls pass **61 / 61**, the typed browser-plan
+case passes **1 / 1**, and the full Metal backend lane passes **30 / 30**. The
+post-gate native build state is preserved and verified. Four independently
+assessed prospective criterion scopes are installed and production FILE-captured
+as **60 files** with unchanged **15 / 6 / 15 / 16** artifact profiles. Prior
+selections remain retained. The canonical successor build and independent image
+adoption pass for `4c413561…`: all **605** source files, the selected **60-file**
+set and whole installed/baked CLI match. The supported Linux root CLI build and
+all **10** test-stanza prebuilds pass, with whole root/image CLI equality after
+both builds. Independent review verifies the complete Linux transition and
+preservation. Fresh CPU focused controls pass **61 / 61**, the typed browser-plan
+case **1 / 1**, and unfiltered negative/backend gates **2,703 / 2,703** and
+**43 / 43**; each returns `0` within its stated scope. At that earlier boundary, shared Cabal state is Linux;
+native backup `2d4166f3…` remains preserved for restoration after terminal CPU work.
+Supported Source `576d3731…` recovery completes with actual Ready, checked
+pre-service restoration, all twelve original object and sentinel/message
+readbacks, and the closing frame. Independent scoped recovery assessment passes;
+the complete fresh normal cycle returns `0`, including public up, checked
+restoration, original-data and fixture readbacks, and strict preservation with
+all **11** checks true. Independent assessment accepts normal closure and A1's
+public wrong-target refusal; A1's guardian `1`/result `false` from an immediate-exit
+observer race remains literal. B's compensated STOPPING data/preservation and Ready recovery are accepted.
+The material C-only case's strict patch witness, compensation, STOPPING data and
+genuine Ready recovery, plus all three isolated snapshot component controls, are
+independently accepted. Prior B observer nonpasses and the original C timing miss
+remain literal. Current **02777** roots without xattrs show no observed loss.
+The full unfiltered CPU daemon invocation returns `0`: **64 / 64** in
+**7,326.983851 seconds**. The bounded reader verifies Source **605**, whole CLI
+`4244706c…` and integrity of **70** proof emissions. Independent semantic review
+`770e0c7e…` and the specific preservation/owned-cleanup assessment `b7381068…` are
+accepted within their stated opaque-proof limits. The literal **671-byte** daemon
+record `a9d95…` is adopted; the failed full-unit record remains unchanged.
+Original full twelve-object and normal-fixture Ready readback and closing frames
+pass. The original strict comparison **1**/whole-Docker `false` stays literal for
+removed foreign `repertoire-v42-one-r2-quality` (`5c9a90c1…`). Its owner confirms
+normal completion; no machine exit is reconstructed. The exact scoped assessment
+accepts all remaining **25** containers, **10** volumes, images, Kind nodes and
+other protected facts, plus the reviewed owned outputs; no blanket foreign waiver
+or whole-inventory pass is claimed. Corrected Source576d Linux caller compilation
+and all six preparation/preservation steps return `0`: **201,304,696 bytes**,
+SHA `3d875f4f…`, independently checked. It has not been invoked or admitted a lane.
+Old Source79 callers remain retained. Source605 CPU **55** acquisition
+`cpu55-acquisition-576d-20261025` returns **1 / 44,129.779593167 s**. Observed Tasty
+**60 / 60 failed** through one shared California resource-acquisition failure,
+not sixty independent training failures. Its fresh child returns `2`: all five
+original **10-epoch / 70,000-example** runs complete, then the strict held-out
+best-constant predicate refuses qualification. All **44** later RL/arena/tuning
+rows stay NotRun; no CPU candidate or whole qualifications directory is published. The
+**373-entry** parent remains retained and its signing key is absent. Original-data/
+fixture Ready readback, closing frame and local-after collection return `0`.
+The new strict comparison **1** has only Docker false, with all **17** other checks
+true: `repertoire:local` changes `95eb…→43d8…` and volume
+`repertoire_check-evidence` is added; all containers, prior volumes and owned nodes
+stay exact. Assessments `93b87032…`/`d6504211…` accept only jitML-protected state
+and source-bound noninterference. Selected metadata joins the changes to Compose
+project/service `repertoire`; actor, intent and mechanism remain unknown. Raw
+comparison `1`/whole-Docker `false` stays literal, without a daemon5c9 or blanket
+waiver. Source605 retains all five negative R², **0 / 5** joint successes and
+served index0 failing. Endpoint review `1ac06931…` covers **10** frozen states,
+**630** batches and **80,000** visits without identifying a concrete CPU
+forward/backward/transform defect or a causal learning failure. Pre-approval Source605 interim
+maintenance QA passes: six actual commands and scoped preservation pass
+(`74222826…`), with no full-unit, qualification or phase-closure claim.
+
+Approved `705610b2…`/`reg-ord1` is implemented. Linked public export returns `0`
+for Source `9b90cf0f…`/**606 inputs**: exactly two California PlanId/report pairs
+change across the CPU/Apple vectors and the other **108 / 110** objects stay exact.
+Focused Linux groups **4 / 4**, **11 / 11**, **8 / 8**, six-file format/HLint and
+supported root CLI build pass; retained engineering CLI is **234,010,400 bytes**,
+`d35c826a…`. Helper compile/export pass with eight selected packages/GHC9.12.4.
+Four fresh prospective review scopes are installed and production-FILE-captured:
+**60 files / 8,641,074 bytes**, profiles **15 / 6 / 15 / 16**; old Source605's
+**60** files remain retained. These reviews qualify no training; all four evidence
+guards stay Pending and both lane journals remain absent.
+
+Approved `reg-ord1` is bound to public Source `9b90cf0f…` / **606 inputs**,
+current **60** prospective criterion files and image `7700205c…`. Image/adoption,
+all **10** test-stanza prebuilds, whole CLI/libraries and coherent **183-unit**
+Linux plan/configuration pass. Scoped CPU controls **61 / 61**, typed browser
+**1 / 1**, unfiltered negatives **2,705 / 2,705** and backends **43 / 43** return
+`0`. The inspected negative/backend and daemon records are adopted literally.
+CPU-epoch guard `35e941eb…` retains its closed cutoff; subsequent native build
+and Apple-record changes are recorded separately. Linux caller compilation returns `0` (`8553b5c6…`); it is uninvoked.
+
+Source9b90 recovery UP, checked restoration and full original twelve-object/
+fixture readback return `0`. Review `ca54c703…` accepts only that recovery and
+specific protected-state/noninterference scope. Raw strict comparison **1**
+retains the own demo alias/digest move and an unattributed Repertoire v66 container
+departure; actor, mechanism and exit remain unknown. No whole-Docker or fresh
+normal-cycle pass follows. Fresh owned normal down/snapshot/up, pre-service restoration and full twelve-
+object/new-fixture readbacks return `0`. Independent `ed689e48…` accepts the
+completed owned cycle and exact **361** protected inputs. The broad environment
+comparison remains literal **1**; other-workspace activity is outside the jitML
+task, as the user clarified, and does not block owned validation.
+
+Owned A1/B/strict-C outcomes and all **3** isolated snapshot controls pass.
+B refuses the read-only reservation; C returns **255** after one authenticated
+interrupt, **16** completed zero patches and before a later positive owner.
+All **18** controllers compensate with final rollouts passing; both STOPPING
+full12/original-fixture readbacks and genuine Ready recoveries pass. Original
+Kind/snapshot/source/native state holds. Raw observer failures and intermediate
+timeouts remain literal; no model qualification or phase closure follows.
+
+The retained Source `9b90cf0f…` unfiltered CPU daemon returns `0`: **64 / 64**
+in **7,776.734683208 s**. Reader integrity covers **70** proof emissions.
+Independent physical/semantic `3eaf6928…` and owned-preservation `ced8131c…`
+reviews accept their exact scopes; original-data readback and all postchecks
+return `0`. The literal **671-byte** record `1017dd6e…` is adopted; CPU-epoch
+guard `35e941eb…`, opaque/replay limits and raw global observations stay literal.
+
+Retained Source9b90/reg-ord1 CPU55 returns **1 / 39,791.007070292 s**.
+Observed Tasty **60 / 60 failed** through one shared California acquisition
+refusal: all five original **10-epoch / 70,000-example / 550-update** runs
+fail the strict held-out best constant, joint **0 / 5**. Ten earlier row DATA
+artifacts are retained without admission; the later **44** rows are unexecuted.
+No CPU candidate, whole qualification or lane admission publishes. California
+initial weights are retained, but initial scalar assessments are not; no own-initial
+gain is claimed. All four before/four after steps return `0`; review `11c0fb87…`
+accepts closed owned preservation. Source605 failures remain unchanged.
+
+Retained Source9b90 native restoration precedes its supported native
+build `0`: CLI **213,138,976 bytes / 6836d517…**. Real Metal backends pass
+**30 / 30**; literal **705-byte** record `f2fc11d6…` is adopted through one path,
+with the other four canonical records preserved. Native helper `f60b72e9…` and
+caller `b0d9360e…` compile `0`; public **110**-contract export and four-scope
+**60**-file capture are byte-equal to current Linux (`bf5e7547…`). The caller
+remains uninvoked. Saved native14 stay protected; current Mac build products
+are intentionally changed, without a post-build original2219 preservation claim.
+
+The user approved **one fixed California 100-epoch trial** (authorization
+`26e92ac4…`, recorded 2026-10-27 UTC): **700,000 examples / 5,500 updates per
+original seed**. Only California's epoch allocation changes. Original data/split,
+seeds **1011..1015**, model, learning rate, Adam, `reg-ord1`, report contract,
+quality bars and exact index-0 serving remain fixed. Source605 and Source9b90
+failures stay retained; the private mechanical pass establishes no efficacy.
+The approved three-file change now has actual public Source `8af7549a…` /
+**606 inputs**: **3** changed, **603** byte-identical to9b90. Supported native
+build returns `0` in **781.793632 s**, CLI **213,139,152 bytes / 5e9d886f…**.
+Native unit **86 / 86**, browser **1 / 1** and real Metal **30 / 30** pass;
+helper `ace02882…` and caller `d6e840d3…` compile `0` without admission.
+The actual **110**-contract export (**21,726 bytes / c73823ef…**) changes only
+California's CPU/Apple PlanIds (**3bdc28ad… / 572c2090…**): **108** whole objects
+and all report digests, including `13c8781d…`, remain unchanged (`7237a6f1…`).
+The literal **705-byte / a40a6736…** Apple backend record is adopted through
+one path, preserving the other four records (`20cd36c9…`). Four new-source
+prospective criterion scopes are installed: **60 files / 8,018,122 bytes**,
+profiles **15 / 6 / 15 / 16** (final manifest `4573954d…`). Root delegated the
+principal review to Terminal `012f9fa2…`, distinct from the Root draft author
+and Plan peer `9f9bd3f4…`; Root's own assessment is supplemental, not counted.
+Production FILE capture returns `0` (**3,547 bytes / 56858a02…**). Append-only
+retention `1b48fc80…` adds **12** Git exceptions and **60** literal Docker paths,
+preserving old605/9b DATA and all five canonical records. Canonical image
+attempt1 returns **1 / 5,558.483324875 s** after compile/link: `check-code` fails
+only the stale registered `web/src/Generated/Contracts.purs` catalogue.
+Supported native `docs generate` returns **0 / 0.189642083 s**, updating only
+three California catalogue budgets **10→100** and their PlanIds; the private
+preview keeps the other **37** registered outputs exact. The corrected file is
+**118,945 bytes / 77da4453…**, outside Source606; Source8af, criteria60 and native8f
+remain unchanged. The second canonical build returns **0 / 3,207.332503791 s**,
+including `check-code` and frontend checks. Actual image `.Id` **931a54cb…** has
+FILE adoption proof **0 / 21.28366 s** (`590744da…`), binding all **606** source
+inputs, current **60** criterion files, five literal records and corrected catalogue.
+Whole baked/installed Linux CLI bytes match: **234,074,528 / 504b29ae…**.
+The owned proof container was never started and was removed; the post-proof
+native/history check returns `0` at its retained cutoff. Build1 remains failed.
+Serialized Linux staging, retention, architecture-only import, supported
+configuration and Root CLI build return `0`. All **10** stanza **BUILDS** return
+**0 / 1,513.114247084 s**; these builds execute no tests. Whole Root/image CLI **504b29ae…**
+coherence passes after both Root build and all10 (`006067fb…` settlement).
+Post-all10 native **2,223 + saved14** and old-five metadata preservation return
+`0`; the native8f restoration backup remains exact at that boundary. Shared
+cache/DB/config transition to Linux for CPU work; the native restoration below
+follows terminal CPU cleanup.
+Linux helper/caller direct compiles return `0` in isolated scopes with GHC
+**9.12.4**, Source606 and **22** inputs exact before/after. Whole public110
+export **c73823ef…** and FILE capture **56858a02…** match native bytes.
+Initial read-only metadata nonpasses remain retained; private edge-whitespace/
+store-ABI corrections change no Source606 or protocol. Real unfiltered negatives
+pass **2,706 / 2,706**, CPU backends **43 / 43**; inspections and independent
+review `473a39b8…` accept current Source8af / whole Root ELF CLI **504b29ae…**.
+Post-gate native **2,223 + saved14** and old-five metadata replay returns `0`.
+Exact two-record adoption after full-five CAS installs negative **673/7976ce8a…**
+and CPU backend **685/83bc9a4f…**; the other three retain full metadata, including
+the failed **307,306-byte** unit and historical Source9b daemon record.
+The Linux-active V5 guard passes before and after genuine recovery, preserving
+native **2,223 + saved14**, all **24,894** rows, current five/60/source606 and
+both retained failed parents; Linux mutable domains remain observed. The first
+before-frame `1` on omitted dataset paths remains retained, with no UP then;
+the corrected fresh before-frame returns `0` on Source8af/image931a/CLI504b.
+Supported recovery UP, restoration, original readback and closing frame all
+return `0`: **115** steps, a new lease and owned CIDs `2d4403…` / `d3522…`,
+restoring `p1-1639220521425949` / `439bb…`. Actual **8 Ready**, readyz `200`,
+all **12 / 629,581,277 bytes** and hashes, original **140-byte** sentinel and
+**138-byte** CK8C message survive, with backlog1/ACK0/WebSocket close1000.
+Raw strict comparison remains **1**: all eight owned checks and global
+container/volume checks are true; only the image flag is false because the
+expected `jitml-demo:local` tag/digest moves `7700… → 931a…`. No image is added
+or deleted and other image fields hold; the two new owned Kind nodes and their
+two var volumes are authenticated. Independent review **a8f5ec7c… / 18,474
+bytes** accepts genuine recovery and finite protection, retaining raw `1`;
+there is no fresh Source8af normal/fault pass. The unfiltered Source8af daemon
+returns **0 / 6,759.976 s** with actual **64 / 64** (**6,751.89 s** body);
+inspector/reader return `0`, checking **70** emitted proofs for integrity.
+All nine operation roles return `0`; all **19** scoped protected checks and
+owned/global Docker equality are true. Full12+same CK8C/sentinel/backlog1/ACK0/
+WebSocket close1000 survive. The pre-adoption V5 allfive check returns `0`, preserving
+all **24,894** rows/native2,223+saved14/current60/source606 and old failures.
+The frozen broader comparison still raises/external-preservation is **false**
+on five shared Cabal cache metadata differences; build/PV-fixture changes are
+observed separately, and the raw nonpass stays literal.
+Root accepts independent semantic **69,480/12652cd0…** and finite-preservation
+**28,076/d6ed…** reviews. Exact daemon-only literal adoption returns `0`;
+canonical daemon is now Source8af **671/3b6e9670…**. The other four retain
+full bytes/mode/uid/gid/mtime, including the failed **307,306/a453…** unit;
+all five prewrite literals and prior `a84c…` five remain retained unchanged.
+Fresh V5 POST_DAEMON_ADOPTION capture/check returns `0`, replacing the stale
+pre-adoption boundary. A NEW six-copy observer obtains genuine Ready/full12/
+original CK8C readback and frame, both `0`; its POST_DAEMON_OBSERVER_EXTENSION
+capture/check returns `0` across **26,421** rows. Predecessor guard checker
+`ad5a73b3…`, scope `1e3aa187…`, baseline `39f9972d…` and check `742e3c59…`
+bind Source8af/current60/currentfive/native2,223+saved14/retained failures;
+actual post-adoption frame `33e1d52f…` and Ready `604900fc…` are now closed.
+CPU55 FILE preparation and all four before-operations return `0`. The single
+approved Source8af California100 whole-CPU55 trial returns **1 / 49,071.541401708 s**,
+completed **2026-10-28 02:06:40 UTC**. All **60** Tasty cases fail through the same
+shared-acquisition exception. The authentic child records **PPO/mountain-car
+`NativeServingLearningRefusal`**: the whole-five return median and served original
+index-0 final metric each fall below the unchanged quality floor. Serial acquisition
+reaches row **13**; the prior **12** calls returned without independently established
+partial qualification, and the later **42** are unreached. No new complete CPU
+candidate, qualification, journal or admission publishes. The one fresh attempt
+`ce1a1fff2f24386f` is preserved; no retry, search or splicing follows.
+All four original after-operations return `0`: `data-after`, `frame-after`,
+`local-after` and `compare`. Independent review accepts owned preservation:
+**25** protected/**8** owned-runtime checks, **1,527** immutables, Source8af's
+**606** inputs, currentfive, native **2,223 + saved14**, history and all original
+**12 / 629,581,277 bytes**. The original after-operations retain **8 Ready** and
+original fixtures; the comparison's global Docker booleans are true. The frozen
+`all_checks_passed` remains **false** solely for five Linux Cabal cache metadata
+rows. The predecessor **26,421**-row
+preservation guard returns `0` at **02:17:13 UTC** and again after DOWN at
+**02:44:21 UTC** on **2026-10-28**.
+Supported DOWN returns **0 / 552.294531583 s**, ending **2026-10-28 02:38:02 UTC**.
+The subsequent frozen Root/Linux full four-PV snapshot readback returns
+**0 / 10.521077 s**, selecting new generation `p1-1755076146212073`, epoch **0**,
+selected FILE **1,903,513 bytes / 72595239…**; predecessor `439bb…` is historical.
+Raw readback checks both whole archives/manifests, POSIX root metadata, the same
+pre-DOWN **2** node CIDs and **4** PV roots. Actual Root Stopped/claim readback
+returns **0 / 0.758 s**: all **8** components stopped, evidence null, no owned nodes,
+lease claim absent and permanent flock FILE present. The actual new lease
+`lease-1-1755076114397047` retains its **251**-line event stream.
+Root and independent review accept the new full snapshot/Stopped scope
+(**5,818/5ad771…**). New preservation capture/check return `0` across **27,370**
+rows, **404** roots and **389** pins, protecting the full new generation, all **3**
+failed attempts, Source606/currentfive/criteria and native **2,223 + saved14**.
+Actual native restoration returns **0 / 4.069188083 s**: **2,237** native entries,
+**14** saved, **15** retained Linux-shared and **98** development entries, with
+local Cabal config **ABSENT**. Independent current-filesystem review
+(**4,091/433142b1…**) accepts these restored/retained sets and both full native/Linux
+CLI identities. The same **27,370**-row guard returns **0 / 27.462185375 s** after
+restoration, at **2026-10-28 03:54:35 UTC**.
+The historical Source605 compatibility correction, whole-backup and inventory
+protection retain their accepted scopes. Failed full-unit evidence stays literal.
+The retained Source8af PPO/mountain-car failure supplies no CPU qualification/
+admission or fresh Apple55 pass. On **2026-10-28**, the user approves one product-only
+PPO/mountain-car **150→300-iteration** trial (**2,457,600 transitions/seed**;
+**12,288,000** across original seeds **42..46**, served index **0**) and further
+convergence investigation if it still fails. The one trial has now failed in shared
+CIFAR/ViT setup; current state is **FAILED_CPU55_RUNTIME_STOPPED**:
+Retained Source **f1381784… / 606** (**3** changed/**603** same8af) retains only
+two test-file corrections from CFA; production ProductBudget **5d33151e…**, approved
+PPO300, California100 and all other recipes/bars stay fixed. Format/HLint, supported
+native build, **86 / 10 / 1 / 30** gate commands, Apple **705 / 81492319…**
+Sourcef138 **Passed / 30** adoption and native helper/caller compilation return `0`.
+The expected7-count wrapper nonpass, first CFA **85 / 86** fixture failure/Main warning/
+later **NotRun**, Source8af scientific failure and failed full-unit record stay literal.
+Actual public110 review confirms **108** unchanged whole objects and all **110**
+report digests unchanged; only two PPO/mountain-car PlanIds change. The separate
+**11** canonical C2 policy/reference source FILE pins are independently confirmed exact.
+Two distinct reviewers approve the [four Sourcef138 prospective criterion scopes](attestations/phase278-20261015-mac-validation/criterion-reviews/f1381784c66bb54164c9f5f5dc7f3c908fabb8dccd5065a8ce16732a9bfbb968/);
+final assembly, materialization, production capture and append-only retention return `0`.
+The actual closure is **60 files / 8,189,443 bytes**, profiles **15 / 6 / 15 / 16**:
+**52** artifacts, **4** receipts and **4** selectors. Exactly **12** Git exceptions and
+**60** literal Docker paths append; old prefixes/closures hold and `git check-ignore`
+returns **1** with empty streams. Generation comparisons and criterion status-doc pins retain their recorded cutoffs.
+The observed Sourcef138 native backup is **2,237 entries = 2,223 + saved14**,
+accepted by Root and independent filesystem review. Canonical native generation
+returns `0` once: `Contracts.purs` **118,945 / 8703e1a2…**, exactly three PPO
+metadata rows, **37** other whole files/metadata unchanged and all38 preview-equal.
+Canonical V2 Docker build returns `0` (**2,578.934067375 s**), including
+`check-code: ok` and the frontend build. Compose plugin verification passes;
+actual image inspection returns `0`, selecting **773e5c10…**. The first V1
+build's Phase-State-token failure stays literal. Bounded image FILE proof returns `0`
+(**35f622…**), independently accepted **f2e0eb6b…**. Stopped staging and old-Linux
+retention return `0` (**10.019608875 / 16.402652375 s**); independent **02a6…** accepts
+**2,590 entries / 3,920,052,786 bytes** and the original **504b…** CLI. V4 history
+check returns `0` (**57.257367416 s**), preserving original27370 and the exact old-CLI map.
+All **7** supported import/configuration/build/coherence operations return `0`; all
+**10** ELF test executables **build** in **1,431.422127916 s**. Two whole Root/image
+CLI checks return `0`, binding actual Root CLI **234,007,416 / fd86f0ea…**.
+**No test was executed by the Linux build preparation.** Current Linux helper/caller
+compilation returns `0`; public110 export and selected60 capture match the whole native
+outputs. Independent **87af25f2…** accepts this source606/package/metadata provenance.
+The caller remains uninvoked and its inherited **532-byte** warning stays literal.
+Finite **PRE_RECOVERY** Scope and the **34,906-row** first-frame mapping are independently
+accepted **c6418248…**; actual first capture and reference check return `0`.
+Current CPU negatives **2,706 / 2,706** and backends **43 / 43** return `0`
+(**945.477048958 / 12.561796792 s**). Corrected v3 candidate inspections return `0`,
+joining the original receipts/source606/whole fd86 CLI. Exact two-record literal
+adoption returns `0`, independently accepted **0448bd4d…**; the other three records
+and every prior-five literal remain exact, including the **Failed** full-unit.
+The accepted current Scope first capture/reference check return `0`: **34,944** rows
+with all **34,908** expected full-row assertions exact; peer **0a5e622f… / 062d5446…**
+accepts this boundary. Recovery FILE finalization, seven-file allocation and read-only
+host export/capture parity return `0`. The before-frame passes (**139.199399291 s**,
+**de0bc586…**); independent packet/allocation review **217c1539…** is accepted.
+Genuine recovery is independently accepted **21d6c392…**. Supported UP returns `0`
+(**1,415.455668083 s**), restoring selected `p1-1755076146212073` / epoch `0` /
+`72595239…` with new owned nodes and lease. Actual **8 Ready** / readyz `200`, all
+**12 HTTP 200 / 629,581,277 bytes** and the exact whole bucket pass. Original sentinel
+**140 bytes**, CK8C **138 bytes**, backlog **1**, unacked/ACK **0**, one pull permit
+and sent/peer close `1000` remain exact. Closing raw comparison retains `1` solely
+for the supported owned `jitml-demo:local`/RepoDigest move **931a→773e**; no image
+IDs were added/deleted. All **8** owned checks and unrelated container/volume checks
+pass. The current guard returns `0` over the same **34,944** rows; no rebaseline.
+Fresh current-five retention, observer DATA allocation and daemon FILE finalization
+return `0`. The unfiltered daemon target passes **64 / 64** (**7,704.399605708 s**;
+Tasty body **7,692.72 s**); all nine original roles and all four after-operations return
+`0`. Safe-reader **70** proof-integrity checks, corrected v3 candidate inspection and
+same-Scope guard replay return `0`. Comparison records **19** protected checks true and
+`jitml_owned_preservation_exact` true; broad raw external `false` and its failed marker
+stay literal. Independent semantic **28a4ff85…** and owned-preservation **d6780229…**
+reviews are accepted. One-path daemon adoption returns `0`, independently accepted
+**b8563107…**: current daemon **951526ba…** is the only delta; the other four and all
+retained prior-five literals remain exact, including **Failed** full-unit. The actual
+`POST_DAEMON_ADOPTION` first capture/reference check return `0`: Scope **73f4f17d…** /
+baseline **04eae09d…**, **36,192** rows, all **34,944** predecessor rows mapped exactly
+and the new daemon literal verified. The fresh post-adoption observer and monotonic
+`POST_DAEMON_OBSERVER_EXTENSION` capture/check return `0`, independently accepted
+**d647…**: current Scope **20c7…** / checker **72a7…** / baseline **253c…**,
+**36,500** rows. The criterion append's **423** old rows plus **71** authenticated
+additions are physically accepted. Six fresh CPU55 observer DATA copies are prepared
+at `0`; input packet **62aba…** has accepted independent binding review **3a068…**
+(**47** keys / **1,364** pins / **676** roots), and strict **1,438-FILE** preflight returns
+`0`. All **336** original history roots / **13,040** recorded rows now have accepted
+closure; the original v7 raw `1` and two-fixture addendum `0` stay literal. Final FILE
+preparation returns `0`, with distinct history **aa0ee…** / packet **386daf54…** reviews
+accepted. All four before-operations return `0`. The single wholeCPU55 returns
+**1 / 57,832.582448375 s**, finishing **2026-10-30 09:24:33 UTC**. All **60 / 60**
+assertions fail from one shared **cifar10-vit** workflow timeout. Sequential execution
+stops at supervised row **9 / 11**, before PPO300; no PPO convergence result follows.
+No complete-matrix journal, qualification or admission is established. The original
+coordinator is absent and all four closing labels/receipts are absent; no post-trial
+preservation, normal DOWN, new four-PV snapshot or native restoration pass is claimed.
+At the user's resource-stop request, Colima is stopped. Following a host kernel panic
+and reboot, its automatic startup job is disabled/unloaded and the VM is stopped again.
+The panic's initiating cause remains unresolved. The [local resource/restart analysis](../.build/phase278-resource-incident-20261030-a/analysis.json)
+records the incident's memory recovery, uncapped training and causal limits.
+The explicitly managed `jitml` VM is now prepared and **Stopped**: **4 CPUs / 16 GiB**,
+no automatic startup/context activation or Kubernetes. The bounded Compose override
+verifies **2 CPUs / 6 GiB / zero swap** for a job using actual cgroup readback.
+The [VM setup and continuation record](../.build/phase278-managed-vm-20261031-a/summary.json)
+confirms Sourcef138 is unchanged across all **606** inputs. Retain accepted builds,
+caches, datasets and engineering evidence; do not regenerate merely for a VM change.
+The old default profile stays offline for verified data/image recovery. Current cluster
+ceilings do not fit this VM and must not be started unchanged. No qualifying aggregate
+rerun occurred; the existing fresh-only issuer cannot resume the partial eight-row prefix.
+A later bounded host continuity check stops at its **120 CPU-second** limit
+(**136.38 s** wall, **936 MiB** maximum sampled RSS), with no preservation result.
+No original closing role is replaced. The [recovery preparation record](../.build/phase278-recovery-preparation-20261031-a/summary.json)
+retains that nonpass and the limited empty-VM Docker flag inspection; the old runtime
+has not been started or migrated.
+A separate [streamed FILE check](../.build/phase278-recovery-preparation-20261031-a/final-continuation.json)
+passes all **1,971** selected pins / **1,605,723,512 bytes** in **12.41 s**, using
+**28.1 MiB** peak RAM. The later [full FILE-continuity check](../.build/phase278-runtime-recovery-20261031-a/current-status-02-frame-pass.json)
+passes baseline **36,500** and native **2,223 + saved14** role membership before/after,
+**34,620 unique files / 26,762,668,482 bytes**, in **320.59 s / 97.8 MiB** peak RAM.
+It safely reuses **9,506** prior hashes and hashes the remaining **25,114** once.
+Original closing roles/runtime/PV health remain unverified. Bounded recovery uses an
+independent APFS data clone; the original default stays offline. The first cloned
+daemon attempt stops at a conservative summary-counter guard; its failure stays literal.
+The [bounded recovery and profiling record](../.build/phase278-runtime-recovery-20261031-a/final-summary.json)
+now verifies image **773e** and all **13** layers in the new VM, without a rebuild.
+Actual **51** stopped-container/PID and empty-task proofs precede the official image export.
+A one-update diagnostic returns `0` at **2.13 GiB** peak; a **16-update** first-epoch
+prefix returns `0` in **25.30 s / 2.03 GiB**, with no OOM/limit events. Process memory
+plateaus near **1.74 GiB**; warm 128-example updates have **0.964 s** median.
+These are bounded diagnostics, not full-cohort/qualification or historical-timeout proof.
+All VMs stop after the diagnostics. The f138 resource audit finds component CPU/memory
+fields unused by production renderers and selected explicit pod limits already
+**14,976 MiB**, before uncapped roles. The current unfrozen source candidate wires
+explicit profile selection, runtime/client preflight, eight Helm overlays, namespace
+defaults and observed node hard-cap/allocatable checks. Candidate **903c3aba… / 613**
+passes the library/CLI/unit build with warnings as errors and **63** focused Linux
+resource tests. A real **1 CPU / 4 GiB / zero-swap** caller passes; the old
+**2 CPU / 6 GiB** allowance refuses that profile. Eight pinned Helm charts render
+offline. Follow-on candidate **1d8c7301… / 615** passes its warnings-as-errors build
+and **102** focused Linux resource tests. An isolated live probe verifies corrected
+**1,250m / 4 GiB Allocatable** and actual admission defaults, then is deleted. The
+current source adds final all-namespace admitted-Pod accounting and retained-node
+reservation reconciliation. At that cutoff latest-state cold PV preservation and
+normal restored application proof remain open. Follow-on candidate **d7be4ef0… / 615** applies and
+observes fresh-node caps before restoration, and gives serial snapshot helpers
+fixed CPU/memory/no-swap/process/tmpfs limits with actual Docker inspection before
+start. Its warnings-as-errors library/CLI/unit build and **108** focused resource
+tests pass. Helper overlap within the full-stack allowance still needs validation;
+source-bound
+engineering/criterion/qualification evidence requires corresponding refresh.
+Latest candidate **e6bf71ac… / 615** adds an explicit cold-stopped adapter and
+reserves the **0.5 CPU / 512 MiB** serial helper inside the existing client slot.
+The lifecycle override gives the caller **0.5 CPU / 3 GiB**, and lifecycle image
+discovery no longer triggers an implicit build. Its warnings-as-errors build,
+**111** resource checks and **12** selected cold tests pass. A disposable actual
+Docker/virtiofs bridge verifies nested read-only behavior, capped helpers and Mac
+host-FD bytes; all51 retained containers stay stopped and temporary mounts are
+removed. The isolated host maintenance executable builds against retained native
+dependencies without restoring shared native state. The subsequent actual cold
+capture commits selected generation **cold-pv-20261031-c**, containing
+**6,983,567,360 bytes**, with fresh source-before/after, new scratch extraction,
+final revalidation and ordinary store commit (**0 / 427.52 s**). An interrupted
+staged generation supplies verified archive bytes through a private native COW
+clone; its failed CPU guard remains literal. Only the two stopped source container
+records in the recovery copy are removed; their volumes and the offline original
+remain retained. Cleanup stops both recovery daemons and every VM and restores
+the exact no-mount recovery configuration. Subsequent fresh canonical nodes pass
+creation and actual **1.5 CPU / 5 GiB / no-swap** caps; both pass pre-restore Ready checks with
+**1,250m / 4 GiB Allocatable**. Normal filesystem restoration of selected C
+passes **0 / 90.64 s**, including all-node fresh-root preflight, archive checks,
+restored-tree comparison and normal pending/completion/reuse checks. The managed
+VM stops afterwards. Application readback and full-stack/scientific validation
+remain open. The
+[local capture checkpoint](../.build/phase278-cold-recovery-20261031-a/latest-cold-capture-summary.json)
+records capture scopes, and the
+[fresh-restore checkpoint](../.build/phase278-cold-recovery-20261031-a/fresh-restore-summary.json)
+records restoration scopes. Neither replaces any original closing proof.
+Current image preparation pins the verified Ubuntu base **24737cef…** after
+observed floating-tag drift. Official pre-COPY cache export passes **0 / 36.70 s**;
+all **7** toolchain RUNs are cached on export and in the smaller VM's current
+canonical image build. Recovery daemons/VM stop and the original guest resolver
+is restored exactly after a transient DNS binding. The managed VM runs only the
+image build with the cluster stopped. The full canonical build subsequently
+passes **0 / 2,320.90 s**, including source/check-code/frontend/plugin, selecting
+image **b968a134…**. Independent image observation verifies exact
+Source **e6bf71ac… / 615** and installed/baked CLI equality
+(**236,456,816 bytes / 0e9fe0ef…**). Actual in-container **0:0** metadata,
+help, public tools and socket checks pass; host controls remain **501:20**.
+The earlier **501:1000** inference from SSH metadata is not used for container
+operations, and no protected ownership changes. The helper-only compile passes
+with warnings as errors (**0 / 8.52 s**); mapped bootstrap preflight passes
+(**0 / 2.19 s**). The same restored nodes start. Initial bounded bootstrap reuse
+is stopped to correct a monitoring helper's remote-process timeout;
+its prepared replacement uses Service-proxy HTTP GETs without remote processes.
+Retained metadata separately identifies repeated OOMs in Pulsar's **512 MiB**
+`wait-zookeeper-ready` init container after restart without that observer;
+the sampled worker peak remains below **2 GiB**. The startup correction still
+needs live deployment validation before training. Disk-only growth to
+**256 GiB** preserves **4 CPUs / 16 GiB RAM**, the same nodes/volumes and completed
+restore marker. Application readback remains unexecuted. The dedicated generic
+Colima autostart files are removed with preserved copies; startup stays disabled.
+Retained Source **da2c5f03… / 616** carries serial Java topic observations with shared
+remote admission and finite process lifetimes. A bounded pinned-image probe
+passes caller-death/lock/retirement checks and separate KILL escalation, peaking
+at **73,691,136 bytes** without OOM or cleanup kills. Corrected image
+**01006871…** completes its canonical build/check-code/frontend/plugin in
+**2,313.26 s**, reusing all seven toolchain RUNs. Fresh verification matches all
+**616** source rows and whole installed/plan CLI bytes. Live rollout and
+application readback remain pending. The bounded rollout exits **1 / 1,238.89 s**
+at Pulsar's **900-second** readiness deadline. A read-only live mount inspection
+finds the ZooKeeper Pod on the host-backed data view, while original restored
+metadata remains in the separate node-local backing tree. Startup projection and
+actual Pod-root admission are under repair; same-CID cold restart and original
+application readback must validate that repair before training. All VMs stop after
+inspection. This is not evidence of original data loss or a qualification pass. The partial
+compiler cache is retained. Prior Source **5694acee…** builds its library/CLI
+in **103.21 s**, recompiling **10 / 458** modules at **2.77 GiB** peak without OOM;
+its test compiler refuses a type-default warning. Current source fixes that
+warning and a missing direct test dependency. Current-source focused validation
+passes **0 / 50.53 s**, with **31 / 31** resource and **6 / 6** signal checks,
+exact component dependencies, **2.69 GiB** peak and zero OOM events. Independent
+real-chart comparison proves only the intended startup memory variable changes.
+The unchanged large unit entry point and Phase280's failed full-unit bar remain.
+Qualifying runtime and original closing operations stay unexecuted; container docs QA is deferred.
+Phase278 remains **Active**. Root's
+truncated-SHA inspector invocation retains auxiliary `1`; full fd86 CLI is unchanged,
+and no test retry occurred. The original v2 APFS auxiliary nonpass stays literal.
+Recovery is no new normal, fault, scientific or qualification pass.
+Nativef138 **2,223 + saved14** remains the restoration target; shared cache/DB/config
+has deliberately transitioned to Linux. Source606/current60/policies/Purs stay unchanged;
+current five add the accepted daemon replacement after the two control replacements. Local literal-preflight
+ordering and unsuffixed-store metadata probes
+each retain `1` as preparation nonpasses. WholeCPU55 is **Failed** from the shared
+CIFAR/ViT timeout; PPO300 was not reached by this matrix. No complete-matrix
+qualification/admission or Phase278 closure is claimed; four evidence guards and
+final quality remain open. Runtime stays stopped at the user's request. Seen-benchmark adaptivity, unproven cause and lack of a
+success guarantee remain explicit.
+Fresh complete CPU55 precedes genuine Apple
+context/datasets/55 if CPU qualifies; replay/Store/lane admission, four guards
+and final quality stay open. Seen-held-out adaptivity/no guarantee applies;
+a failed trial authorizes no automatic next search, score retry or row splicing.
+Foreign Docker changes remain informational, without owner questions or actor
+inference. Phase `278` stays Active; the user handles NVIDIA after278, with no279 execution.
+Seen-held-out adaptivity/no guarantee and all other fixed budgets, seeds, split,
+model, optimizer and bars remain binding. Freeze before training, retain every failure,
+and perform no adaptive search, row reuse or splicing. Replay/Store/admission, genuine
+Apple context/datasets, typed lane admission, all four evidence guards and
+final quality remain open. Phase `278` stays Active; the
+user takes the NVIDIA handoff after it finishes. Exact validation scopes are recorded in
+[Closure Status](README.md#closure-status).
 Phase `279` owns the real CUDA lane and its behavioral detector. Phase `280`
 consumes those three earlier lanes on CPU and owns the aggregate plus unchanged
 full CPU unit/integration gates. Every phase validates before the next begins;
 no later aggregate or accelerator blocks an earlier retained surface.
 ### Historical Checkpoint Notes
+
+The 2026-10-22 continuation starts from a checkout without the prior local build
+or acquisition state. Supported native and container builds are being recreated;
+the earlier Running acquisition is historical. Phase `278` remains Active and
+later phases retain their dependency blockers. Current progress and validation
+are recorded in [Closure Status](README.md#closure-status).
 
 The following checkpoints retain their original source scopes. Current state
 and open work remain owned by [Closure Status](README.md#closure-status) and

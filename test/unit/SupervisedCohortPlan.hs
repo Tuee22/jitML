@@ -5,7 +5,8 @@
 -- | Structural execution identities, not numerical training evidence. The
 -- historical fixture is an unchanged actual165-projection capture. Separate
 -- actual46a and current-RL isolation captures prevent unrelated RL evolution
--- from being attributed to SL policy. No expected fixture values are invented.
+-- from being attributed to SL policy. Typed California10/PPO150 allocation
+-- counterfactuals retain those captured identities; no fixture values are invented.
 module SupervisedCohortPlan (supervisedCohortPlanTests) where
 
 import Data.Either (isLeft)
@@ -14,6 +15,7 @@ import Data.List (find, nub)
 import Data.List.NonEmpty qualified as NonEmpty
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as TextEncoding
 import Data.Text.IO qualified as TextIO
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
@@ -24,9 +26,12 @@ import JitML.Plan.Workload qualified as Workload
 import JitML.Product.Matrix qualified as Matrix
 import JitML.Product.SupervisedCohortPlan qualified as Cohort
 import JitML.Product.SupervisedQualificationPolicy qualified as Policy
+import JitML.Product.ValidationRecord (sha256Hex)
 import JitML.SL.Architecture qualified as Architecture
 import JitML.SL.Canonicals qualified as SL
+import JitML.SL.Regression qualified as Regression
 import JitML.Substrate (Substrate, allSubstrates, renderSubstrate)
+import JitML.Test.Report qualified as Report
 import JitML.Training.Budget qualified as Budget
 
 supervisedCohortPlanTests :: TestTree
@@ -34,8 +39,17 @@ supervisedCohortPlanTests =
   testGroup
     "supervised five-seed cohort plans"
     [ testCase
-        "only 33 canonical supervised identities change and removing only the new fields reconstructs the captured 165 identities"
+        "historical field removal and the explicit ten-epoch California counterfactual reconstruct the captured 165 identities"
         identityScope
+    , testCase
+        "regression order stays report-bound and the historical allocation counterfactual reconstructs captured identities"
+        regressionOrderIdentityScope
+    , testCase
+        "regression order field removal rejects missing duplicate and incomplete descriptors"
+        regressionOrderParserControls
+    , testCase
+        "California explicitly allocates the default hundred epochs with complete five-seed work and a distinct ten-epoch counterfactual"
+        californiaDefaultHundredAllocation
     , testCase
         "every canonical row and lane has five singleton children with unchanged per-run budgets"
         childScope
@@ -120,20 +134,203 @@ identityScope = do
             ]
               `isContiguous` fields
           )
-        stripped <- expectRight (removePolicy fields)
+        orderStripped <- stripRegressionOrderFields projection fields
+        stripped <- expectRight (removePolicy orderStripped)
         renderSubject stripped @?= oldSubject
         legacy <-
           expectSuccess
-            (Workload.resolveSupervisedPlan (Workload.RawSupervisedPlan (requestWithSubject plan oldSubject)))
+            ( Workload.resolveSupervisedPlan
+                (Workload.RawSupervisedPlan (requestWithHistoricalBudget projection plan oldSubject))
+            )
         Plan.planIdText (Workload.supervisedPlanId legacy) @?= oldIdentity
         assertBool
           "supervised policy did not version execution identity"
           (Plan.planIdText (Matrix.productProjectionPlanId projection) /= oldIdentity)
         pure True
       Matrix.SomeProductProjection _ projection -> do
-        Plan.planIdText (Matrix.productProjectionPlanId projection) @?= oldIdentity
-        Plan.runPlanSubjectId (Matrix.productProjectionRunPlan projection) @?= oldSubject
+        preRegressionRevisionIdentity projection >>= (@?= (oldIdentity, oldSubject))
         pure False
+
+-- The actual 46a capture contains the qualification policy, the pre-order
+-- regression identities and the original ten-epoch California allocation.
+-- This historical counterfactual removes the new order field and explicitly
+-- restores only that original budget; no fixture or successor identity is made up.
+regressionOrderIdentityScope :: Assertion
+regressionOrderIdentityScope = do
+  captured <- readSlOnlyBaseline
+  contracts <- readCapturedSlReportContracts
+  counts <- traverse (checkLane captured contracts) allSubstrates
+  counts @?= replicate 3 (1, 10)
+ where
+  checkLane captured contracts lane = do
+    changed <- traverse (checkRow captured contracts lane) supervisedRows
+    pure (length (filter id changed), length (filter not changed))
+  checkRow captured contracts lane row = do
+    Baseline _ _ oldId oldSubject <- capturedFor captured lane row
+    oldContract <-
+      expectExactlyOne
+        "captured supervised report contract"
+        [ digest
+        | (capturedLane, capturedRow, digest) <- contracts
+        , capturedLane == renderSubstrate lane
+        , capturedRow == Matrix.rowId row
+        ]
+    projection <- supervisedProjection lane row
+    let currentId = Plan.planIdText (Matrix.productProjectionPlanId projection)
+        subject = Plan.runPlanSubjectId (Matrix.productProjectionRunPlan projection)
+        currentContract = Report.productScenarioProjectionContractDigest projection
+    fields <- expectRight (parseSubject subject)
+    case Matrix.rowClass row of
+      Matrix.SupervisedRegression {} -> do
+        assertBool
+          "semantic subject does not bind the complete executed order recipe"
+          (["regression-training-order", Regression.regressionTrainingOrderContract] `isContiguous` fields)
+        length (filter (== "regression-training-order") fields) @?= 1
+        preRegressionRevisionIdentity projection >>= (@?= (oldId, oldSubject))
+        assertBool "regression order retained the old PlanId" (currentId /= oldId)
+        currentContract
+          @?= regressionOrderReportDigest oldContract Regression.regressionTrainingOrderContract
+        assertBool
+          "a bare recipe label can replace the complete report descriptor"
+          (currentContract /= regressionOrderReportDigest oldContract approvedRegressionOrderId)
+        cohort <- expectRight (Cohort.mkSupervisedCohortPlan projection)
+        for_ (Cohort.supervisedCohortPlanChildren cohort) $ \child -> do
+          let childPlan = Workload.supervisedPlanRunPlan (Cohort.supervisedSeedPlanWorkload child)
+          childFields <- expectRight (parseSubject (Plan.runPlanSubjectId childPlan))
+          assertBool
+            "a prescribed child lost the complete original order recipe"
+            (["regression-training-order", Regression.regressionTrainingOrderContract] `isContiguous` childFields)
+        pure True
+      Matrix.SupervisedClassification {} -> do
+        (currentId, subject) @?= (oldId, oldSubject)
+        currentContract @?= oldContract
+        assertBool
+          "classification acquired a regression ordering field"
+          ("regression-training-order" `notElem` fields)
+        pure False
+      _ -> assertFailure "supervised cohort has an unrelated row class"
+
+approvedRegressionOrderId :: Text
+approvedRegressionOrderId =
+  "generic-regression-training-order-v1:splitmix64-domain-reg-ord1;epoch1-based;original-training-list;sort-key-original-index;whole-example;fixed-heldout"
+
+regressionOrderReportDigest :: Text -> Text -> Text
+regressionOrderReportDigest capturedContract orderContract =
+  sha256Hex
+    ( TextEncoding.encodeUtf8
+        ( "jitml-product-scenario-report-contract-regression-training-order-v1\NUL"
+            <> capturedContract
+            <> "\NUL"
+            <> orderContract
+        )
+    )
+
+regressionOrderParserControls :: Assertion
+regressionOrderParserControls = do
+  let contract = Regression.regressionTrainingOrderContract
+      fields = ["row", "regression-training-order", contract, "subject", "λ:|"]
+  assertBool
+    "approved recipe version is missing"
+    (approvedRegressionOrderId `Text.isPrefixOf` contract)
+  for_
+    [ "shuffle-root=deriveSplitMixSeed(SplitMixSeed(fromIntegral(execution-seed)),0x7265672d6f726431)"
+    , "epoch-seed=deriveSplitMixSeed(shuffle-root,fromIntegral(one-based-epoch))"
+    , "keys=splitMixWords(length(original-standardized-training-partition),epoch-seed)"
+    , "ordering=ascending(key,zero-based-original-index)"
+    , "epoch-input=original-standardized-training-partition"
+    , "membership=every-original-training-example-once-per-epoch"
+    , "record=whole-regression-example"
+    , "heldout=excluded-fixed-membership-and-order"
+    ]
+    $ \clause ->
+      assertBool "complete order descriptor lost an approved clause" (clause `Text.isInfixOf` contract)
+  removeRegressionOrder fields @?= Right ["row", "subject", "λ:|"]
+  assertRejected (removeRegressionOrder ["row", "subject"])
+  assertRejected (removeRegressionOrder (fields <> fields))
+  assertRejected (removeRegressionOrder ["regression-training-order", approvedRegressionOrderId])
+
+stripRegressionOrderFields :: Matrix.ProductProjection kind -> [Text] -> IO [Text]
+stripRegressionOrderFields projection fields = case Matrix.productProjectionRowClass projection of
+  Matrix.SupervisedRegression {} -> expectRight (removeRegressionOrder fields)
+  _ -> pure fields
+
+preRegressionRevisionIdentity :: Matrix.ProductProjection kind -> IO (Text, Text)
+preRegressionRevisionIdentity projection =
+  case Matrix.productProjectionRowClass projection of
+    Matrix.SupervisedRegression {} -> case Matrix.productProjectionResolvedPlan projection of
+      Matrix.ResolvedSupervisedProductPlan workload -> do
+        let plan = Workload.supervisedPlanRunPlan workload
+        fields <- expectRight (parseSubject (Plan.runPlanSubjectId plan))
+        stripped <- expectRight (removeRegressionOrder fields)
+        let subject = renderSubject stripped
+        prior <-
+          expectSuccess
+            ( Workload.resolveSupervisedPlan
+                (Workload.RawSupervisedPlan (requestWithHistoricalBudget projection plan subject))
+            )
+        supervisedBudgetValues (Workload.supervisedPlanRunPlan prior)
+          @?= (10, 7000, 1000, 128, 550)
+        pure (Plan.planIdText (Workload.supervisedPlanId prior), subject)
+      _ -> assertFailure "regression order reached an unrelated resolved run kind"
+    Matrix.RlAlgorithmEnvironment "PPO" "mountain-car" ->
+      case Matrix.productProjectionResolvedPlan projection of
+        Matrix.ResolvedRlProductPlan plan -> do
+          let (transitions, ticks, environments, horizon, episodes) = Plan.runPlanRlBudget plan
+              subject = Plan.runPlanSubjectId plan
+          ( quantityInteger transitions
+            , quantityInteger ticks
+            , quantityInteger environments
+            , quantityInteger horizon
+            , quantityInteger episodes
+            )
+            @?= (300 * 512 * 16, 512, 16, 200, 20)
+          -- The authentic RL isolation captures predate only this row's
+          -- approved allocation revision. Keep the complete semantic subject,
+          -- seed and lane while reconstructing its original150-rollout budget.
+          let budget =
+                Plan.RawRlBudget
+                  { Plan.rawRlEnvironmentTransitions = 150 * 512 * 16
+                  , Plan.rawRlRolloutTicksPerEnv = quantityInteger ticks
+                  , Plan.rawRlVectorEnvironments = quantityInteger environments
+                  , Plan.rawRlEpisodeSteps = quantityInteger horizon
+                  , Plan.rawRlEvaluationEpisodes = quantityInteger episodes
+                  }
+          prior <-
+            expectSuccess
+              (Plan.resolveRun (requestWithBudget Plan.ReinforcementLearningWitness plan budget subject))
+          Plan.runPlanSubjectId prior @?= subject
+          assertBool
+            "PPO allocation counterfactual retained the current execution identity"
+            (Plan.runPlanId prior /= Plan.runPlanId plan)
+          pure (Plan.planIdText (Plan.runPlanId prior), Plan.runPlanSubjectId prior)
+        _ -> assertFailure "PPO allocation counterfactual reached an unrelated resolved run kind"
+    _ ->
+      pure
+        ( Plan.planIdText (Matrix.productProjectionPlanId projection)
+        , Plan.runPlanSubjectId (Matrix.productProjectionRunPlan projection)
+        )
+
+removeRegressionOrder :: [Text] -> Either Text [Text]
+removeRegressionOrder fields = case candidates of
+  [index] -> case drop index fields of
+    "regression-training-order" : actual : _
+      | actual == Regression.regressionTrainingOrderContract ->
+          Right (take index fields <> drop (index + 2) fields)
+    _ -> Left "substituted regression order descriptor"
+  _ -> Left "regression order must occur exactly once"
+ where
+  candidates = [index | (index, value) <- zip [0 ..] fields, value == "regression-training-order"]
+
+readCapturedSlReportContracts :: IO [(Text, Text, Text)]
+readCapturedSlReportContracts = do
+  contents <- TextIO.readFile "test/fixtures/compact-supervised-46a-identities.txt"
+  case filter (not . Text.isPrefixOf "#") (Text.lines contents) of
+    _header : rows -> traverse parseRow rows
+    [] -> assertFailure "captured supervised report contracts are empty"
+ where
+  parseRow line = case Text.splitOn "\t" line of
+    [lane, row, _, _, contract, _, _] -> pure (lane, row, contract)
+    _ -> assertFailure "captured supervised report contract has an unexpected column count"
 
 baselineKey :: Baseline -> (Text, Text)
 baselineKey (Baseline lane row _ _) = (lane, row)
@@ -206,7 +403,7 @@ checkCombinedRlLane slOnly lane = do
         currentId = Plan.planIdText (Matrix.productProjectionPlanId projection)
     case lookup (Matrix.rowId row) plannedRlRecipes of
       Nothing -> do
-        (currentId, Plan.runPlanSubjectId plan) @?= (oldId, oldSubject)
+        preRegressionRevisionIdentity projection >>= (@?= (oldId, oldSubject))
         pure False
       Just recipe -> do
         fields <- expectRight (parseSubject (Plan.runPlanSubjectId plan))
@@ -285,6 +482,64 @@ requestWithBudget witness plan budget subject =
     , Plan.rawRunSeeds = NonEmpty.toList (Plan.seedCohortValues (Plan.runPlanSeeds plan))
     , Plan.rawRunBudget = budget
     }
+
+-- This is a structural allocation/identity test; it executes no model.
+californiaDefaultHundredAllocation :: Assertion
+californiaDefaultHundredAllocation = do
+  Regression.regEpochs Regression.defaultRegressionConfig @?= 100
+  row <-
+    expectExactlyOne
+      "canonical California row"
+      [value | value <- supervisedRows, Matrix.rowId value == "california-housing-mlp"]
+  Budget.trainingBudgetTargetUnits (Matrix.trainingBudget row) @?= 100
+  expectedWork <- expectRight (Policy.supervisedExpectedWork 100 7000 128)
+  Policy.supervisedExpectedEpochs expectedWork @?= 100
+  Policy.supervisedExpectedExamplesProcessed expectedWork @?= 700000
+  Policy.supervisedExpectedOptimizerUpdates expectedWork @?= 5500
+  for_ allSubstrates $ \lane -> do
+    projection <- supervisedProjection lane row
+    let canonical = Matrix.productProjectionRunPlan projection
+    supervisedBudgetValues canonical @?= (100, 7000, 1000, 128, 5500)
+    -- Keeping the complete reg-ord1 subject but restoring only the old budget
+    -- must still produce a distinct execution identity on every lane.
+    previous <-
+      expectSuccess
+        ( Workload.resolveSupervisedPlan
+            ( Workload.RawSupervisedPlan
+                (requestWithHistoricalBudget projection canonical (Plan.runPlanSubjectId canonical))
+            )
+        )
+    supervisedBudgetValues (Workload.supervisedPlanRunPlan previous)
+      @?= (10, 7000, 1000, 128, 550)
+    assertBool
+      "allocation revision retained the ten-epoch execution identity"
+      (Workload.supervisedPlanId previous /= Matrix.productProjectionPlanId projection)
+    cohort <- expectRight (Cohort.mkSupervisedCohortPlan projection)
+    let children = Cohort.supervisedCohortPlanChildren cohort
+    fmap (Policy.supervisedSeedIndexValue . Cohort.supervisedSeedPlanIndex) children @?= [0 .. 4]
+    fmap Cohort.supervisedSeedPlanSeed children @?= [1011 .. 1015]
+    for_ children $ \child -> do
+      let workload = Cohort.supervisedSeedPlanWorkload child
+          plan = Workload.supervisedPlanRunPlan workload
+      supervisedBudgetValues plan @?= (100, 7000, 1000, 128, 5500)
+      fields <- expectRight (parseSubject (Plan.runPlanSubjectId plan))
+      assertBool
+        "allocation revision changed the complete regression order recipe"
+        (["regression-training-order", Regression.regressionTrainingOrderContract] `isContiguous` fields)
+      expectSuccess
+        (Workload.parseSupervisedPlanTransport (Workload.renderSupervisedPlanTransport workload))
+        >>= (@?= workload)
+
+supervisedBudgetValues
+  :: Plan.RunPlan 'Plan.SupervisedTraining -> (Integer, Integer, Integer, Integer, Integer)
+supervisedBudgetValues plan =
+  let (epochs, training, evaluation, batch, updates) = Plan.runPlanSupervisedBudget plan
+   in ( quantityInteger epochs
+      , quantityInteger training
+      , quantityInteger evaluation
+      , quantityInteger batch
+      , quantityInteger updates
+      )
 
 childScope :: Assertion
 childScope = do
@@ -516,9 +771,9 @@ readSlOnlyBaseline =
     "test/fixtures/compact-supervised-46a-identities.txt"
     "without_supervised_policy_plan_id"
 
--- Required future actual combined-producer counterfactual: remove ONLY the SL
--- fields using public refinement, preserving current RL fields and all budgets.
--- No file/values are supplied by this uncompiled proposal.
+-- Preserve the genuine combined-producer historical capture. Current RL
+-- fields stay intact; California's explicit historical comparison separately
+-- restores its original ten-epoch budget. Captured fixture bytes stay unchanged.
 readCurrentRlIsolationBaseline :: IO [Baseline]
 readCurrentRlIsolationBaseline =
   readProjectionCapture
@@ -541,12 +796,19 @@ readProjectionCapture path lastColumn = do
       pure (Baseline lane row identity subject)
     _ -> assertFailure "captured identity fixture has an unexpected column count"
 
-requestWithSubject
-  :: Plan.RunPlan 'Plan.SupervisedTraining -> Text -> Plan.RawRunRequest 'Plan.SupervisedTraining
-requestWithSubject plan subject =
+-- Historical captures precede the hundred-epoch allocation. Restore only
+-- California's original ten epochs and550 updates for those counterfactuals;
+-- all other budget dimensions, seeds, subjects and genuine fixtures stay exact.
+requestWithHistoricalBudget
+  :: Matrix.ProductProjection 'Plan.SupervisedTraining
+  -> Plan.RunPlan 'Plan.SupervisedTraining
+  -> Text
+  -> Plan.RawRunRequest 'Plan.SupervisedTraining
+requestWithHistoricalBudget projection plan subject =
   let (epochs, training, evaluation, batch, updates) = Plan.runPlanSupervisedBudget plan
       quantity :: Plan.Quantity unit -> Integer
       quantity = toInteger . Plan.quantityValue
+      historicalCalifornia = Matrix.productProjectionRowId projection == "california-housing-mlp"
    in Plan.RawRunRequest
         { Plan.rawRunVersion = Plan.runPlanVersion plan
         , Plan.rawRunKind = Plan.SupervisedTrainingWitness
@@ -559,11 +821,11 @@ requestWithSubject plan subject =
         , Plan.rawRunSeeds = NonEmpty.toList (Plan.seedCohortValues (Plan.runPlanSeeds plan))
         , Plan.rawRunBudget =
             Plan.RawSupervisedBudget
-              (quantity epochs)
+              (if historicalCalifornia then 10 else quantity epochs)
               (quantity training)
               (quantity evaluation)
               (quantity batch)
-              (quantity updates)
+              (if historicalCalifornia then 550 else quantity updates)
         }
 
 parseSubject :: Text -> Either Text [Text]

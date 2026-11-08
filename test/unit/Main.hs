@@ -74,6 +74,11 @@ import CheckpointV1Admission qualified
 import ClusterLifecyclePublication qualified
 import ClusterLifecyclePurge qualified
 import ClusterLifecycleTarget qualified
+import ClusterResourceBudget qualified
+import ClusterResourceNodes qualified
+import ClusterResourcePods qualified
+import ClusterResourceRendering qualified
+import ClusterResourceRuntime qualified
 import CriterionReviewData qualified
 import DqnEvaluationControls qualified
 import DurableStateTopology (durableStateTopologyTests)
@@ -157,6 +162,7 @@ import ProductTuneTranscript qualified
 import QualificationObjects qualified
 import ReconcileStamp qualified
 import RegressionStandardization qualified
+import RegressionTrainingOrder qualified
 import ReportMeasurements qualified
 import ServedMetricVerification qualified
 import SupervisedCheckpointV2 qualified
@@ -3113,6 +3119,11 @@ unitTestMain =
       , ClusterLifecycleTarget.tests
       , ClusterLifecyclePurge.tests
       , ClusterLifecyclePublication.tests
+      , ClusterResourceBudget.tests
+      , ClusterResourceRendering.clusterResourceRenderingTests
+      , ClusterResourceRuntime.tests
+      , ClusterResourceNodes.tests
+      , ClusterResourcePods.tests
       , CheckpointV1Admission.checkpointV1AdmissionTests
       , OnPolicyEvaluation.onPolicyEvaluationTests
       , OnPolicyHorizon.onPolicyHorizonTests
@@ -3125,6 +3136,7 @@ unitTestMain =
       , ProductTuneTranscript.productTuneTranscriptTests
       , ReconcileStamp.reconcileStampTests
       , RegressionStandardization.regressionStandardizationTests
+      , RegressionTrainingOrder.regressionTrainingOrderTests
       , ServedMetricVerification.servedMetricVerificationTests
       , LearningSignal.learningSignalTests
       , SupervisedQualificationPolicy.supervisedQualificationPolicyTests
@@ -10797,6 +10809,72 @@ unitTestMain =
               canonicalRlUnits "SAC" "pendulum" @?= Right 4_000
               canonicalRlUnits "ARS" "cartpole" @?= Right 800_000
               canonicalRlUnits "HER" "goal-reaching" @?= Right 2_004
+          , testCase
+              "canonical PPO mountain-car trial leaves ordinary and every other canonical schedule unchanged"
+              $ do
+                let ordinaryFor algorithm environment =
+                      ProductBudget.planRlTrainingSchedule
+                        (ProductBudget.trainerKindForAlgorithm algorithm)
+                        environment
+                        ProductBudget.productRlDefaultTrainingEpisodeFloor
+                        ProductBudget.productRlDefaultMaxEpisodeSteps
+                        Nothing
+                        (Just ProductBudget.productRlRequestedStepFloor)
+                    ordinary =
+                      ProductBudget.OnPolicyTrainingSchedule
+                        { ProductBudget.scheduleObservedEnvironmentSteps = 1_228_800
+                        , ProductBudget.scheduleOnPolicyIterations = 150
+                        , ProductBudget.scheduleOnPolicyRolloutSteps = 512
+                        , ProductBudget.scheduleOnPolicyVectorEnvironments = 16
+                        , ProductBudget.scheduleOnPolicyMaxEpisodeSteps = 200
+                        }
+                    canonical =
+                      ProductBudget.OnPolicyTrainingSchedule
+                        { ProductBudget.scheduleObservedEnvironmentSteps = 2_457_600
+                        , ProductBudget.scheduleOnPolicyIterations = 300
+                        , ProductBudget.scheduleOnPolicyRolloutSteps = 512
+                        , ProductBudget.scheduleOnPolicyVectorEnvironments = 16
+                        , ProductBudget.scheduleOnPolicyMaxEpisodeSteps = 200
+                        }
+                    assertOtherSchedule algorithm environment =
+                      Control.Monad.unless
+                        ((algorithm, environment) == ("PPO", "mountain-car"))
+                        ( ProductBudget.canonicalProductRlSchedule algorithm environment
+                            @?= ordinaryFor algorithm environment
+                        )
+                ordinaryFor "PPO" "mountain-car" @?= Right ordinary
+                ProductBudget.canonicalProductRlSchedule "PPO" "mountain-car" @?= Right canonical
+                mapM_
+                  ( \row -> case ProductMatrix.rowClass row of
+                      ProductMatrix.RlAlgorithmEnvironment algorithm environment ->
+                        assertOtherSchedule algorithm environment
+                      ProductMatrix.RlGoalConditioned environment ->
+                        assertOtherSchedule "HER" environment
+                      _ -> pure ()
+                  )
+                  ProductMatrix.allProductRows
+          , testCase
+              "canonical PPO mountain-car exact target accepts 300 iterations and refuses a partial rollout"
+              $ do
+                let resolve =
+                      ProductBudget.planExactRlTrainingSchedule
+                        "ppo"
+                        "mountain-car"
+                        ProductBudget.productRlDefaultTrainingEpisodeFloor
+                        ProductBudget.productRlDefaultMaxEpisodeSteps
+                        Nothing
+                case ProductBudget.canonicalProductRlSchedule "PPO" "mountain-car" of
+                  Left err -> assertFailure (Text.unpack err)
+                  Right canonical -> resolve 2_457_600 @?= Right canonical
+                case resolve 2_457_601 of
+                  Left err ->
+                    assertBool
+                      "partial rollout rejection retains the requested and next complete target"
+                      ( "expected 2457601" `Text.isInfixOf` err
+                          && "schedules 2465792" `Text.isInfixOf` err
+                      )
+                  Right schedule ->
+                    assertFailure ("unexpected exact partial-rollout schedule: " <> show schedule)
           , testCase "every canonical RL budget is an idempotent exact producer target" $ do
               mapM_
                 ( \row ->
@@ -11990,7 +12068,7 @@ unitTestMain =
                     , ("cifar100-wide-resnet", 10)
                     , ("cifar10-vit", 40)
                     , ("tiny-imagenet-resnet50", 15)
-                    , ("california-housing-mlp", 10)
+                    , ("california-housing-mlp", 100)
                     ]
           , testCase "canonical RL, HER, and AlphaZero ProductRows pin config seed 42" $ do
               let deviceRows =

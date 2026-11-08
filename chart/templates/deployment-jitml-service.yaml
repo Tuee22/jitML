@@ -50,6 +50,13 @@ spec:
           imagePullPolicy: IfNotPresent
           command: ["jitml"]
           args: ["service", "--config", "/etc/jitml/BootConfig.dhall"]
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "2"
+              memory: "2Gi"
           readinessProbe:
             httpGet:
               path: /readyz
@@ -107,6 +114,13 @@ spec:
           imagePullPolicy: IfNotPresent
           command: ["jitml"]
           args: ["service", "--config", "/etc/jitml/BootConfig.dhall"]
+          resources:
+            requests:
+              cpu: "25m"
+              memory: "64Mi"
+            limits:
+              cpu: "250m"
+              memory: "512Mi"
           readinessProbe:
             httpGet:
               path: /readyz

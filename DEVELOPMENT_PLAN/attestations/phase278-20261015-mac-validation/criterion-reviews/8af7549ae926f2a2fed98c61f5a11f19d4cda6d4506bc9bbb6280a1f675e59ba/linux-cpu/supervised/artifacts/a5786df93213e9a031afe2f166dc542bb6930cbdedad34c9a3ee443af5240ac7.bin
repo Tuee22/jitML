@@ -1,0 +1,57 @@
+{
+  "source": {
+    "algorithm": 1,
+    "sha256": "57cf61d1cf6149f353d852e21d8c663418d40e0ecc415e30d54dbdf5ef57ae16"
+  },
+  "changed_module": {
+    "path": "src/JitML/Cluster/PVSnapshotPrograms.hs",
+    "bytes": 25097,
+    "sha256": "46e68698eee8a4bac680cdd1ec25cbe5d72de72f26a6f2d25a321316c4bafb7a"
+  },
+  "prior15c_module": {
+    "path": "src/JitML/Cluster/PVSnapshotPrograms.hs",
+    "bytes": 20372,
+    "sha256": "7b28e407dcc2501de1ce2c119ac42f1f7d8c8df55d7c2569c4cea079e5093ac8"
+  },
+  "exact_module_inverse": "Replacing only embedded archive program db4b with aa075 and its SHA constant reproduces prior15c module7b28 exactly; manifest program dd638 and Haskell public API/renderer unchanged.",
+  "embedded_archive": {
+    "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/root-metadata-two-pass-20261019T045512393535Z/archive-variant.py",
+    "bytes": 13461,
+    "sha256": "db4b1fd2cfc8319dc85516c41581b5ed74750375bd178073b5fbf12523d24cc6"
+  },
+  "finite_program_derivation": {
+    "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/root-metadata-two-pass-20261019T045512393535Z/derivation.json",
+    "bytes": 5192,
+    "sha256": "5306ec328ccf9c0a13fcd20d3b38af4ee3529d746336da790ecd52ea0357fe12"
+  },
+  "purpose": "Preserve original node-root metadata after the existing no-overwrite tar payload extraction. First unique literal root is preflighted; second pass selects root only with --no-recursion. Both passes share held archive/destination descriptors and finish with strict archive SHA/full identity.",
+  "scientific_intersection": [],
+  "assessment": [
+    "No recipe, seed, split, budget, convergence floor, criterion, learned/reference comparison, initialization comparison, evaluator, qualification transport, checkpoint Writer equality or admission rule changes.",
+    "This can repair lifecycle snapshot restoration; it grants no live readiness, authentic training evidence, Store publication, source-review authority or eligibility. Runtime recovery and all current-source training obligations remain separate.",
+    "Raw PAX duplicate/global/path overrides/invalid times refuse before writes; original payload keep-old-files behavior remains. UID/GID/SGID/ACL/xattrs/exact ns mtime portable comparisons passed; restored ctime/atime are not claimed."
+  ],
+  "closed_fixture_evidence": [
+    {
+      "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/root-metadata-two-pass-20261019T045512393535Z/ASSESSMENT.json",
+      "bytes": 978,
+      "sha256": "3ce244d33d9b6298711ac8ebab51d35fba61d045ca92629c723c7eb35e9ff113"
+    },
+    {
+      "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/root-metadata-two-pass-20261019T045512393535Z/tiny-corrected-differences.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/root-metadata-two-pass-20261019T045512393535Z/full-corrected-differences.json",
+      "bytes": 3,
+      "sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+    },
+    {
+      "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/root-metadata-two-pass-20261019T045512393535Z/original-backup-validation-20261019T045927792964Z/RESULT.json",
+      "bytes": 2214,
+      "sha256": "21ae3588ed3a37ae193ce1a19cd67c709086d65d58f778cbe8eaab0c30d7a74a"
+    }
+  ],
+  "preserved_failure": "Original fixture outer bookkeeping exit1 remains literal; read-only continuation0 is separate. No complete backend/down-up pass inferred."
+}

@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md, ../../DEVELOPMENT_PLAN/phase-3-cluster-substrate-and-routing.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md, code_quality.md, daemon_architecture.md, durable_state_dsl.md, run_contract.md
+**Referenced by**: README.md, ../documentation_standards.md, [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 37](../../DEVELOPMENT_PLAN/phase-37-per-substrate-kind-configs-and-extramounts.md), [Phase 41](../../DEVELOPMENT_PLAN/phase-41-cluster-lifecycle-reconciler-and-phased-deploy.md), [Phase 42](../../DEVELOPMENT_PLAN/phase-42-ha-kind-node-and-manual-pv-topology.md), [Phase 53](../../DEVELOPMENT_PLAN/phase-53-ha-platform-service-topology.md), [Phase 69](../../DEVELOPMENT_PLAN/phase-69-one-numerical-worker-per-kubernetes-node.md), code_quality.md, daemon_architecture.md, durable_state_dsl.md, run_contract.md
 **Generated sections**: cluster.routes
 
 > **Purpose**: Project-specific cluster topology for jitML — Kind cluster
@@ -16,9 +16,19 @@ As of 2026-08-10, the checked-in Kind fixtures render one control-plane plus
 one worker, manual-PV cardinality is derived from the typed resource profile,
 and Phase 53's clean 135-step rollout proved the single-instance platform.
 Phases 42, 53, and 69 are Done. The Linux Engine count is profile-driven, and
-Phase 262 is the Active live-evidence owner. See
+the current retained-storage repair belongs to Phase 278. See
 [DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md#closure-status)
 for the authoritative status ledger.
+
+The source implements durable node-local PV startup projection and a retained
+consumer-origin guard in
+[`JitML.Cluster.StatefulPV`](../../src/JitML/Cluster/StatefulPV.hs).
+Scoped container validation passes all 12 storage regressions and the exact
+affected integration planning case. The retained-node live rollout and
+original-data readback remain pending under
+[Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md).
+The implementation does not establish live readiness or original-data readback
+without their separate runtime evidence.
 
 The target is one control-plane, one worker, one instance of each local
 platform role, and one Linux Engine replica. The renderer continues to accept
@@ -97,16 +107,63 @@ Kind metadata, runtime coordinates, kubeconfig, generated Dhall, and JIT
 artifacts live under `./.build/`.
 
 Apple Silicon and Docker-backed `linux-cpu` use a node-local bind overlay for
-every registered stateful PV before the manual PV manifests are applied:
-bootstrap creates `/var/local/jitml-stateful-pv/...` inside each Kind node and
-bind-mounts those directories over the corresponding `/jitml/.data/...` paths.
-Registered Percona Postgres PVs are normalized to uid/gid `26:26`; other
-stateful PV directories are made writable for their chart-managed containers.
+every registered stateful PV. The authoritative backing directories are
+`/var/local/jitml-stateful-pv/...` inside each Kind node; the projection binds
+them over the corresponding `/jitml/.data/...` paths. Fresh bootstrap restores
+the selected generation first, then installs the source-rendered startup bundle
+before kubelet resource calibration or any manual PV/Helm apply. Explicit fresh
+initialization creates only genuinely absent backing leaves: registered Percona
+Postgres roots receive uid/gid `26:26`, and other stateful roots receive
+`chmod 0777`. Existing roots, including empty or restored roots, retain their
+owner, permissions, ACLs, xattrs and mtime.
+
+[`JitML.Cluster.StatefulPV`](../../src/JitML/Cluster/StatefulPV.hs) owns the
+projection script, `jitml-stateful-pv.service` and dependency drop-ins for both
+`containerd.service` and `kubelet.service`. Both daemons require the projection
+oneshot and start after it; each also verifies the projection before starting.
+The bounded startup path requires existing physical backing directories and
+exact backing/target device-and-inode equality. Missing backing, symlinks, files
+or a wrong existing bind fail closed. Startup does not initialize missing data,
+replace a wrong bind, or copy bytes from the host fallback directory.
+
+A correct node path alone is insufficient after a late bind: an existing Pod
+volume can retain the old directory inode. Retained bootstrap refreshes its
+derived `./.build/jitml.kubeconfig` before the read-only consumer guard, then
+verifies the installed bundle and effective daemon dependencies before
+convergence or calibration. The guard matches PVC namespace/name to the closed
+manual-PV registry, resolves each running consumer's node, Pod UID, container ID
+and actual CRI PID, and compares the backing inode with the mount visible through
+that PID's root. It checks stable PID start identity and repeats the consumer
+inventory. A safe static directory `subPath` selects the physical child under
+the backing root; dynamic `subPathExpr`, traversal and symlink children are
+refused. Final readiness publication also requires this origin check.
+
+An unproved projection or stale consumer bind requires an explicit cold repair.
+Stop the retained Kind nodes, install the exact source-rendered bundle into the
+same stopped CIDs, and explicitly restart those whole nodes before verifying
+their consumers. `statefulPVBundleFiles` exports the complete bundle; its script
+is root-owned mode `0755`, and its unit/drop-ins are root-owned mode `0644`, all
+single-link files. Verify that the retained nodes cannot restart automatically
+when the Docker daemon returns before installing the bundle; a stopped state
+alone does not guarantee this. This maintenance requirement does not change
+Kind's generated restart policy. The repair preserves original backing bytes,
+Pod node assignments, and PV/PVC, Pod and Job objects; it performs no reseeding,
+repeat restoration or deletion of those objects.
+
 The checked-in PV identity and chart paths remain the repo-local `.data`
 layout, but the live MinIO, Pulsar, and Postgres write paths use node-local
 storage on macOS/Colima to avoid host bind-mount ownership and I/O stalls.
-`linux-cuda` runs on a real Linux/NVIDIA host and uses the `.data` hostPath
-directly with Postgres ownership normalization.
+`linux-cuda` retains its existing real Linux/NVIDIA `.data` path and Postgres
+ownership normalization. Startup ordering does not add per-PV node ownership:
+the manual PV affinity still uses `kubernetes.io/hostname` with `Exists`, so this
+repair does not establish safe relocation of node-local state.
+
+The real Linux regressions in
+[`test/shared/StatefulPvProjection.hs`](../../test/shared/StatefulPvProjection.hs)
+exercise restored metadata, new-leaf defaults, invalid backing/binds, stale
+consumer mounts, static directory subpaths and the exact systemd dependencies
+with isolated marker services. The component fixture does not substitute for
+the retained Kind rollout or original-data readback.
 
 The node-local trees live inside each Kind node's anonymous `/var` volume;
 preserving the hidden host `.data` directories alone does not preserve these
@@ -254,20 +311,106 @@ closeability under the project's
 doctrine: each development phase brings its lane up on one host with at most one
 accelerator plus `linux-cpu` (bound by
 [`DEVELOPMENT_PLAN/development_plan_standards.md` rule M](../../DEVELOPMENT_PLAN/development_plan_standards.md)).
+- **Runtime admission** — the `cluster.host-memory` prerequisite and live
+  bootstrap read CPU count and `MemTotal` from the selected running Docker
+  runtime. Every Kind node, the client job and VM system reserve must fit
+  together. Linux callers also prove their own finite CPU/RAM cgroup limits
+  and zero swap allowance. The check does not start a VM. Native host jobs
+  require separate CPU, heap and host-pressure supervision.
 - **Kind-node caps** — after `kind create`, the bootstrap reconciler applies
   `docker update --memory/--memory-swap/--cpus` caps to materialized Kind nodes
   from the profile. An over-budget cluster then OOM-kills pods inside node
-  cgroups instead of exhausting the host. A `cluster.host-memory` preflight
-  (`jitml doctor --scope cluster`) fails fast when host RAM is below the cap +
-  reserve.
+  cgroups. Before Helm installs workloads, the observed Node allocatable
+  CPU/RAM must not exceed the profile's per-node application budget. An outer
+  VM capacity advertised by a nested kubelet fails this check. System reserves
+  and optional control-plane scheduling are explicit; numerical compute labels
+  remain worker-only.
+  Kind can expose outer-runtime capacity despite Docker caps. Live materialization
+  excludes capacity outside each node and adds the declared node-system reserve
+  when rendering kubelet reservations. Retained nodes reconcile those resource flags
+  atomically and restart kubelet only when the record changes; live checks verify
+  both running Docker state and actual Allocatable before workloads proceed.
 - **Per-pod budgets and local replicas** — the registry, MinIO, Pulsar,
   observability, TensorBoard, and jitML roles carry CPU/memory requests+limits
-  and target replica counts from the same profile. Manual PV layout follows the
-  counts.
+  and target replica counts from the same profile. Eight generated resource
+  overlays follow authored Helm values. A platform-namespace LimitRange supplies
+  defaults for newly admitted containers, including init/helper containers with
+  missing resource fields. Effective manifests and Pods still require inspection:
+  defaults do not replace explicit upstream values or retrofit existing Pods.
+  Before publication or convergence acceptance, all-namespace admitted Pods must
+  account for their actual per-node requests, regular and restartable sidecars,
+  sequential init work and overhead. Pending/terminating infrastructure and missing
+  platform caps prevent acceptance. System containers with missing inner limits are
+  reported as relying on the hard node parent; extended resources remain outside
+  this CPU/RAM proof and retain their substrate checks.
+  Manual PV layout follows the counts.
 - **Numerical worker cardinality** — regardless of service replica counts, the
   Engine/numerical ML compute role is capped at one worker per Kubernetes node.
   Coordinator, Webapp, observability, and platform-service replicas may scale
   independently without creating extra numerical workers on the same node.
+
+The explicit Mac-local profile is `dhall/cluster/mac16.dhall`: two 5 GiB /
+1.5 CPU nodes, a 4 GiB / 1 CPU client, and 1,536 MiB for VM system overhead.
+Each node reserves 1 GiB / 250m for its own system services. Pod memory limits
+may collectively exceed their enclosing node cap; the hard parent contains
+that use, but readiness and OOM observations decide whether the stack can run
+successfully. A passing arithmetic check is not a live rollout pass.
+
+Fresh Kind creation applies and observes the selected node hard caps before
+node-local PV restoration. A failed cap or inspection prevents restoration.
+Partial Kind creation failures may leave nodes without their individual caps;
+the explicitly bounded outer VM remains the containment boundary in that case.
+Snapshot helpers run serially with fixed 0.5 CPU, 512 MiB RAM, zero swap, 64 PIDs
+and a 64 MiB `/tmp` tmpfs. Their actual Docker limits are verified before start.
+These are failure boundaries, not a guarantee that every manifest fits. Lifecycle
+admission reserves the helper within the existing 4 GiB / 1 CPU client slot;
+it requires the actual caller to fit the remaining allowance. The
+`compose.lifecycle-bounded.yaml` override gives the caller 3 GiB / 0.5 CPU with
+zero swap. Apply it last for bootstrap, cluster shutdown and snapshot restoration.
+Normal training may use the full 4 GiB / 1 CPU client slot only after all helpers
+have ended. Application readiness and data readback are separate full-stack
+lifecycle checks after filesystem restoration.
+
+Pulsar's pinned 3.6.0 chart is authenticated against Apache's published archive
+digest before bootstrap prepares a separate copy under
+`.build/conf/cluster/charts/`. Preparation corrects the broker ZooKeeper startup
+check's memory variable to `PULSAR_MEM`, so its existing `-Xmx128M` setting reaches
+the invoked launcher. Every other inflated chart byte stays unchanged, including
+both readiness guards, deadlines and TLS/metadata helpers. The original dependency
+cache stays intact; unsupported version or digest drift fails before Helm.
+Preparation alone does not establish live readiness.
+
+Select it with `JITML_CLUSTER_RESOURCES`; a missing explicitly selected file
+fails instead of falling back. On this Mac the named Colima profile `jitml`
+has 4 CPUs, 16 GiB RAM and a 288 GiB disk. Disk capacity accommodates retained
+images and both nodes' imported layers; it does not increase the RAM allowance.
+Cache the canonical `jitml:local` image
+explicitly before lifecycle work: reuse its verified cached copy, or build/load
+it while the cluster is stopped. Lifecycle operations fail if it is absent and
+do not build an image implicitly. Bootstrap's separate application-image stage
+rebuilds by default; verify the cached image matches the intended source and
+pass `JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1` in the bootstrap client's environment
+to reuse it. VM startup and shutdown are explicit; the lifecycle override comes
+last:
+
+```sh
+colima --profile jitml start
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml -f compose.cluster-bounded.yaml -f compose.lifecycle-bounded.yaml run --rm -e JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1 jitml jitml bootstrap --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml -f compose.cluster-bounded.yaml -f compose.lifecycle-bounded.yaml run --rm jitml jitml cluster down --substrate linux-cpu
+colima --profile jitml stop
+```
+
+Use `compose.vm-bounded.yaml` for the 2 CPU / 6 GiB build/test runtime-container
+ceiling while the cluster is stopped. A separate image builder remains bounded
+by the VM rather than this container override. `compose.cluster-bounded.yaml`
+selects the Mac profile and lowers the normal full-stack client to 4 GiB / 1 CPU;
+the lifecycle override makes room for its sibling helper within that same slot.
+None of these overrides starts a VM. The generic `default` VM and its automatic
+startup entries are retired. Its separate Docker data disk remains offline,
+with a private OS/settings recovery copy under ignored `.build/`; retain both
+until complete image/volume/host-state migration is verified. Current bounded
+normal/cold application-data readbacks pass; full workflow qualification remains
+a separate obligation.
 
 The compact single-node guardrails introduced by Phase `2` Sprint `2.8`, Phase
 `4` Sprint `4.8`, and Phase `3` Sprint `3.2` remain historical evidence. The
@@ -386,10 +529,19 @@ substrate plus one workflow-status topic per substrate, together with the
 Apple-only `inference.command.apple-silicon` forward topic and the Apple
 host-command topics `training.host-command.apple-silicon`,
 `tune.host-command.apple-silicon`, and `rl.host-command.apple-silicon`. Topic
-convergence probes every fully qualified topic with the exact read-only
-`pulsar-admin topics stats` command. Probes run concurrently with bounded
-retries and accept only a successfully decoded JSON object for each topic; a
-namespace topic listing is discovery information, never convergence authority.
+convergence probes every fully qualified topic with an exact read-only HTTP
+stats request. The Coordinator and bootstrap create each nonpartitioned topic
+with a JSON-properties `PUT`, accepting only HTTP `204` or `409`, then require
+HTTP `200` with a decoded JSON object from that topic's `/stats` address before
+acquiring family evidence. A partitioned-name conflict or a namespace topic list
+cannot replace that exact observation. Calls run serially with bounded retries.
+The remote curl client keeps the shared `flock`, a **17-second** watchdog plus
+**3-second** forced retirement, and a **5-second** HTTP budget; the local client
+has a separate **25-second** deadline. This transport serves the repository's
+pinned internal Pulsar chart, whose authentication and TLS are disabled. It uses
+the chart's explicit HTTP admin endpoint; it does not import arbitrary
+`pulsar-admin` client authentication or TLS configuration. Actual current-image
+startup and data preservation remain tracked in Phase278's Remaining Work.
 The in-cluster Apple daemon forwards each raw inference command onto
 `inference.command.apple-silicon`, and the host Engine publishes the
 `InferenceResult` to the request's reply-topic directly (the converged values

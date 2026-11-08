@@ -70,14 +70,9 @@ spec:
             httpGet:
               path: /healthz
               port: 8080
-          # Sprint 4.8 — pod budget from dhall/cluster/resources.dhall (`jitmlService`).
+          # Bootstrap overlays the selected typed profile after authored values.
           resources:
-            requests:
-              cpu: 500m
-              memory: 1Gi
-            limits:
-              cpu: "2"
-              memory: 2Gi
+            {{- toYaml .Values.resources | nindent 12 }}
           {{- if eq .Values.substrate "linux-cuda" }}
           env:
             - name: NVIDIA_VISIBLE_DEVICES
@@ -128,12 +123,7 @@ spec:
           command: ["jitml"]
           args: ["service", "--config", "/etc/jitml/BootConfig.dhall"]
           resources:
-            requests:
-              cpu: 100m
-              memory: 128Mi
-            limits:
-              cpu: "1"
-              memory: 512Mi
+            {{- toYaml .Values.coordinatorResources | nindent 12 }}
           readinessProbe:
             httpGet:
               path: /readyz

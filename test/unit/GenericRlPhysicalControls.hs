@@ -146,6 +146,47 @@ genericRlPhysicalControls =
           ("mutable:tag" :: Text)
           target
           (Proof.validateImageDescriptor target (put "Image" (String "mutable:tag") imageConfig))
+    , testCase "image proof rejects unbounded siblings and substituted ownership before start" $ do
+        let caller = "fixture-client"
+            stamp = Source.sourceStampFromFiles [("src/fixture.hs", "source")]
+            observed = imageProofHelper caller stamp
+            check = Proof.validateImageProofHelper target caller stamp
+        check observed @?= Right ()
+        forM_
+          [ (["HostConfig", "NanoCpus"], Aeson.toJSON (0 :: Integer))
+          , (["HostConfig", "Memory"], Aeson.toJSON (0 :: Integer))
+          , (["HostConfig", "MemorySwap"], Aeson.toJSON (-1 :: Integer))
+          , (["HostConfig", "PidsLimit"], Aeson.Null)
+          , (["HostConfig", "ReadonlyRootfs"], Bool False)
+          , (["HostConfig", "Privileged"], Bool True)
+          , (["HostConfig", "NetworkMode"], String "host")
+          , (["HostConfig", "CgroupnsMode"], String "host")
+          , (["HostConfig", "PidMode"], String "host")
+          , (["HostConfig", "CapAdd"], Aeson.toJSON ["SYS_ADMIN" :: Text])
+          , (["HostConfig", "CapDrop"], Aeson.toJSON ([] :: [Text]))
+          , (["HostConfig", "SecurityOpt"], Aeson.toJSON ([] :: [Text]))
+          , (["HostConfig", "RestartPolicy", "Name"], String "always")
+          , (["HostConfig", "Tmpfs"], object [])
+          , (["Name"], String "/another-helper")
+          , (["Config", "Image"], String "mutable:tag")
+          , (["Config", "Labels", "jitml.proof.owner"], String "another-client")
+          , (["Config", "Labels", "jitml.proof.source"], String (Text.replicate 64 "0"))
+          , (["Config", "Cmd"], Aeson.toJSON ["-c", "sleep 30" :: Text])
+          , (["State", "Running"], Bool True)
+          , (["State", "StartedAt"], String "2026-11-03T00:00:00Z")
+          ,
+            ( ["Mounts"]
+            , Aeson.toJSON [object ["Type" .= ("bind" :: Text), "Destination" .= ("/data" :: Text), "RW" .= True]]
+            )
+          ]
+          $ \(path, replacement) ->
+            assertBool ("unsafe image helper accepted: " <> show path) $
+              case check (change path replacement observed) of
+                Left (Proof.ProofFailure stage _) -> stage == Proof.Image
+                Right () -> False
+        assertBool
+          "different callers share an image-proof exclusion name"
+          (Proof.imageProofHelperName caller /= Proof.imageProofHelperName "another-client")
     , testCase "OCI raw bytes platform selection and CRI config cannot be substituted" $ do
         let bytes =
               LBS.toStrict
@@ -642,6 +683,55 @@ imageConfig =
     [ "Image" .= target
     , "WorkingDir" .= ("/jitml" :: Text)
     , "Env" .= ["PATH=/usr/local/bin:/usr/bin" :: Text]
+    ]
+
+imageProofHelper :: Text -> Source.SourceStamp -> Value
+imageProofHelper caller stamp =
+  object
+    [ "Name" .= ("/" <> Proof.imageProofHelperName caller)
+    , "Config"
+        .= object
+          [ "Image" .= target
+          , "User" .= ("0:0" :: Text)
+          , "Entrypoint" .= ["/bin/sh" :: Text]
+          , "Cmd" .= ["-c", "command -v jitml" :: Text]
+          , "Labels"
+              .= object
+                [ "jitml.proof.role" .= ("generic-rl-image-capability" :: Text)
+                , "jitml.proof.owner" .= caller
+                , "jitml.proof.source" .= Source.stampSha256 stamp
+                ]
+          ]
+    , "HostConfig"
+        .= object
+          [ "NanoCpus" .= (500000000 :: Integer)
+          , "Memory" .= (536870912 :: Integer)
+          , "MemorySwap" .= (536870912 :: Integer)
+          , "PidsLimit" .= (64 :: Int)
+          , "ReadonlyRootfs" .= True
+          , "Privileged" .= False
+          , "NetworkMode" .= ("none" :: Text)
+          , "CgroupnsMode" .= ("private" :: Text)
+          , "PidMode" .= ("" :: Text)
+          , "CapAdd" .= Aeson.Null
+          , "CapDrop" .= ["ALL" :: Text]
+          , "SecurityOpt" .= ["no-new-privileges" :: Text]
+          , "RestartPolicy" .= object ["Name" .= ("no" :: Text)]
+          , "Tmpfs" .= object ["/tmp" .= ("rw,nosuid,nodev,size=67108864" :: Text)]
+          ]
+    , "Mounts" .= ([] :: [Value])
+    , "State"
+        .= object
+          [ "Status" .= ("created" :: Text)
+          , "Error" .= ("" :: Text)
+          , "Pid" .= (0 :: Int)
+          , "Running" .= False
+          , "Paused" .= False
+          , "Restarting" .= False
+          , "Dead" .= False
+          , "OOMKilled" .= False
+          , "StartedAt" .= ("0001-01-01T00:00:00Z" :: Text)
+          ]
     ]
 runMount = object ["name" .= ("jitml-run-config" :: Text), "mountPath" .= ("/etc/jitml/run" :: Text)]
 serviceMount =

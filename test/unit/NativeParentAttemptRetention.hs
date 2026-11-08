@@ -1,16 +1,23 @@
 {-# LANGUAGE OverloadedStrings #-}
 
--- Genuine local filesystem controls, written/unrun. No ML/parent policy cap,
+-- Genuine local filesystem controls. No ML/parent policy cap,
 -- launch receipt, journal authorization or successful training is fabricated.
 module NativeParentAttemptRetention (nativeParentAttemptRetentionTests) where
 
 import Codec.CBOR.Encoding qualified as CBOR
 import Codec.CBOR.Write qualified as CBOR
-import Control.Concurrent (forkIO)
+import Control.Concurrent (forkIO, killThread)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
-import Control.Exception (AsyncException (ThreadKilled), Exception (displayException), throw, try)
+import Control.Exception
+  ( AsyncException (ThreadKilled)
+  , Exception (displayException)
+  , IOException
+  , throw
+  , try
+  )
 import Control.Monad ((>=>))
 import Crypto.Hash.SHA256 qualified as SHA256
+import Data.Bits ((.&.))
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
 import Data.Char (intToDigit)
@@ -21,15 +28,20 @@ import Data.Text qualified as Text
 import Data.Text.Encoding qualified as UTF8
 import System.Directory
   ( canonicalizePath
+  , createDirectory
   , createDirectoryLink
   , createFileLink
   , doesDirectoryExist
   , doesFileExist
   , doesPathExist
   , listDirectory
+  , removeFile
   )
 import System.FilePath (takeDirectory, (</>))
+import System.IO (IOMode (WriteMode), hClose, withBinaryFile)
+import System.IO.Error (ioeGetErrorString, isIllegalOperation)
 import System.IO.Temp (withSystemTempDirectory)
+import System.Posix.Files (fileMode, getSymbolicLinkStatus, setFileMode)
 import System.Timeout (timeout)
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertEqual, assertFailure, testCase)
@@ -39,6 +51,7 @@ import JitML.Checkpoint.NativePhase.Types (Resource (DiagnosticTextBytes), nativ
 import JitML.Execution.NativeParentAttemptRetention qualified as Retain
 import JitML.Plan.Plan qualified as Plan
 import JitML.Substrate (Substrate (AppleSilicon, LinuxCPU))
+import JitML.Test.Command qualified as Command
 import JitML.Training.Budget qualified as Training
 
 data InputFault = UnicodeFault | EndlessFault | AsyncRendererFault
@@ -357,7 +370,180 @@ nativeParentAttemptRetentionTests =
             =<< doesDirectoryExist (Retain.reservedNativeParentAttemptDirectory reserved </> "result")
           _ <- failure =<< Retain.retainNativeParentAttemptResult reserved "retry forbidden" Nothing
           pure ()
+    , commandAttemptDirectoryTests
     ]
+
+commandAttemptDirectoryTests :: TestTree
+commandAttemptDirectoryTests =
+  testGroup
+    "command attempt directory lifetime"
+    [ testCase
+        "successful fresh private canonical scopes retain real attempt bytes and never reuse prior names"
+        $ withRoot
+        $ \root -> do
+          let retainedRoot = root </> "attempts"
+              alias = root </> "attempts-alias"
+          createDirectory retainedRoot
+          setFileMode retainedRoot 0o750
+          createDirectoryLink retainedRoot alias
+          first <- Command.withProductScenarioAttemptDirectory alias writeCommandAttempt
+          second <-
+            Command.withProductScenarioAttemptDirectory retainedRoot $ \parent -> do
+              actual <- writeCommandAttempt parent
+              -- Existing per-step release may already have removed the key.
+              removeFile (parent </> "journal.key")
+              pure actual
+          assertBool "new run namespace on every call" (fst first /= fst second)
+          assertEqual "first parent uses the physical canonical root" retainedRoot (takeDirectory (fst first))
+          assertEqual
+            "second parent uses the physical canonical root"
+            retainedRoot
+            (takeDirectory (fst second))
+          assertEqual "existing runtime root permissions remain unchanged" 0o750
+            . (.&. 0o777)
+            . fileMode
+            =<< getSymbolicLinkStatus retainedRoot
+          mapM_ verifyCommandAttempt [first, second]
+    , testCase
+        "synchronous failed body preserves the actual original report and binary streams and erases key"
+        $ withRoot
+        $ \root -> do
+          observed <- newEmptyMVar
+          result <-
+            try
+              ( Command.withProductScenarioAttemptDirectory root $ \parent -> do
+                  actual <- writeCommandAttempt parent
+                  putMVar observed actual
+                  ioError (userError "actual command body failure")
+              )
+              :: IO (Either IOException ())
+          case result of
+            Left exception ->
+              assertEqual
+                "original failure propagates"
+                "actual command body failure"
+                (ioeGetErrorString exception)
+            Right () -> assertFailure "failed body became successful"
+          verifyCommandAttempt =<< takeMVar observed
+    , testCase
+        "external ThreadKilled propagates while preserving the actual report and streams and erasing key"
+        $ withRoot
+        $ \root -> do
+          observed <- newEmptyMVar
+          never <- newEmptyMVar
+          finished <- newEmptyMVar
+          worker <- forkIO $ do
+            result <-
+              try
+                ( Command.withProductScenarioAttemptDirectory root $ \parent -> do
+                    actual <- writeCommandAttempt parent
+                    putMVar observed actual
+                    takeMVar never
+                )
+                :: IO (Either AsyncException ())
+            putMVar finished result
+          actual <- takeMVar observed
+          killThread worker
+          outcome <- timeout 10000000 (takeMVar finished)
+          case outcome of
+            Just result -> assertAsync result
+            Nothing -> assertFailure "cancelled command scope did not release its key"
+          verifyCommandAttempt actual
+    , testCase "setup failure before key creation retains its diagnostic file without inventing a key" $
+        withRoot $ \root -> do
+          observed <- newEmptyMVar
+          result <-
+            try
+              ( Command.withProductScenarioAttemptDirectory root $ \parent -> do
+                  BS.writeFile (parent </> "setup.started") "actual setup bytes"
+                  putMVar observed parent
+                  ioError (userError "actual command setup failure")
+              )
+              :: IO (Either IOException ())
+          case result of
+            Left exception ->
+              assertEqual "setup failure propagates" "actual command setup failure" (ioeGetErrorString exception)
+            Right () -> assertFailure "failed setup became successful"
+          parent <- takeMVar observed
+          assertEqual "setup file survives" "actual setup bytes" =<< BS.readFile (parent </> "setup.started")
+          assertBool "no signing key survives" . not =<< doesPathExist (parent </> "journal.key")
+    , testCase "real partial key write failure removes exact key and preserves other setup bytes" $
+        withRoot $ \root -> do
+          observed <- newEmptyMVar
+          result <-
+            try
+              ( Command.withProductScenarioAttemptDirectory root $ \parent -> do
+                  BS.writeFile (parent </> "setup.started") "actual setup bytes"
+                  putMVar observed parent
+                  withBinaryFile (parent </> "journal.key") WriteMode $ \handle -> do
+                    BS.hPut handle "actual partial key bytes"
+                    hClose handle
+                    BS.hPut handle "write to closed handle must fail"
+              )
+              :: IO (Either IOException ())
+          case result of
+            Left exception -> assertBool "real handle write failure propagates" (isIllegalOperation exception)
+            Right () -> assertFailure "closed-handle key write unexpectedly succeeded"
+          parent <- takeMVar observed
+          assertEqual "other setup bytes survive" "actual setup bytes"
+            =<< BS.readFile (parent </> "setup.started")
+          assertBool "partial signing key is removed" . not =<< doesPathExist (parent </> "journal.key")
+    , testCase "key release propagates filesystem errors other than genuine absence" $
+        withRoot $ \root -> do
+          observed <- newEmptyMVar
+          result <-
+            try
+              ( Command.withProductScenarioAttemptDirectory root $ \parent -> do
+                  BS.writeFile (parent </> "setup.started") "actual setup bytes"
+                  createDirectory (parent </> "journal.key")
+                  putMVar observed parent
+              )
+              :: IO (Either IOException ())
+          case result of
+            Left _ -> pure ()
+            Right () -> assertFailure "non-file key cleanup failure was silently ignored"
+          parent <- takeMVar observed
+          assertBool "scope remains retained" =<< doesDirectoryExist parent
+          assertBool "cleanup did not delete a directory recursively"
+            =<< doesDirectoryExist (parent </> "journal.key")
+          assertEqual "unrelated file remains exact" "actual setup bytes"
+            =<< BS.readFile (parent </> "setup.started")
+    ]
+
+writeCommandAttempt :: FilePath -> IO (FilePath, Retain.RetainedNativeParentAttempt)
+writeCommandAttempt parent = do
+  -- These bytes are ordinary test data, never a journal authorization key.
+  BS.writeFile (parent </> "journal.key") "ordinary signing-key placeholder"
+  BS.writeFile (parent </> "journal.json") "ordinary journal bytes"
+  let workspace = parent </> "workspace"
+  createDirectory workspace
+  reserved <- reserve workspace invocation "actual issued bytes"
+  retained <-
+    retainedResult
+      =<< Retain.retainNativeParentAttemptResult reserved commandReport (Just commandRaw)
+  pure (parent, retained)
+
+verifyCommandAttempt :: (FilePath, Retain.RetainedNativeParentAttempt) -> Assertion
+verifyCommandAttempt (parent, retained) = do
+  assertEqual "parent remains physically canonical" parent =<< canonicalizePath parent
+  assertEqual "fresh parent is private mode 0700" 0o700
+    . (.&. 0o777)
+    . fileMode
+    =<< getSymbolicLinkStatus parent
+  assertBool "exact signing key is removed" . not =<< doesPathExist (parent </> "journal.key")
+  assertEqual "journal bytes remain retained" "ordinary journal bytes"
+    =<< BS.readFile (parent </> "journal.json")
+  verifyFile
+    Retain.IssuedRecordFile
+    "actual issued bytes"
+    (Retain.nativeParentAttemptIssuedFile (Retain.retainedNativeParentAttemptInventory retained))
+  verifyInventory retained commandReport (Just commandRaw)
+
+commandReport :: String
+commandReport = "actual command-scoped report λ🙂"
+
+commandRaw :: (LBS.ByteString, LBS.ByteString)
+commandRaw = (LBS.pack [0, 255, 128, 10], LBS.pack [254, 0, 69])
 
 withRoot :: (FilePath -> IO a) -> IO a
 withRoot action = withSystemTempDirectory "jitml-native-parent-retention" (canonicalizePath >=> action)

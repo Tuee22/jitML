@@ -79,6 +79,10 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Data.Text.Encoding qualified as Text.Encoding
 
+import JitML.Cluster.ResourceBudget (validateNumericalWorkloadBudget)
+import JitML.Cluster.Resources (ComponentBudget)
+import JitML.Service.ConfigMap (resourceLines)
+
 import JitML.Checkpoint.Format
   ( CheckpointManifest (..)
   )
@@ -483,30 +487,33 @@ dispatchWorkloadPayload payload =
 
 dispatchTrainingCommand
   :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => Residency
+  => ComponentBudget
+  -> Residency
   -> Substrate
   -> TrainingCommand
   -> m (Either WorkloadDecodeError (NonEmpty SomeWorkloadOutcome))
-dispatchTrainingCommand residency substrate command =
-  runBuiltWorkloadEffects (buildTrainingWorkloadEffects residency substrate command)
+dispatchTrainingCommand resources residency substrate command =
+  runBuiltWorkloadEffects (buildTrainingWorkloadEffects resources residency substrate command)
 
 dispatchTuneCommand
   :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => Residency
+  => ComponentBudget
+  -> Residency
   -> Substrate
   -> TuneCommand
   -> m (Either WorkloadDecodeError (NonEmpty SomeWorkloadOutcome))
-dispatchTuneCommand residency substrate command =
-  runBuiltWorkloadEffects (buildTuneWorkloadEffects residency substrate command)
+dispatchTuneCommand resources residency substrate command =
+  runBuiltWorkloadEffects (buildTuneWorkloadEffects resources residency substrate command)
 
 dispatchRlCommand
   :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => Residency
+  => ComponentBudget
+  -> Residency
   -> Substrate
   -> RlCommand
   -> m (Either WorkloadDecodeError (NonEmpty SomeWorkloadOutcome))
-dispatchRlCommand residency substrate command =
-  runBuiltWorkloadEffects (buildRlWorkloadEffects residency substrate command)
+dispatchRlCommand resources residency substrate command =
+  runBuiltWorkloadEffects (buildRlWorkloadEffects resources residency substrate command)
 
 runBuiltWorkloadEffects
   :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
@@ -591,24 +598,26 @@ runInferenceCommandEffectWithWeightedInference runInference effect =
       fmap InferenceResultPublished <$> runLoadTranscriptRequestWithTarget target command
 
 buildTrainingWorkloadEffects
-  :: Residency
+  :: ComponentBudget
+  -> Residency
   -> Substrate
   -> TrainingCommand
   -> Either WorkloadDecodeError (NonEmpty SomeWorkloadEffect)
-buildTrainingWorkloadEffects residency substrate command = do
+buildTrainingWorkloadEffects resources residency substrate command = do
   validateTrainingCommandSubstrate substrate command
-  trainingCommandEffects residency substrate command
+  trainingCommandEffects resources residency substrate command
 
 trainingCommandEffects
-  :: Residency
+  :: ComponentBudget
+  -> Residency
   -> Substrate
   -> TrainingCommand
   -> Either WorkloadDecodeError (NonEmpty SomeWorkloadEffect)
-trainingCommandEffects residency substrate command =
+trainingCommandEffects resources residency substrate command =
   case command of
     TrainingStart start -> do
       plan <- firstPlanError (PlanCommand.validateStartTraining start)
-      placement <- planWorkloadPlacement residency (ResolvedTrainingLaunch start plan)
+      placement <- planWorkloadPlacement resources residency (ResolvedTrainingLaunch start plan)
       pure (placementEffect placement :| [])
     TrainingStop stop
       | residency == Cluster && not (substrateHasClusterCompute substrate) ->
@@ -618,24 +627,26 @@ trainingCommandEffects residency substrate command =
           pure (clusterWorkloadStopEffects "jitml-train" (stopExperimentHash stop))
 
 buildTuneWorkloadEffects
-  :: Residency
+  :: ComponentBudget
+  -> Residency
   -> Substrate
   -> TuneCommand
   -> Either WorkloadDecodeError (NonEmpty SomeWorkloadEffect)
-buildTuneWorkloadEffects residency substrate command = do
+buildTuneWorkloadEffects resources residency substrate command = do
   validateTuneCommandSubstrate substrate command
-  tuneCommandEffects residency substrate command
+  tuneCommandEffects resources residency substrate command
 
 tuneCommandEffects
-  :: Residency
+  :: ComponentBudget
+  -> Residency
   -> Substrate
   -> TuneCommand
   -> Either WorkloadDecodeError (NonEmpty SomeWorkloadEffect)
-tuneCommandEffects residency substrate command =
+tuneCommandEffects resources residency substrate command =
   case command of
     TuneStart start -> do
       plan <- firstPlanError (PlanCommand.validateStartSweep start)
-      placement <- planWorkloadPlacement residency (TuneLaunch start plan)
+      placement <- planWorkloadPlacement resources residency (TuneLaunch start plan)
       pure (placementEffect placement :| [])
     TuneStop stop
       | residency == Cluster && not (substrateHasClusterCompute substrate) ->
@@ -645,27 +656,29 @@ tuneCommandEffects residency substrate command =
           pure (clusterWorkloadStopEffects "jitml-tune" (ssStopExperimentHash stop))
 
 buildRlWorkloadEffects
-  :: Residency
+  :: ComponentBudget
+  -> Residency
   -> Substrate
   -> RlCommand
   -> Either WorkloadDecodeError (NonEmpty SomeWorkloadEffect)
-buildRlWorkloadEffects residency substrate command = do
+buildRlWorkloadEffects resources residency substrate command = do
   validateRlCommandSubstrate substrate command
-  rlCommandEffects residency substrate command
+  rlCommandEffects resources residency substrate command
 
 rlCommandEffects
-  :: Residency
+  :: ComponentBudget
+  -> Residency
   -> Substrate
   -> RlCommand
   -> Either WorkloadDecodeError (NonEmpty SomeWorkloadEffect)
-rlCommandEffects residency substrate command =
+rlCommandEffects resources residency substrate command =
   case command of
     RlStart start -> do
-      placement <- planWorkloadPlacement residency (RlLaunch start)
+      placement <- planWorkloadPlacement resources residency (RlLaunch start)
       pure (placementEffect placement :| [])
     RlStartAlphaZero start -> do
       plan <- firstPlanError (PlanCommand.validateStartAlphaZeroRun start)
-      placement <- planWorkloadPlacement residency (AlphaZeroLaunch start plan)
+      placement <- planWorkloadPlacement resources residency (AlphaZeroLaunch start plan)
       pure (placementEffect placement :| [])
     RlStop stop
       | residency == Cluster && not (substrateHasClusterCompute substrate) ->
@@ -782,14 +795,16 @@ placementEffect placement =
       SomeWorkloadEffect (PublishHostWorkloadCommand spec)
 
 planWorkloadPlacement
-  :: Residency
+  :: ComponentBudget
+  -> Residency
   -> WorkloadLaunch
   -> Either WorkloadDecodeError WorkloadPlacement
-planWorkloadPlacement residency launch =
+planWorkloadPlacement resources residency launch = do
+  firstPlanError (validateNumericalWorkloadBudget resources)
   case launch of
     TrainingLaunch start -> do
       plan <- firstPlanError (PlanCommand.validateStartTraining start)
-      planWorkloadPlacement residency (ResolvedTrainingLaunch start plan)
+      planWorkloadPlacement resources residency (ResolvedTrainingLaunch start plan)
     ResolvedTrainingLaunch start plan
       | residency == Cluster && not (substrateHasClusterCompute (stSubstrate start)) ->
           WorkloadHostCommand
@@ -800,7 +815,7 @@ planWorkloadPlacement residency launch =
                 ClusterJobSpec
                   { clusterJobResource =
                       KubeResource ("job/" <> workloadName "jitml-train" (stExperimentHash start))
-                  , clusterJobManifest = renderResolvedTrainingJob start plan
+                  , clusterJobManifest = renderResolvedTrainingJob resources start plan
                   }
             )
     TuneLaunch start plan
@@ -813,7 +828,7 @@ planWorkloadPlacement residency launch =
                 ClusterJobSpec
                   { clusterJobResource =
                       KubeResource ("job/" <> workloadName "jitml-tune" (ssExperimentHash start))
-                  , clusterJobManifest = renderResolvedTuneJob start plan
+                  , clusterJobManifest = renderResolvedTuneJob resources start plan
                   }
             )
     RlLaunch start
@@ -821,7 +836,7 @@ planWorkloadPlacement residency launch =
           WorkloadHostCommand
             <$> mkHostCommandSpec RlHostCommandRoute AppleSilicon (RlStart start)
       | otherwise ->
-          renderRlJob start >>= \manifest ->
+          renderRlJob resources start >>= \manifest ->
             Right
               ( WorkloadClusterJob
                   ClusterJobSpec
@@ -840,7 +855,7 @@ planWorkloadPlacement residency launch =
                 ClusterJobSpec
                   { clusterJobResource =
                       KubeResource ("job/" <> workloadName "jitml-alphazero" (sazExperimentHash start))
-                  , clusterJobManifest = renderResolvedAlphaZeroJob start plan
+                  , clusterJobManifest = renderResolvedAlphaZeroJob resources start plan
                   }
             )
 
@@ -1574,39 +1589,45 @@ rlRunConfigFor start = do
       , rlcPulsarWsUrl = inClusterPulsarWsUrl
       }
 
-renderTrainingJob :: StartTraining -> Either WorkloadDecodeError Text
-renderTrainingJob start = do
+renderTrainingJob :: ComponentBudget -> StartTraining -> Either WorkloadDecodeError Text
+renderTrainingJob resources start = do
+  firstPlanError (validateNumericalWorkloadBudget resources)
   plan <- firstPlanError (PlanCommand.validateStartTraining start)
-  pure (renderResolvedTrainingJob start plan)
+  pure (renderResolvedTrainingJob resources start plan)
 
-renderResolvedTrainingJob :: StartTraining -> SupervisedPlan -> Text
-renderResolvedTrainingJob start plan =
+renderResolvedTrainingJob :: ComponentBudget -> StartTraining -> SupervisedPlan -> Text
+renderResolvedTrainingJob resources start plan =
   renderJobWithRunConfig
+    resources
     (stSubstrate start)
     "training"
     (workloadName "jitml-train" (stExperimentHash start))
     ["train", stDhallObjectKey start]
     (renderTrainingRunConfigDhall (trainingRunConfigFor plan))
 
-renderTuneJob :: StartSweep -> Either WorkloadDecodeError Text
-renderTuneJob start = do
+renderTuneJob :: ComponentBudget -> StartSweep -> Either WorkloadDecodeError Text
+renderTuneJob resources start = do
+  firstPlanError (validateNumericalWorkloadBudget resources)
   plan <- firstPlanError (PlanCommand.validateStartSweep start)
-  pure (renderResolvedTuneJob start plan)
+  pure (renderResolvedTuneJob resources start plan)
 
-renderResolvedTuneJob :: StartSweep -> TuningPlan -> Text
-renderResolvedTuneJob start plan =
+renderResolvedTuneJob :: ComponentBudget -> StartSweep -> TuningPlan -> Text
+renderResolvedTuneJob resources start plan =
   renderJobWithRunConfig
+    resources
     (ssSubstrate start)
     "tune"
     (workloadName "jitml-tune" (ssExperimentHash start))
     ["tune", ssDhallObjectKey start]
     (renderTuneRunConfigDhall (tuneRunConfigFor plan))
 
-renderRlJob :: StartRLRun -> Either WorkloadDecodeError Text
-renderRlJob start = do
+renderRlJob :: ComponentBudget -> StartRLRun -> Either WorkloadDecodeError Text
+renderRlJob resources start = do
+  firstPlanError (validateNumericalWorkloadBudget resources)
   config <- firstPlanError (rlRunConfigFor start)
   pure
     ( renderJobWithRunConfig
+        resources
         (srlSubstrate start)
         "rl"
         (workloadName "jitml-rl" (srlExperimentHash start))
@@ -1614,14 +1635,16 @@ renderRlJob start = do
         (renderRlRunConfigDhall config)
     )
 
-renderAlphaZeroJob :: StartAlphaZeroRun -> Either WorkloadDecodeError Text
-renderAlphaZeroJob start = do
+renderAlphaZeroJob :: ComponentBudget -> StartAlphaZeroRun -> Either WorkloadDecodeError Text
+renderAlphaZeroJob resources start = do
+  firstPlanError (validateNumericalWorkloadBudget resources)
   plan <- firstPlanError (PlanCommand.validateStartAlphaZeroRun start)
-  pure (renderResolvedAlphaZeroJob start plan)
+  pure (renderResolvedAlphaZeroJob resources start plan)
 
-renderResolvedAlphaZeroJob :: StartAlphaZeroRun -> AlphaZeroPlan -> Text
-renderResolvedAlphaZeroJob start plan =
+renderResolvedAlphaZeroJob :: ComponentBudget -> StartAlphaZeroRun -> AlphaZeroPlan -> Text
+renderResolvedAlphaZeroJob resources start plan =
   renderJobWithRunConfig
+    resources
     (sazSubstrate start)
     "rl"
     (workloadName "jitml-alphazero" (sazExperimentHash start))
@@ -1709,12 +1732,12 @@ renderEnvVar (name, value) =
 -- @/etc/jitml/run/@) and the shared @jitml-service-config@ ConfigMap (at
 -- @/etc/jitml/service/@). The Job's container takes no @JITML_*@ environment
 -- variables; the worker reads typed Dhall instead.
-renderJobWithRunConfig :: Substrate -> Text -> Text -> [Text] -> Text -> Text
-renderJobWithRunConfig substrate component jobName args runConfigDhall =
+renderJobWithRunConfig :: ComponentBudget -> Substrate -> Text -> Text -> [Text] -> Text -> Text
+renderJobWithRunConfig resources substrate component jobName args runConfigDhall =
   let configMapName = "runconfig-" <> jobName
    in renderRunConfigConfigMap configMapName runConfigDhall
         <> "---\n"
-        <> renderJobMountedRunConfig substrate component jobName configMapName args
+        <> renderJobMountedRunConfig resources substrate component jobName configMapName args
 
 renderRunConfigConfigMap :: Text -> Text -> Text
 renderRunConfigConfigMap name dhall =
@@ -1733,8 +1756,8 @@ indentDhallBlock :: Text -> Text
 indentDhallBlock dhall =
   Text.unlines (fmap ("    " <>) (Text.lines dhall))
 
-renderJobMountedRunConfig :: Substrate -> Text -> Text -> Text -> [Text] -> Text
-renderJobMountedRunConfig substrate component jobName configMapName args =
+renderJobMountedRunConfig :: ComponentBudget -> Substrate -> Text -> Text -> Text -> [Text] -> Text
+renderJobMountedRunConfig resources substrate component jobName configMapName args =
   Text.unlines $
     [ "apiVersion: batch/v1"
     , "kind: Job"
@@ -1766,6 +1789,7 @@ renderJobMountedRunConfig substrate component jobName configMapName args =
          , "          args:"
          ]
       <> fmap (("            - " <>) . yamlString) args
+      <> resourceLines 10 "resources" resources
       <> renderContainerEnvLines (nvidiaEnvVars substrate)
       <> [ "          volumeMounts:"
          , "            - name: jitml-run-config"

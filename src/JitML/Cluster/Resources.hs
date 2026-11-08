@@ -12,7 +12,11 @@
 module JitML.Cluster.Resources
   ( ClusterResources (..)
   , ComponentBudget (..)
+  , componentBudgetDecoder
+  , renderComponentBudgetDhall
   , clusterResourcesPath
+  , clusterResourcesEnvironment
+  , resolveClusterResourcesPath
   , clusterResourcesDecoder
   , defaultClusterResources
   , loadClusterResourcesOrDefault
@@ -29,7 +33,8 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import Dhall qualified
 import System.Directory (doesFileExist)
-import System.FilePath ((</>))
+import System.Environment (lookupEnv)
+import System.FilePath (isAbsolute, (</>))
 
 import JitML.Cluster.Kind (substrateKindNodeContainerNames)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
@@ -54,6 +59,12 @@ data ClusterResources = ClusterResources
   { nodeMemoryMiB :: Int
   , nodeCpus :: Text
   , workerCount :: Int
+  , jobMemoryMiB :: Int
+  , jobCpus :: Text
+  , systemReserveMiB :: Int
+  , nodeSystemMemoryMiB :: Int
+  , nodeSystemCpus :: Text
+  , scheduleOnControlPlane :: Bool
   , registry :: ComponentBudget
   , minio :: ComponentBudget
   , pulsar :: ComponentBudget
@@ -63,12 +74,28 @@ data ClusterResources = ClusterResources
   , jitmlService :: ComponentBudget
   , jitmlDemo :: ComponentBudget
   , tensorboard :: ComponentBudget
+  , supporting :: ComponentBudget
+  , gateway :: ComponentBudget
+  , numericalWorkload :: ComponentBudget
   }
   deriving stock (Eq, Show)
 
 -- | Repo-relative path to the checked-in source profile.
 clusterResourcesPath :: FilePath
 clusterResourcesPath = "dhall/cluster/resources.dhall"
+
+-- | Explicit operator selection, inherited by every lifecycle subprocess.
+-- An invalid or missing selected file fails closed instead of using defaults.
+clusterResourcesEnvironment :: String
+clusterResourcesEnvironment = "JITML_CLUSTER_RESOURCES"
+
+resolveClusterResourcesPath :: FilePath -> Maybe FilePath -> Either Text FilePath
+resolveClusterResourcesPath root Nothing = Right (root </> clusterResourcesPath)
+resolveClusterResourcesPath root (Just selected)
+  | null selected || Text.strip (Text.pack selected) /= Text.pack selected =
+      Left "JITML_CLUSTER_RESOURCES must name a nonempty resource-profile file"
+  | isAbsolute selected = Right selected
+  | otherwise = Right (root </> selected)
 
 componentBudgetDecoder :: Dhall.Decoder ComponentBudget
 componentBudgetDecoder =
@@ -87,6 +114,12 @@ clusterResourcesDecoder =
       <$> fmap fromIntegral (Dhall.field "nodeMemoryMiB" Dhall.natural)
       <*> Dhall.field "nodeCpus" Dhall.strictText
       <*> fmap fromIntegral (Dhall.field "workerCount" Dhall.natural)
+      <*> fmap fromIntegral (Dhall.field "jobMemoryMiB" Dhall.natural)
+      <*> Dhall.field "jobCpus" Dhall.strictText
+      <*> fmap fromIntegral (Dhall.field "systemReserveMiB" Dhall.natural)
+      <*> fmap fromIntegral (Dhall.field "nodeSystemMemoryMiB" Dhall.natural)
+      <*> Dhall.field "nodeSystemCpus" Dhall.strictText
+      <*> Dhall.field "scheduleOnControlPlane" Dhall.bool
       <*> Dhall.field "registry" componentBudgetDecoder
       <*> Dhall.field "minio" componentBudgetDecoder
       <*> Dhall.field "pulsar" componentBudgetDecoder
@@ -96,6 +129,9 @@ clusterResourcesDecoder =
       <*> Dhall.field "jitmlService" componentBudgetDecoder
       <*> Dhall.field "jitmlDemo" componentBudgetDecoder
       <*> Dhall.field "tensorboard" componentBudgetDecoder
+      <*> Dhall.field "supporting" componentBudgetDecoder
+      <*> Dhall.field "gateway" componentBudgetDecoder
+      <*> Dhall.field "numericalWorkload" componentBudgetDecoder
 
 -- | Fallback profile used when the source Dhall is absent and for the pure
 -- plan/dry-run path. It represents the supported local target: one
@@ -106,6 +142,12 @@ defaultClusterResources =
     { nodeMemoryMiB = 12288
     , nodeCpus = "4"
     , workerCount = 1
+    , jobMemoryMiB = 4096
+    , jobCpus = "2"
+    , systemReserveMiB = 1536
+    , nodeSystemMemoryMiB = 1024
+    , nodeSystemCpus = "250m"
+    , scheduleOnControlPlane = False
     , registry = ComponentBudget 1 "100m" "500m" "256Mi" "512Mi"
     , minio = ComponentBudget 1 "100m" "500m" "512Mi" "1Gi"
     , pulsar = ComponentBudget 1 "100m" "500m" "512Mi" "1Gi"
@@ -113,8 +155,11 @@ defaultClusterResources =
     , prometheus = ComponentBudget 1 "100m" "500m" "512Mi" "1Gi"
     , grafana = ComponentBudget 1 "50m" "250m" "256Mi" "512Mi"
     , jitmlService = ComponentBudget 1 "500m" "2" "1Gi" "2Gi"
-    , jitmlDemo = ComponentBudget 1 "250m" "2" "512Mi" "3Gi"
+    , jitmlDemo = ComponentBudget 1 "250m" "2" "512Mi" "4Gi"
     , tensorboard = ComponentBudget 1 "50m" "250m" "256Mi" "512Mi"
+    , supporting = ComponentBudget 1 "25m" "250m" "64Mi" "512Mi"
+    , gateway = ComponentBudget 1 "50m" "500m" "128Mi" "1Gi"
+    , numericalWorkload = ComponentBudget 1 "1" "2" "2Gi" "4Gi"
     }
 
 -- | Phase 53 drift guard for the repository-supported local rollout. The
@@ -167,11 +212,15 @@ validateEngineTopology resources
 -- falling back to 'defaultClusterResources' when the file is absent.
 loadClusterResourcesOrDefault :: FilePath -> IO ClusterResources
 loadClusterResourcesOrDefault repoRoot = do
-  let path = repoRoot </> clusterResourcesPath
+  selected <- lookupEnv clusterResourcesEnvironment
+  path <-
+    either (ioError . userError . Text.unpack) pure (resolveClusterResourcesPath repoRoot selected)
   present <- doesFileExist path
   if present
     then Dhall.inputFile clusterResourcesDecoder path
-    else pure defaultClusterResources
+    else case selected of
+      Nothing -> pure defaultClusterResources
+      Just _ -> ioError (userError ("selected cluster resource profile is absent: " <> path))
 
 -- | Render a profile back to a Dhall record literal (used to materialize the
 -- resolved snapshot under @./.build/conf/cluster/@).
@@ -181,6 +230,12 @@ renderClusterResourcesDhall res =
     [ "{ nodeMemoryMiB = " <> Text.pack (show (nodeMemoryMiB res))
     , ", nodeCpus = " <> quote (nodeCpus res)
     , ", workerCount = " <> Text.pack (show (workerCount res))
+    , ", jobMemoryMiB = " <> Text.pack (show (jobMemoryMiB res))
+    , ", jobCpus = " <> quote (jobCpus res)
+    , ", systemReserveMiB = " <> Text.pack (show (systemReserveMiB res))
+    , ", nodeSystemMemoryMiB = " <> Text.pack (show (nodeSystemMemoryMiB res))
+    , ", nodeSystemCpus = " <> quote (nodeSystemCpus res)
+    , ", scheduleOnControlPlane = " <> if scheduleOnControlPlane res then "True" else "False"
     , ", registry = " <> renderBudget (registry res)
     , ", minio = " <> renderBudget (minio res)
     , ", pulsar = " <> renderBudget (pulsar res)
@@ -190,24 +245,32 @@ renderClusterResourcesDhall res =
     , ", jitmlService = " <> renderBudget (jitmlService res)
     , ", jitmlDemo = " <> renderBudget (jitmlDemo res)
     , ", tensorboard = " <> renderBudget (tensorboard res)
+    , ", supporting = " <> renderBudget (supporting res)
+    , ", gateway = " <> renderBudget (gateway res)
+    , ", numericalWorkload = " <> renderBudget (numericalWorkload res)
     , "}"
     ]
  where
   quote t = "\"" <> t <> "\""
-  renderBudget b =
-    Text.concat
-      [ "{ replicas = "
-      , Text.pack (show (budgetReplicas b))
-      , ", cpuRequest = "
-      , quote (budgetCpuRequest b)
-      , ", cpuLimit = "
-      , quote (budgetCpuLimit b)
-      , ", memoryRequest = "
-      , quote (budgetMemoryRequest b)
-      , ", memoryLimit = "
-      , quote (budgetMemoryLimit b)
-      , " }"
-      ]
+  renderBudget = renderComponentBudgetDhall
+
+renderComponentBudgetDhall :: ComponentBudget -> Text
+renderComponentBudgetDhall b =
+  Text.concat
+    [ "{ replicas = "
+    , Text.pack (show (budgetReplicas b))
+    , ", cpuRequest = "
+    , quote (budgetCpuRequest b)
+    , ", cpuLimit = "
+    , quote (budgetCpuLimit b)
+    , ", memoryRequest = "
+    , quote (budgetMemoryRequest b)
+    , ", memoryLimit = "
+    , quote (budgetMemoryLimit b)
+    , " }"
+    ]
+ where
+  quote t = "\"" <> t <> "\""
 
 -- | Node cap in bytes (docker @--memory@ takes raw bytes).
 nodeMemoryBytes :: ClusterResources -> Integer

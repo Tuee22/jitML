@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-2-bootstrap-reconciler-and-jit-cache.md, ../../DEVELOPMENT_PLAN/phase-7-jit-codegen-and-substrates.md, determinism_contract.md, numerical_core.md
+**Referenced by**: README.md, ../documentation_standards.md, [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 78](../../DEVELOPMENT_PLAN/phase-78-kernelspec-cache-key-inputs-ffi-loader-surface.md), [Phase 84](../../DEVELOPMENT_PLAN/phase-84-haskell-owned-runtime-jit-source-generation.md), [Phase 88](../../DEVELOPMENT_PLAN/phase-88-fixed-host-metal-bridge-and-source-metadata-apple-cache.md), determinism_contract.md, numerical_core.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific JIT codegen architecture for jitML — the

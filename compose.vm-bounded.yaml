@@ -1,0 +1,8 @@
+# Explicit Mac-local runtime envelope. Use together with compose.yaml and the
+# colima-jitml Docker context. This does not start a VM or resize cluster nodes.
+services:
+  jitml:
+    cpus: 2.0
+    mem_limit: 6g
+    # Docker's combined RAM+swap ceiling equals RAM: no container swap.
+    memswap_limit: 6g

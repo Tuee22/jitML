@@ -7,11 +7,12 @@ module PVSnapshot (tests) where
 
 import Control.Exception (AsyncException (ThreadKilled), SomeException, bracket_, throwIO, try)
 import Control.Monad (unless)
-import Data.Aeson (Value (..), eitherDecodeStrict', encode)
+import Data.Aeson (Value (..), eitherDecodeStrict', encode, object, (.=))
 import Data.Aeson.Key qualified as Key
 import Data.Aeson.KeyMap qualified as KM
 import Data.ByteString qualified as BS
 import Data.ByteString.Lazy qualified as LBS
+import Data.Either (isLeft)
 import Data.IORef (IORef, modifyIORef', newIORef, readIORef, writeIORef)
 import Data.List (mapAccumL)
 import Data.Text (Text)
@@ -20,6 +21,7 @@ import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (assertBool, testCase, (@?=))
 
 import JitML.Cluster.PVSnapshot
+import JitML.Cluster.PVSnapshotDocker (validateColdSnapshotNode, validateSnapshotHelperResources)
 import PVSnapshotFixture (restoredManifest, sourceManifest)
 
 tests :: TestTree
@@ -119,7 +121,141 @@ testMain request raw changed badRestore =
         outcome <- restoreBeforeMounts (backend fixture) (store fixture) request
         outcome @?= NoSelectedSnapshot
         readIORef (events fixture) >>= (@?= ["invalidate"])
+    , snapshotHelperResourceTests
+    , coldSnapshotNodeTests
     ]
+
+coldSnapshotNodeTests :: TestTree
+coldSnapshotNodeTests =
+  testGroup
+    "cold snapshot physical source admission"
+    [ testCase "exact full source CID and stopped physical state pass" $
+        validateColdSnapshotNode expected stopped @?= Right ()
+    , testCase "running paused restarting and nonzero PID refuse independently" $
+        mapM_
+          rejected
+          [ stateField "Running" (Bool True)
+          , stateField "Paused" (Bool True)
+          , stateField "Restarting" (Bool True)
+          , stateField "Pid" (Number 42)
+          , stateField "Pid" (Number (-1))
+          ]
+    , testCase "stopped replacement and shortened source CID refuse" $ do
+        rejected
+          (case stopped of Object value -> Object (KM.insert "Id" (String otherCID) value); _ -> Null)
+        assertBool "short expected CID accepted" (isLeft (validateColdSnapshotNode "abcd" stopped))
+    , testCase "all physical state fields are mandatory with real API types" $
+        mapM_
+          rejected
+          [ object []
+          , object ["Id" .= expected, "State" .= object []]
+          , stateField "Running" (String "false")
+          , stateField "Paused" Null
+          , stateField "Restarting" (Number 0)
+          , stateField "Pid" (String "0")
+          , stateField "Pid" (Number 0.5)
+          ]
+    ]
+ where
+  expected = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  otherCID = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  stopped =
+    object
+      [ "Id" .= (expected :: Text)
+      , "State"
+          .= object
+            [ "Running" .= False
+            , "Paused" .= False
+            , "Restarting" .= False
+            , "Pid" .= (0 :: Integer)
+            ]
+      ]
+  stateField key replacement = case stopped of
+    Object value -> case KM.lookup "State" value of
+      Just (Object state) -> Object (KM.insert "State" (Object (KM.insert key replacement state)) value)
+      _ -> Null
+    _ -> Null
+  rejected value =
+    assertBool "unsafe cold source state accepted" (isLeft (validateColdSnapshotNode expected value))
+
+-- Authored Docker inspection metadata exercises refusal of absent/unlimited
+-- bounds. No Docker runner, source program, live volume or CLI-argv mirror is
+-- involved in these resource-admission cases.
+snapshotHelperResourceTests :: TestTree
+snapshotHelperResourceTests =
+  testGroup
+    "snapshot helper resource admission"
+    [ testCase "fixed observed bounds pass independent of tmpfs option order" $ do
+        validateSnapshotHelperResources helperInspection @?= Right ()
+        validateSnapshotHelperResources
+          (hostField "Tmpfs" (object ["/tmp" .= ("size=67108864,nodev,rw,nosuid" :: Text)]))
+          @?= Right ()
+    , testCase "missing or changed memory and CPU bounds refuse before helper start" $
+        mapM_
+          rejectedHelper
+          [ hostField "Memory" (Number 0)
+          , hostField "Memory" (Number 1073741824)
+          , hostField "Memory" (Number 268435456)
+          , hostField "NanoCpus" (Number 0)
+          , hostField "NanoCpus" (Number 1000000000)
+          ]
+    , testCase "swap and unlimited or changed process allowances refuse" $
+        mapM_
+          rejectedHelper
+          [ hostField "MemorySwap" (Number (-1))
+          , hostField "MemorySwap" (Number 0)
+          , hostField "MemorySwap" (Number 1073741824)
+          , hostField "PidsLimit" (Number 0)
+          , hostField "PidsLimit" (Number (-1))
+          , hostField "PidsLimit" (Number 128)
+          ]
+    , testCase "unbounded enlarged or additional tmpfs mounts refuse" $
+        mapM_
+          rejectedHelper
+          [ hostField "Tmpfs" (object ["/tmp" .= ("rw,nosuid,nodev" :: Text)])
+          , hostField "Tmpfs" (object ["/tmp" .= ("rw,nosuid,nodev,size=134217728" :: Text)])
+          , hostField
+              "Tmpfs"
+              (object ["/tmp" .= ("rw,nosuid,nodev,size=67108864" :: Text), "/extra" .= ("rw" :: Text)])
+          , hostField "Tmpfs" (object ["/tmp" .= ("rw,nosuid,nodev,size=67108864,size=67108864" :: Text)])
+          ]
+    , testCase "mandatory inspection fields must have their real API types" $
+        mapM_
+          rejectedHelper
+          [ object []
+          , object ["HostConfig" .= object []]
+          , hostField "Memory" Null
+          , hostField "Memory" (String "536870912")
+          , hostField "NanoCpus" (Number 500000000.5)
+          , hostField "PidsLimit" (Bool False)
+          , hostField "Tmpfs" (String "rw,size=67108864")
+          ]
+    ]
+ where
+  rejectedHelper value =
+    assertBool
+      "unbounded or malformed helper configuration was accepted"
+      (isLeft (validateSnapshotHelperResources value))
+
+helperInspection :: Value
+helperInspection =
+  object
+    [ "HostConfig"
+        .= object
+          [ "Memory" .= (536870912 :: Integer)
+          , "MemorySwap" .= (536870912 :: Integer)
+          , "NanoCpus" .= (500000000 :: Integer)
+          , "PidsLimit" .= (64 :: Integer)
+          , "Tmpfs" .= object ["/tmp" .= ("rw,nosuid,nodev,size=67108864" :: Text)]
+          ]
+    ]
+
+hostField :: Key.Key -> Value -> Value
+hostField key replacement = case helperInspection of
+  Object outer -> case KM.lookup "HostConfig" outer of
+    Just (Object host) -> Object (KM.insert "HostConfig" (Object (KM.insert key replacement host)) outer)
+    _ -> Null
+  _ -> Null
 
 data Fixture = Fixture
   { backend :: SnapshotBackend

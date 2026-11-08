@@ -15,6 +15,9 @@ import Data.Text qualified as Text
 import Test.Tasty (TestTree, testGroup)
 import Test.Tasty.HUnit (Assertion, assertBool, assertFailure, testCase, (@?=))
 
+import JitML.Cluster.Resources (ComponentBudget (..))
+import JitML.Cluster.Resources qualified as NumericalResources
+
 import JitML.Coordinator.Topology
   ( ProtocolRoute (..)
   , Topic
@@ -65,7 +68,10 @@ import JitML.Service.Workload
   , inferenceResultTargetTopicName
   , parseWorkloadEffectPayload
   , planWorkloadPlacement
+  , renderRlJob
   , renderSomeWorkloadEffect
+  , renderTrainingJob
+  , renderTuneJob
   , renderWorkloadEffect
   , renderWorkloadEffectPayload
   , renderWorkloadEffectResult
@@ -76,21 +82,83 @@ workloadTests :: TestTree
 workloadTests =
   testGroup
     "Workload"
-    [ testCase "every typed non-inference builder produces a non-empty program" $ do
-        assertNonEmptyEffects
-          (buildTrainingWorkloadEffects Cluster LinuxCPU (TrainingStart trainingStart))
+    [ testCase "numerical Job renderers preserve the selected requests and limits" $ do
+        let selected = ComponentBudget 1 "333m" "777m" "123Mi" "1536Mi"
+            expected =
+              Text.unlines
+                [ "          resources:"
+                , "            requests:"
+                , "              cpu: \"333m\""
+                , "              memory: \"123Mi\""
+                , "            limits:"
+                , "              cpu: \"777m\""
+                , "              memory: \"1536Mi\""
+                ]
+        traverse_
+          ( \case
+              Left err -> assertFailure (show err)
+              Right manifest -> do
+                Text.count "          resources:\n" manifest @?= 1
+                assertBool "selected numerical resources absent or misplaced" (expected `Text.isInfixOf` manifest)
+          )
+          [ renderTrainingJob selected trainingStart
+          , renderTuneJob selected tuneStart
+          , renderRlJob selected rlStart
+          ]
+    , testCase "numerical Jobs reject malformed, inverted and parallel budgets before placement" $
+        traverse_
+          ( \selected -> case planWorkloadPlacement selected Cluster (RlLaunch rlStart) of
+              Left (WorkloadPlanError _) -> pure ()
+              other -> assertFailure ("invalid numerical budget accepted: " <> show other)
+          )
+          [ ComponentBudget 1 "0" "1" "1Gi" "1536Mi"
+          , ComponentBudget 1 "1" "250m" "1Gi" "1536Mi"
+          , ComponentBudget 1 "250m" "1" "2Gi" "1536Mi"
+          , ComponentBudget 2 "250m" "1" "1Gi" "1536Mi"
+          ]
+    , testCase "every typed non-inference builder produces a non-empty program" $ do
         assertNonEmptyEffects
           ( buildTrainingWorkloadEffects
+              defaultNumericalBudget
+              Cluster
+              LinuxCPU
+              (TrainingStart trainingStart)
+          )
+        assertNonEmptyEffects
+          ( buildTrainingWorkloadEffects
+              defaultNumericalBudget
               Cluster
               LinuxCPU
               (TrainingStop (StopTraining "training-exp" True))
           )
-        assertNonEmptyEffects (buildTuneWorkloadEffects Cluster LinuxCPU (TuneStart tuneStart))
         assertNonEmptyEffects
-          (buildTuneWorkloadEffects Cluster LinuxCPU (TuneStop (StopSweep "tune-exp")))
-        assertNonEmptyEffects (buildRlWorkloadEffects Cluster LinuxCPU (RlStart rlStart))
+          ( buildTuneWorkloadEffects
+              defaultNumericalBudget
+              Cluster
+              LinuxCPU
+              (TuneStart tuneStart)
+          )
         assertNonEmptyEffects
-          (buildRlWorkloadEffects Cluster LinuxCPU (RlStop (StopRLRun "rl-exp" True)))
+          ( buildTuneWorkloadEffects
+              defaultNumericalBudget
+              Cluster
+              LinuxCPU
+              (TuneStop (StopSweep "tune-exp"))
+          )
+        assertNonEmptyEffects
+          ( buildRlWorkloadEffects
+              defaultNumericalBudget
+              Cluster
+              LinuxCPU
+              (RlStart rlStart)
+          )
+        assertNonEmptyEffects
+          ( buildRlWorkloadEffects
+              defaultNumericalBudget
+              Cluster
+              LinuxCPU
+              (RlStop (StopRLRun "rl-exp" True))
+          )
         case buildInferenceWorkloadEffectsForTopic
           linuxInferenceTopic
           (Inference.RunInference inferenceRequest) of
@@ -106,6 +174,7 @@ workloadTests =
               , "kubectl:delete configmap/runconfig-jitml-train-training-exp"
               ]
             , buildTrainingWorkloadEffects
+                defaultNumericalBudget
                 Cluster
                 LinuxCPU
                 (TrainingStop (StopTraining "training-exp" True))
@@ -116,6 +185,7 @@ workloadTests =
               , "kubectl:delete configmap/runconfig-jitml-train-training-exp"
               ]
             , buildTrainingWorkloadEffects
+                defaultNumericalBudget
                 Cluster
                 LinuxCUDA
                 (TrainingStop (StopTraining "training-exp" False))
@@ -126,6 +196,7 @@ workloadTests =
               , "kubectl:delete configmap/runconfig-jitml-tune-tune-exp"
               ]
             , buildTuneWorkloadEffects
+                defaultNumericalBudget
                 Cluster
                 LinuxCPU
                 (TuneStop (StopSweep "tune-exp"))
@@ -136,6 +207,7 @@ workloadTests =
               , "kubectl:delete configmap/runconfig-jitml-tune-tune-exp"
               ]
             , buildTuneWorkloadEffects
+                defaultNumericalBudget
                 Cluster
                 LinuxCUDA
                 (TuneStop (StopSweep "tune-exp"))
@@ -146,6 +218,7 @@ workloadTests =
               , "kubectl:delete configmap/runconfig-jitml-rl-rl-exp"
               ]
             , buildRlWorkloadEffects
+                defaultNumericalBudget
                 Cluster
                 LinuxCPU
                 (RlStop (StopRLRun "rl-exp" True))
@@ -156,6 +229,7 @@ workloadTests =
               , "kubectl:delete configmap/runconfig-jitml-rl-rl-exp"
               ]
             , buildRlWorkloadEffects
+                defaultNumericalBudget
                 Cluster
                 LinuxCUDA
                 (RlStop (StopRLRun "rl-exp" False))
@@ -220,7 +294,10 @@ workloadTests =
                   )
               other -> assertFailure ("unexpected inference effect: " <> show other)
     , testCase "placement carries the complete cluster resource and manifest" $
-        case planWorkloadPlacement Cluster (trainingLaunch trainingStart) of
+        case planWorkloadPlacement
+          defaultNumericalBudget
+          Cluster
+          (trainingLaunch trainingStart) of
           Left err -> assertFailure (show err)
           Right (WorkloadHostCommand _) -> assertFailure "Linux CPU launch was placed on the host"
           Right (WorkloadClusterJob spec) -> do
@@ -232,7 +309,10 @@ workloadTests =
               "cluster placement retained its typed RunConfig"
               ("RunConfig.dhall" `Text.isInfixOf` clusterJobManifest spec)
     , testCase "placement carries a typed host topic and typed command payload" $
-        case planWorkloadPlacement Cluster (trainingLaunch appleTrainingStart) of
+        case planWorkloadPlacement
+          defaultNumericalBudget
+          Cluster
+          (trainingLaunch appleTrainingStart) of
           Left err -> assertFailure (show err)
           Right (WorkloadClusterJob _) -> assertFailure "Apple Silicon launch was placed in cluster"
           Right (WorkloadHostCommand spec) -> do
@@ -283,16 +363,19 @@ workloadTests =
               other -> assertFailure ("unexpected inference effect: " <> show other)
     , testCase "typed command builders reject payload substrates from another lane" $ do
         buildTrainingWorkloadEffects
+          defaultNumericalBudget
           Cluster
           LinuxCUDA
           (TrainingStart trainingStart)
           @?= Left (WorkloadCommandSubstrateMismatch LinuxCUDA LinuxCPU)
         buildTuneWorkloadEffects
+          defaultNumericalBudget
           Cluster
           AppleSilicon
           (TuneStart tuneStart)
           @?= Left (WorkloadCommandSubstrateMismatch AppleSilicon LinuxCPU)
         buildRlWorkloadEffects
+          defaultNumericalBudget
           Cluster
           LinuxCUDA
           (RlStart rlStart)
@@ -375,6 +458,9 @@ checkpointRef =
   ObjectRef
     (BucketName "jitml-checkpoints")
     (ObjectKey "experiments/demo/blob")
+
+defaultNumericalBudget :: ComponentBudget
+defaultNumericalBudget = NumericalResources.numericalWorkload NumericalResources.defaultClusterResources
 
 trainingStart :: StartTraining
 trainingStart = preparedStartTraining (rawTrainingStart LinuxCPU)

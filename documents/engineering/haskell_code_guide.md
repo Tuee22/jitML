@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, daemon_architecture.md, run_contract.md
+**Referenced by**: README.md, ../documentation_standards.md, [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 9](../../DEVELOPMENT_PLAN/phase-9-subprocess-typed-values-runstreaming-capture-interpreter.md), [Phase 11](../../DEVELOPMENT_PLAN/phase-11-env-record-and-readert-env-io-runner.md), [Phase 21](../../DEVELOPMENT_PLAN/phase-21-structured-subprocess-outcomes.md), [Phase 104](../../DEVELOPMENT_PLAN/phase-104-validated-runplan-and-pure-contract-algebra.md), [Phase 227](../../DEVELOPMENT_PLAN/phase-227-type-state-pipeline-haskell.md), ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, daemon_architecture.md, run_contract.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific Haskell code patterns for jitML. Defers to the

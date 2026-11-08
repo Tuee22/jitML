@@ -1,0 +1,79 @@
+{
+  "source": {
+    "algorithm": 1,
+    "sha256": "57cf61d1cf6149f353d852e21d8c663418d40e0ecc415e30d54dbdf5ef57ae16"
+  },
+  "source15c_preimage": {
+    "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/reviewed-root-metadata-source-candidate/PVSnapshotPrograms.before.hs",
+    "bytes": 20372,
+    "sha256": "7b28e407dcc2501de1ce2c119ac42f1f7d8c8df55d7c2569c4cea079e5093ac8"
+  },
+  "current_production_module": {
+    "path": "src/JitML/Cluster/PVSnapshotPrograms.hs",
+    "bytes": 25097,
+    "sha256": "46e68698eee8a4bac680cdd1ec25cbe5d72de72f26a6f2d25a321316c4bafb7a"
+  },
+  "changed_inputs": [
+    "src/JitML/Cluster/PVSnapshotPrograms.hs"
+  ],
+  "other602_source_inputs_literal_unchanged": true,
+  "criterion_provider_intersection": [],
+  "actual_diff": "--- Source15c-PVSnapshotPrograms\n+++ Source57cf-PVSnapshotPrograms\n@@ -22,7 +22,7 @@\n snapshotManifestSHA256 = \"dd63819f70c93a7bfde80d38dd203a74f5d1419c82344a6cdcf2125f2718210d\"\n \n snapshotArchiveSHA256 :: Text\n-snapshotArchiveSHA256 = \"aa075ce8ba7f0291d970e0b8bd7819b9962f3daeb66cf324869356e735cee791\"\n+snapshotArchiveSHA256 = \"db4b1fd2cfc8319dc85516c41581b5ed74750375bd178073b5fbf12523d24cc6\"\n \n defaultSnapshotPrograms :: SnapshotPrograms\n defaultSnapshotPrograms =\n@@ -143,6 +143,7 @@\n           , \"import hashlib\"\n           , \"import json\"\n           , \"import os\"\n+          , \"import re\"\n           , \"import stat\"\n           , \"import subprocess\"\n           , \"import sys\"\n@@ -274,6 +275,62 @@\n           , \"        os.close(parent)\"\n           , \"\"\n           , \"\"\n+          , \"def root_metadata(fd, root):\"\n+          , \"    # The root-only GNU tar pass must select ONE literal directory entry.\"\n+          , \"    assert root.name in ['.', './'] and root.isdir() and not root.linkname\"\n+          , \"    assert root.size == 0 and 0 <= root.uid < 2**32 and 0 <= root.gid < 2**32\"\n+          , \"    assert 0 <= root.mode <= 0o7777\"\n+          , \"    # Read the raw extended header instead of TarInfo's float timestamps.\"\n+          , \"    span = root.offset_data - root.offset\"\n+          , \"    assert 512 <= span <= 1024 * 1024\"\n+          , \"    raw = os.pread(fd, span, root.offset)\"\n+          , \"    assert len(raw) == span\"\n+          , \"    position, pax = 0, {}\"\n+          , \"    if raw[156:157] == tarfile.XHDTYPE:\"\n+          , \"        header = tarfile.TarInfo.frombuf(raw[:512], 'utf-8', 'surrogateescape')\"\n+          , \"        assert 0 <= header.size <= 1024 * 1024 - 1024\"\n+          , \"        body = raw[512:512 + header.size]\"\n+          , \"        cursor = 0\"\n+          , \"        while cursor < len(body):\"\n+          , \"            space = body.index(b' ', cursor)\"\n+          , \"            length_raw = body[cursor:space]\"\n+          , \"            assert re.fullmatch(rb'[1-9][0-9]*', length_raw)\"\n+          , \"            length = int(length_raw)\"\n+          , \"            assert length > space - cursor + 3 and cursor + length <= len(body)\"\n+          , \"            record = body[space + 1:cursor + length]\"\n+          , \"            assert record.endswith(b'\\\\n') and b'=' in record\"\n+          , \"            key, value = record[:-1].split(b'=', 1)\"\n+          , \"            key = key.decode('utf-8', 'surrogateescape')\"\n+          , \"            value = value.decode('utf-8', 'surrogateescape')\"\n+          , \"            assert key and '\\\\x00' not in key and key not in pax, 'ambiguous root PAX key'\"\n+          , \"            pax[key] = value\"\n+          , \"            cursor += length\"\n+          , \"        assert cursor == len(body)\"\n+          , \"        position = 512 + ((header.size + 511) // 512) * 512\"\n+          , \"    assert position + 512 == len(raw), 'ambiguous root extension/header'\"\n+          , \"    plain = tarfile.TarInfo.frombuf(raw[position:], 'utf-8', 'surrogateescape')\"\n+          , \"    assert plain.name in ['.', './'] and plain.isdir() and not plain.linkname\"\n+          , \"    assert pax == root.pax_headers\"\n+          , \"    allowed = {'mtime', 'atime', 'ctime', 'SCHILY.acl.access', 'SCHILY.acl.default'}\"\n+          , \"    assert all(key in allowed or (key.startswith('SCHILY.xattr.') and\"\n+          , \"               len(key) > len('SCHILY.xattr.')) for key in pax), 'unsafe root PAX field'\"\n+          , \"    times = {}\"\n+          , \"    for key in ['mtime', 'atime', 'ctime']:\"\n+          , \"        if key in pax:\"\n+          , \"            value = pax[key]\"\n+          , \"            match = re.fullmatch(r'(-?)([0-9]+)(?:\\\\.([0-9]{1,9}))?', value)\"\n+          , \"            assert match is not None, ('unsafe root PAX time', key)\"\n+          , \"            nanos = (int(match[2]) * 10**9 + int((match[3] or '').ljust(9, '0')))\"\n+          , \"            if match[1]:\"\n+          , \"                nanos = -nanos\"\n+          , \"            assert -(2**63) <= nanos < 2**63, 'root PAX time out of range'\"\n+          , \"            times[key] = nanos\"\n+          , \"    assert 'mtime' in times or (isinstance(plain.mtime, int) and\"\n+          , \"           -(2**63) <= plain.mtime * 10**9 < 2**63)\"\n+          , \"    return dict(member_name=root.name, uid=root.uid, gid=root.gid, mode=root.mode,\"\n+          , \"                times_ns=times, pax=pax)\"\n+          , \"\"\n+          , \"\"\n           , \"def archive_preflight(fd):\"\n           , \"    # Standard-library reader, not a replacement TAR decoder. Validate EVERY\"\n           , \"    # member before GNU tar can write either scratch or a new node root.\"\n@@ -290,6 +347,7 @@\n           , \"    with os.fdopen(os.dup(fd), 'rb') as stream:\"\n           , \"        with tarfile.open(fileobj=stream, mode='r:') as archive:\"\n           , \"            members = archive.getmembers()\"\n+          , \"            assert not archive.pax_headers, 'global PAX metadata is not a snapshot root'\"\n           , \"    entries = {}\"\n           , \"    for member in members:\"\n           , \"        name = key(member.name)\"\n@@ -300,6 +358,8 @@\n           , \"        assert name != '.' or member.isdir()\"\n           , \"        entries[name] = member\"\n           , \"    assert '.' in entries and entries['.'].isdir()\"\n+          , \"    assert members and members[0] is entries['.'], 'snapshot root must be first'\"\n+          , \"    root = root_metadata(fd, entries['.'])\"\n           , \"    for name, member in entries.items():\"\n           , \"        parts = name.split('/')\"\n           , \"        for end in range(1, len(parts)):\"\n@@ -321,7 +381,7 @@\n           , \"                    break\"\n           , \"                assert linked.islnk(), ('hardlink to non-regular payload', name)\"\n           , \"                target = key(linked.linkname)\"\n-          , \"    return dict(member_count=len(entries), safe_members=True,\"\n+          , \"    return dict(member_count=len(entries), safe_members=True, root_metadata=root,\"\n           , \"                symlink_count=sum(m.issym() for m in members),\"\n           , \"                hardlink_count=sum(m.islnk() for m in members))\"\n           , \"\"\n@@ -350,6 +410,16 @@\n           , \"                 '--numeric-owner', '-C', '/proc/self/fd/' + str(target_fd),\"\n           , \"                 '-xpf', '/proc/self/fd/' + str(fd)],\"\n           , \"                pass_fds=(fd, target_fd))\"\n+          , \"            # A second pass selects ONLY the validated root directory, never\"\n+          , \"            # its children. Keep the payload pass's no-overwrite policy above.\"\n+          , \"            os.lseek(fd, 0, os.SEEK_SET)\"\n+          , \"            run(['tar', '--overwrite-dir', '--no-recursion',\"\n+          , \"                 '--delay-directory-restore', '--same-owner', '--same-permissions',\"\n+          , \"                 '--acls', '--xattrs', '--xattrs-include=*', '--numeric-owner',\"\n+          , \"                 '-C', '/proc/self/fd/' + str(target_fd),\"\n+          , \"                 '-xpf', '/proc/self/fd/' + str(fd), '--',\"\n+          , \"                 preflight['root_metadata']['member_name']],\"\n+          , \"                pass_fds=(fd, target_fd))\"\n           , \"            after = digest_fd(fd)\"\n           , \"            assert initial == after\"\n           , \"            assert sig(os.stat(leaf, dir_fd=parent, follow_symlinks=False)) == before\"\n",
+  "production_resource_binding": {
+    "actual_emission_result": {
+      "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/production-emission-20261019T050736261247Z/RESULT.json",
+      "bytes": 1226,
+      "sha256": "eff92f31049ff4875415d7682bb7a62544b4d59942401a56cb74d0cc0c2f24dd"
+    },
+    "actual_compile_and_emit_receipts": [
+      {
+        "receipt": {
+          "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/production-emission-20261019T050736261247Z/compile/result.json",
+          "bytes": 325,
+          "sha256": "94b062205d9b391ea9af26ee8e7f23b9d8baf92e7a920f33267907451a620d7b"
+        },
+        "actual_exit_code": 0,
+        "capture_complete": true
+      },
+      {
+        "receipt": {
+          "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/production-emission-20261019T050736261247Z/emit/result.json",
+          "bytes": 322,
+          "sha256": "250408494051ebfcaf063eb8a5acf5b719a29ea64479d9eb763add400626a00a"
+        },
+        "actual_exit_code": 0,
+        "capture_complete": true
+      }
+    ],
+    "before_and_after_observations": [
+      {
+        "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/production-emission-20261019T050736261247Z/before.json",
+        "bytes": 1069,
+        "sha256": "f45c0094331531cab8eebfb73b5a72cff4f03728ea4bf9e760bb057d78c46c1c"
+      },
+      {
+        "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/production-emission-20261019T050736261247Z/after.json",
+        "bytes": 1069,
+        "sha256": "f45c0094331531cab8eebfb73b5a72cff4f03728ea4bf9e760bb057d78c46c1c"
+      }
+    ],
+    "programs": {
+      "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/production-emission-20261019T050736261247Z/programs.json",
+      "bytes": 18808,
+      "sha256": "a5b1f9234eea0c4490619c522f5c21a034741d43bbbdf7a3f17a1496010dea9a"
+    },
+    "archive": {
+      "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/production-emission-20261019T050736261247Z/archive-emitted.py",
+      "bytes": 13461,
+      "sha256": "db4b1fd2cfc8319dc85516c41581b5ed74750375bd178073b5fbf12523d24cc6"
+    },
+    "manifest": {
+      "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/snapshot-resource-fixture-20261019T043113034624Z/production-emission-20261019T050736261247Z/manifest-emitted.py",
+      "bytes": 4706,
+      "sha256": "dd63819f70c93a7bfde80d38dd203a74f5d1419c82344a6cdcf2125f2718210d"
+    }
+  },
+  "independent_assessment": "This correction reads and restricts literal root-directory PAX metadata, rejects ambiguous/global headers and unsafe metadata, preserves the payload extraction no-overwrite policy, and adds a second --overwrite-dir --no-recursion pass selecting only the validated root entry. The updated archive digest is checked by unchanged PVSnapshotDocker resource admission. The helper restores root ownership/mode/time/ACL/xattrs that payload extraction intentionally did not overwrite. It is runtime snapshot restoration behavior, not a supervised graph, criterion, seed, budget, metric, comparison, publisher or Store completion change.",
+  "scientific_effect": "No direct criterion-provider input changes and all actual110 triplets remain exact. Restored state and runtime availability still need authentic acquisition/source/executable/journal validation; successful root metadata restoration or compiler/emission exit0 is not evidence of predictive learning, real Metal training or a passing full lane. The source change does not widen the finite-null claim or repair historical floor provenance.",
+  "limits": "This assessment reviews delta/evidence scope for the SL criterion decision. It does not approve full cluster down/up, snapshot recovery, live service readiness or production source gates."
+}

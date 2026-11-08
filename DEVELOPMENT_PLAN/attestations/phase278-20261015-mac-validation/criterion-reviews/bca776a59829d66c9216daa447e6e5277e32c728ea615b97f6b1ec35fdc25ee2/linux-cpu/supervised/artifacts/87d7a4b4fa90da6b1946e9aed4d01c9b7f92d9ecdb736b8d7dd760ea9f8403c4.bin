@@ -1,0 +1,25 @@
+Independent review A: **accept criterion reissue for all four scopes**, bound exclusively to source `bca776a59829d66c9216daa447e6e5277e32c728ea615b97f6b1ec35fdc25ee2` (algorithm 1; 617 files).
+
+| Lane | Scope | Decision and reason |
+|---|---|---|
+| linux-cpu | SupervisedCriterionReview | **Accept.** Per-example scalar forcing preserves the existing classifier expressions, example order and final reductions for validated inputs. The entire ordered CPU55 contract vector equals the prior export. |
+| linux-cpu | NativeCriterionReview | **Accept.** The supplied source manifest reports all native implementation and criterion sources unchanged; the only delta is supervised served-classifier evaluation strictness. Complete CPU55 contracts remain equal. Native bars, references, budgets and five-model requirements retain their prior substance. |
+| apple-silicon | SupervisedCriterionReview | **Accept.** The same source-level reasoning applies; no Metal/device code changes appear in the supplied delta. The complete ordered Apple55 vector equals the prior export. Acceptance supplies no Apple execution evidence. |
+| apple-silicon | NativeCriterionReview | **Accept.** Native algorithms, recipes, reference comparisons and cohort obligations are unaffected by the supplied delta; complete Apple55 contracts remain equal. No native build, Metal execution or qualification is inferred. |
+
+I verified the byte counts and SHA-256 hashes of all nine supplied evidence files. Regenerating the textual diff from the supplied before/after snapshots reproduced `source.diff` exactly. The changed expressions retain `VU.maxIndex . VU.take classes` and `crossEntropyOne`, with the same final accuracy calculation and `sum losses / length dataset`. Forcing an `Int` or `Double` to weak head normal form settles that scalar before traversal continues; it does not introduce a different reduction or numerical expression.
+
+I independently compared the complete parsed exports, including every ordered row ID, plan ID and contract hash. Only the top-level source stamp differs. Both lanes contain 55 distinct rows:
+
+- CPU contract set: `8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7`
+- Apple contract set: `a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c`
+
+The export explicitly declares ordinary DATA authority. It establishes contract identity equality, not execution, reviewer independence, registration or admission. The 616-file invariance and canonical full-source identity are supported by the supplied manifest assertion and compilation metadata; I did not independently reconstruct the 617-file source manifest.
+
+No blocking counterexample was found for validated, total inputs. One semantic limit deserves explicit retention: strictness can change when an exception or nontermination becomes observable for malformed or partial inputs. For example, an invalid class count causing `maxIndex` on an empty vector can now fail before a later example returns `Left`; previously that deferred scalar might never be demanded. This is outside the validated-input claim. The supplied synthetic controls support bit equality and retention removal on their fixtures, not a universal runtime or memory guarantee.
+
+Reissue must preserve the existing finite claims and provenance limits: historical floors retain their actual origins, supervised probability claims retain their stated null/allocation assumptions, and native criteria inherit no supervised probability bound. Five actual ordered runs, all-outcome retention, fixed serving index zero, strict initial improvement, exact reference rules and unchanged arithmetic/bars remain binding.
+
+Production convergence, measured performance, full CPU55, native/Metal/Apple55, canonical image and full quality checks, scientific memory fit, admission and Phase278 closure remain **unproven**. Compilation and synthetic heap observations do not discharge them. This acceptance permits source-bound criterion reissue only; it authorizes no weaker bar, deadline change, seed substitution, prefix adoption or scientific retry.
+
+Review was read-only. No files were edited and no builds, tests, containers, VM operations or training were launched.

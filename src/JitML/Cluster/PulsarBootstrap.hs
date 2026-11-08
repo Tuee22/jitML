@@ -11,6 +11,9 @@ module JitML.Cluster.PulsarBootstrap
   , TopicFamilyEvidenceError (..)
   , TopicReconcileError (..)
   , PulsarTopicReconcileSettings (..)
+  , PulsarAdminFailure (..)
+  , renderPulsarAdminFailure
+  , classifyTopicStatsAttempt
   , topicName
   , pulsarTopics
   , bootstrapPulsarTopicReconcileSettings
@@ -27,13 +30,21 @@ module JitML.Cluster.PulsarBootstrap
   , renderPulsarAdminCommands
   , runCoordinatorPulsarTopicReconcileIO
   , runPulsarTopicCreatesIO
+  , runPulsarTopicReconcileAttemptIO
+  , runPulsarAdminIO
+  , runPulsarAdminAttemptWith
+  , classifyTopicCreateAttempt
   )
 where
 
 import Control.Concurrent (threadDelay)
+import Data.Aeson (Value (..), eitherDecodeStrict')
+import Data.Char (intToDigit, toUpper)
 import Data.List (find)
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text.Encoding
+import System.Timeout (timeout)
 
 import JitML.Coordinator.Topology (AnyTopic, anyTopicName, coordinatorTopics)
 import JitML.Service.Retry
@@ -42,12 +53,14 @@ import JitML.Service.Retry
   , retryServiceActionEither
   )
 import JitML.Sub.Outcome
-  ( ProcessFailure
+  ( ObservedProcessFailure (..)
+  , ObservedProcessOutcome (..)
   , ProcessOutcome (..)
-  , processFailureStderr
-  , renderProcessFailure
+  , ProcessTranscript (..)
+  , renderObservedProcessFailure
+  , renderProcessOutcome
   )
-import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
+import JitML.Sub.Stream (defaultSubprocessEnv, observeProcessAction, runStreaming)
 import JitML.Sub.Subprocess (Subprocess, subprocess)
 
 data TopicCreateDisposition
@@ -77,7 +90,8 @@ data PulsarTopicReconcileSettings = PulsarTopicReconcileSettings
   , topicReconcileKubeconfig :: FilePath
   , topicReconcileNamespace :: Text
   , topicReconcileToolsetPod :: Text
-  , topicReconcileAdminBinary :: Text
+  , topicReconcileHttpBinary :: Text
+  , topicReconcileAdminEndpoint :: Text
   }
   deriving stock (Eq, Show)
 
@@ -94,7 +108,8 @@ bootstrapPulsarTopicReconcileSettings =
     , topicReconcileKubeconfig = "./.build/jitml.kubeconfig"
     , topicReconcileNamespace = "platform"
     , topicReconcileToolsetPod = "pulsar-toolset-0"
-    , topicReconcileAdminBinary = "/pulsar/bin/pulsar-admin"
+    , topicReconcileHttpBinary = "/usr/bin/curl"
+    , topicReconcileAdminEndpoint = "http://pulsar-proxy:80/admin/v2"
     }
 
 inClusterPulsarTopicReconcileSettings :: PulsarTopicReconcileSettings
@@ -162,9 +177,24 @@ reconcileTopicFamilyWith expected create =
       Right disposition ->
         go (observations <> [(topicName topic, disposition)]) rest
 
+-- | A completed HTTP/protocol refusal retains its genuine successful-process
+-- transcript. It must not be fabricated into a nonzero subprocess exit.
+data PulsarAdminFailure
+  = PulsarAdminProcessFailure ObservedProcessFailure
+  | PulsarAdminInvalidResult Text ProcessTranscript
+  deriving stock (Eq, Show)
+
+renderPulsarAdminFailure :: PulsarAdminFailure -> Text
+renderPulsarAdminFailure (PulsarAdminProcessFailure failure) =
+  renderObservedProcessFailure failure
+renderPulsarAdminFailure (PulsarAdminInvalidResult message transcript) =
+  message <> "\n" <> renderProcessOutcome (ProcessSucceeded transcript)
+
 renderPulsarAdminCommands :: [Text]
 renderPulsarAdminCommands =
-  fmap (\topic -> "pulsar-admin topics create " <> topicName topic) pulsarTopics
+  fmap
+    (\topic -> "curl --request PUT " <> topicAdminUrl bootstrapPulsarTopicReconcileSettings topic)
+    pulsarTopics
 
 pulsarTopicCreateSubprocess :: AnyTopic -> Subprocess
 pulsarTopicCreateSubprocess =
@@ -174,28 +204,15 @@ pulsarTopicCreateSubprocessFor
   :: PulsarTopicReconcileSettings
   -> AnyTopic
   -> Subprocess
-pulsarTopicCreateSubprocessFor settings topic =
-  subprocess
-    (topicReconcileKubectlBinary settings)
-    ( kubeconfigArgs settings
-        <> [ "exec"
-           , "-n"
-           , topicReconcileNamespace settings
-           , topicReconcileToolsetPod settings
-           , "--"
-           , topicReconcileAdminBinary settings
-           , "topics"
-           , "create"
-           , topicName topic
-           ]
-    )
+pulsarTopicCreateSubprocessFor settings =
+  topicHttpSubprocessFor settings "PUT" ""
 
 pulsarTopicCreateSubprocesses :: [Subprocess]
 pulsarTopicCreateSubprocesses =
   fmap pulsarTopicCreateSubprocess pulsarTopics
 
--- | Read-only exact-topic observation. Namespace list endpoints can omit
--- unloaded bundles, so convergence probes each topology address directly.
+-- | Exact-topic stats retain loaded-topic evidence. Namespace lists and
+-- partitioned-stats are not substitutes for this address-specific observation.
 pulsarTopicStatsSubprocess :: AnyTopic -> Subprocess
 pulsarTopicStatsSubprocess =
   pulsarTopicStatsSubprocessFor bootstrapPulsarTopicReconcileSettings
@@ -204,21 +221,96 @@ pulsarTopicStatsSubprocessFor
   :: PulsarTopicReconcileSettings
   -> AnyTopic
   -> Subprocess
-pulsarTopicStatsSubprocessFor settings topic =
+pulsarTopicStatsSubprocessFor settings =
+  topicHttpSubprocessFor settings "GET" "/stats"
+
+topicHttpSubprocessFor
+  :: PulsarTopicReconcileSettings
+  -> Text
+  -> Text
+  -> AnyTopic
+  -> Subprocess
+topicHttpSubprocessFor settings method suffix topic =
   subprocess
     (topicReconcileKubectlBinary settings)
-    ( kubeconfigArgs settings
+    ( kubectlTransportArgs settings
         <> [ "exec"
            , "-n"
            , topicReconcileNamespace settings
            , topicReconcileToolsetPod settings
            , "--"
-           , topicReconcileAdminBinary settings
-           , "topics"
-           , "stats"
-           , topicName topic
+           , "/usr/bin/timeout"
+           , "--signal=TERM"
+           , "--kill-after=3s"
+           , "17s"
+           , "/usr/bin/flock"
+           , "--exclusive"
+           , "--no-fork"
+           , "/tmp/jitml-pulsar-admin.lock"
+           , topicReconcileHttpBinary settings
+           , "--disable"
+           , "--silent"
+           , "--show-error"
+           , "--globoff"
+           , "--noproxy"
+           , "*"
+           , "--location"
+           , "--max-redirs"
+           , "5"
+           , "--proto"
+           , "=http,https"
+           , "--proto-redir"
+           , "=http,https"
+           , "--connect-timeout"
+           , "2"
+           , "--max-time"
+           , "5"
+           , "--request"
+           , method
+           , "--write-out"
+           , "\nJITML_PULSAR_HTTP_STATUS=%{http_code}\n"
            ]
+        <> ( if method == "PUT"
+               then ["--header", "Content-Type: application/json", "--data-binary", "{}"]
+               else []
+           )
+        <> [topicAdminUrl settings topic <> suffix]
     )
+
+topicAdminUrl :: PulsarTopicReconcileSettings -> AnyTopic -> Text
+topicAdminUrl settings topic =
+  Text.dropWhileEnd (== '/') (topicReconcileAdminEndpoint settings)
+    <> "/"
+    <> Text.intercalate
+      "/"
+      (fmap pathSegment (Text.splitOn "/" (Text.replace "://" "/" (topicName topic))))
+ where
+  pathSegment = Text.concatMap encodeCharacter
+  encodeCharacter character
+    | character `elem` (['a' .. 'z'] <> ['A' .. 'Z'] <> ['0' .. '9'] <> "-._~") =
+        Text.singleton character
+    | otherwise =
+        Text.concatMap
+          bytePercentHex
+          (Text.Encoding.decodeLatin1 (Text.Encoding.encodeUtf8 (Text.singleton character)))
+  bytePercentHex character =
+    let byte = fromEnum character
+     in Text.pack ['%', toUpper (intToDigit (byte `div` 16)), toUpper (intToDigit (byte `mod` 16))]
+
+-- | Both callers verify the exact nonpartitioned topic after creation/conflict.
+-- Pulsar409 can also mean a partitioned-name conflict, which cannot acquire
+-- family evidence without the subsequent exact HTTP200 stats object.
+runPulsarTopicReconcileAttemptIO
+  :: PulsarTopicReconcileSettings
+  -> AnyTopic
+  -> IO (Either PulsarAdminFailure TopicCreateDisposition)
+runPulsarTopicReconcileAttemptIO settings topic = do
+  createOutcome <- runPulsarAdminIO (pulsarTopicCreateSubprocessFor settings topic)
+  case classifyTopicCreateAttempt createOutcome of
+    Left failure -> pure (Left failure)
+    Right disposition -> do
+      statsOutcome <- runPulsarAdminIO (pulsarTopicStatsSubprocessFor settings topic)
+      pure (disposition <$ classifyTopicStatsAttempt statsOutcome)
 
 runCoordinatorPulsarTopicReconcileIO
   :: RetryPolicy
@@ -228,12 +320,9 @@ runCoordinatorPulsarTopicReconcileIO retryPolicy =
     retryServiceActionEither retryPolicy createTopic topic
  where
   createTopic topic = do
-    outcome <-
-      runStreaming
-        defaultSubprocessEnv
-        (pulsarTopicCreateSubprocessFor inClusterPulsarTopicReconcileSettings topic)
+    outcome <- runPulsarTopicReconcileAttemptIO inClusterPulsarTopicReconcileSettings topic
     pure $
-      case classifyTopicCreateOutcome outcome of
+      case outcome of
         Right disposition -> Right disposition
         Left failure ->
           Left
@@ -241,21 +330,21 @@ runCoordinatorPulsarTopicReconcileIO retryPolicy =
                 ( "Coordinator topic reconcile failed for "
                     <> topicName topic
                     <> ": "
-                    <> renderProcessFailure failure
+                    <> renderPulsarAdminFailure failure
                 )
             )
 
--- | Bootstrap compatibility entrypoint. It now returns the same exact family
--- evidence as the live Coordinator, retaining an opaque subprocess failure for
--- each failed creation attempt.
+-- | Bootstrap returns the same exact create-and-stats family evidence as the
+-- live Coordinator. HTTP/protocol refusals retain completed transcripts, while
+-- subprocess/attempt failures retain their original observed outcomes.
 runPulsarTopicCreatesIO
-  :: IO (Either (TopicReconcileError ProcessFailure) TopicFamilyEvidence)
+  :: IO (Either (TopicReconcileError PulsarAdminFailure) TopicFamilyEvidence)
 runPulsarTopicCreatesIO =
   reconcileTopicFamilyWith pulsarTopics (attempt (5 :: Int))
  where
   attempt attemptsRemaining topic = do
-    outcome <- runStreaming defaultSubprocessEnv (pulsarTopicCreateSubprocess topic)
-    case classifyTopicCreateOutcome outcome of
+    outcome <- runPulsarTopicReconcileAttemptIO bootstrapPulsarTopicReconcileSettings topic
+    case outcome of
       Right disposition -> pure (Right disposition)
       Left failure
         | attemptsRemaining <= 1 -> pure (Left failure)
@@ -263,26 +352,95 @@ runPulsarTopicCreatesIO =
             threadDelay 2_000_000
             attempt (attemptsRemaining - 1) topic
 
-classifyTopicCreateOutcome
-  :: ProcessOutcome
-  -> Either ProcessFailure TopicCreateDisposition
-classifyTopicCreateOutcome outcome =
-  case outcome of
-    ProcessSucceeded _ -> Right TopicCreated
-    ProcessFailed failure
-      | topicAlreadyExists failure -> Right TopicAlreadyExists
-      | otherwise -> Left failure
+-- | Bound the local client independently of the watchdog inside the Pod. A
+-- local deadline/runner exception has no observed exit status and must not be
+-- manufactured into an ordinary command failure or an already-exists result.
+runPulsarAdminAttemptWith
+  :: Int
+  -> (Subprocess -> IO ProcessOutcome)
+  -> Subprocess
+  -> IO ObservedProcessOutcome
+runPulsarAdminAttemptWith deadlineMicros execute command =
+  observeProcessAction command $ do
+    if deadlineMicros <= 0
+      then ioError (userError "Pulsar admin local deadline must be positive")
+      else do
+        completed <- timeout deadlineMicros (execute command)
+        maybe
+          ( ioError
+              ( userError
+                  "Pulsar admin local attempt exceeded its deadline; remote watchdog remains responsible for retirement"
+              )
+          )
+          pure
+          completed
 
-topicAlreadyExists :: ProcessFailure -> Bool
-topicAlreadyExists failure =
-  "already exists" `Text.isInfixOf` processFailureStderr failure
-    || "HTTP code: 409" `Text.isInfixOf` processFailureStderr failure
+-- | Admission belongs to the remote client's inherited flock descriptor, so
+-- cancellation can propagate promptly after local runner cleanup. The remote
+-- timeout bounds lock waiting plus execution even if this caller disappears.
+runPulsarAdminIO :: Subprocess -> IO ObservedProcessOutcome
+runPulsarAdminIO =
+  runPulsarAdminAttemptWith 25_000_000 (runStreaming defaultSubprocessEnv)
 
-kubeconfigArgs :: PulsarTopicReconcileSettings -> [Text]
-kubeconfigArgs settings =
+-- | Curl writes this final status independently of the response body. A
+-- nonzero/unknown subprocess never acquires HTTP evidence from partial output.
+readHttpResponse
+  :: ObservedProcessOutcome
+  -> Either PulsarAdminFailure (Int, Text, ProcessTranscript)
+readHttpResponse (ObservedProcessFailed failure) =
+  Left (PulsarAdminProcessFailure failure)
+readHttpResponse (ObservedProcessSucceeded transcript) =
+  let marker = "\nJITML_PULSAR_HTTP_STATUS="
+      (prefix, suffix) = Text.breakOnEnd marker (processTranscriptStdout transcript)
+      invalid = Left (PulsarAdminInvalidResult "missing or malformed terminal Pulsar HTTP status" transcript)
+   in case Text.stripSuffix "\n" suffix of
+        Just digits
+          | not (Text.null prefix)
+              && Text.length digits == 3
+              && Text.all (`elem` ['0' .. '9']) digits ->
+              let status = Text.foldl' (\value character -> value * 10 + fromEnum character - fromEnum '0') 0 digits
+               in if status >= 100 && status <= 599
+                    then Right (status, Text.dropEnd (Text.length marker) prefix, transcript)
+                    else invalid
+        _ -> invalid
+
+classifyTopicCreateAttempt
+  :: ObservedProcessOutcome
+  -> Either PulsarAdminFailure TopicCreateDisposition
+classifyTopicCreateAttempt outcome = do
+  (status, _body, transcript) <- readHttpResponse outcome
+  case status of
+    204 -> Right TopicCreated
+    409 -> Right TopicAlreadyExists
+    _ ->
+      Left
+        (PulsarAdminInvalidResult ("Pulsar topic PUT returned HTTP " <> Text.pack (show status)) transcript)
+
+classifyTopicStatsAttempt
+  :: ObservedProcessOutcome
+  -> Either PulsarAdminFailure Text
+classifyTopicStatsAttempt outcome = do
+  (status, body, transcript) <- readHttpResponse outcome
+  if status /= 200
+    then
+      Left
+        ( PulsarAdminInvalidResult
+            ("Pulsar exact-topic stats returned HTTP " <> Text.pack (show status))
+            transcript
+        )
+    else case eitherDecodeStrict' (Text.Encoding.encodeUtf8 body) of
+      Right (Object _) -> Right body
+      _ ->
+        Left (PulsarAdminInvalidResult "Pulsar exact-topic stats did not return a JSON object" transcript)
+
+-- An explicit request timeout makes client-go's otherwise default REST config
+-- non-default, preventing kubectl's service-account fallback. In-cluster
+-- calls retain the local 25-second and remote 17-second watchdogs instead.
+kubectlTransportArgs :: PulsarTopicReconcileSettings -> [Text]
+kubectlTransportArgs settings =
   case topicReconcileKubeconfig settings of
     "" -> []
-    kubeconfig -> ["--kubeconfig", Text.pack kubeconfig]
+    kubeconfig -> ["--kubeconfig", Text.pack kubeconfig, "--request-timeout=23s"]
 
 firstDuplicate :: (Eq value) => [value] -> Maybe value
 firstDuplicate [] = Nothing

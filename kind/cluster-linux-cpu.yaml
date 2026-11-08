@@ -13,8 +13,11 @@ nodes:
       - |
         kind: InitConfiguration
         nodeRegistration:
+          taints: []
           kubeletExtraArgs:
             node-labels: jitml.substrate/linux-cpu=true
+            system-reserved: "cpu=2750m,memory=12438536192"
+            enforce-node-allocatable: pods
     extraMounts:
       - hostPath: ./.build
         containerPath: /jitml/.build
@@ -30,6 +33,8 @@ nodes:
         nodeRegistration:
           kubeletExtraArgs:
             node-labels: jitml.substrate/linux-cpu=true,jitml.node-role/compute=true
+            system-reserved: "cpu=2750m,memory=12438536192"
+            enforce-node-allocatable: pods
     extraMounts:
       - hostPath: ./.build
         containerPath: /jitml/.build

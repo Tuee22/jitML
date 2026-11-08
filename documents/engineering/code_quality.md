@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-11-purescript-frontend-and-demo.md, ../../DEVELOPMENT_PLAN/phase-17-cross-substrate-and-handoff.md
+**Referenced by**: README.md, ../documentation_standards.md, [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 7](../../DEVELOPMENT_PLAN/phase-7-lint-stack-fourmolu-hlint-cabal-format-forbiddenpathregistry.md), [Phase 136](../../DEVELOPMENT_PLAN/phase-136-jitml-lint-purescript-generated-contract-smoke-target.md), [Phase 206](../../DEVELOPMENT_PLAN/phase-206-remove-the-cross-substrate-parity-surface-reframe-the-determ.md)
 **Generated sections**: none
 
 > **Purpose**: Project-specific code quality and lint stack for jitML. Defers

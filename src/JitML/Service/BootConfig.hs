@@ -19,11 +19,20 @@ module JitML.Service.BootConfig
   )
 where
 
+import Data.Bifunctor (first)
 import Data.Text (Text)
 import Data.Text qualified as Text
 import Dhall qualified
 import Numeric.Natural (Natural)
 
+import JitML.Cluster.ResourceBudget (validateNumericalWorkloadBudget)
+import JitML.Cluster.Resources
+  ( ClusterResources (numericalWorkload)
+  , ComponentBudget
+  , componentBudgetDecoder
+  , defaultClusterResources
+  , renderComponentBudgetDhall
+  )
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate, substrateEdgePort)
 
 -- | Sprint 5.14 (Pulsar ML-Workflow convergence) — the one-binary role. The
@@ -72,6 +81,7 @@ data BootConfig = BootConfig
   -- client. Present only for @activeRole = Webapp@; the @Engine@ omits it
   -- (@None@). It cannot be derived from @pulsarServiceUrl@ (the broker WS
   -- service uses a different host/port than the binary-protocol proxy).
+  , bootNumericalWorkload :: ComponentBudget
   }
   deriving stock (Eq, Show)
 
@@ -89,6 +99,7 @@ data BootConfigError
   | HttpListenerPortOutOfRange Integer
   | WebappRequiresPulsarWebSocketUrl
   | NonWebappForbidsPulsarWebSocketUrl Role
+  | InvalidNumericalWorkloadBudget Text
   deriving stock (Eq, Show)
 
 data RawBootConfig = RawBootConfig
@@ -102,6 +113,7 @@ data RawBootConfig = RawBootConfig
   , rawImageRegistry :: Text
   , rawHttpListener :: Maybe RawHttpListener
   , rawWebappPulsarWsUrl :: Maybe Text
+  , rawNumericalWorkload :: ComponentBudget
   }
   deriving stock (Eq, Show)
 
@@ -127,6 +139,7 @@ defaultBootConfig substrate residency =
           Cluster -> Just (HttpListener "0.0.0.0" 8080)
           Host -> Nothing
     , bootWebappPulsarWsUrl = Nothing
+    , bootNumericalWorkload = numericalWorkload defaultClusterResources
     }
 
 renderBootConfigDhall :: BootConfig -> Text
@@ -142,6 +155,7 @@ renderBootConfigDhall config =
     , ", imageRegistry = \"" <> bootImageRegistry config <> "\""
     , ", httpListener = " <> renderListener (bootHttpListener config)
     , ", webappPulsarWsUrl = " <> renderOptionalText (bootWebappPulsarWsUrl config)
+    , ", numericalWorkload = " <> renderComponentBudgetDhall (bootNumericalWorkload config)
     , "}"
     ]
 
@@ -170,6 +184,9 @@ validateBootConfig config = do
   validateRoleResidency config
   validateListener config
   validateWebappEndpoint config
+  first
+    InvalidNumericalWorkloadBudget
+    (validateNumericalWorkloadBudget (bootNumericalWorkload config))
   pure config
 
 validateRuntimeTopology :: BootConfig -> Either BootConfigError ()
@@ -236,6 +253,8 @@ renderBootConfigError err =
       "BootConfig activeRole=Webapp requires a non-empty webappPulsarWsUrl"
     NonWebappForbidsPulsarWebSocketUrl role ->
       "BootConfig webappPulsarWsUrl is only legal for activeRole=Webapp, received " <> showText role
+    InvalidNumericalWorkloadBudget reason ->
+      "invalid BootConfig numericalWorkload budget: " <> reason
 
 renderRole :: Role -> Text
 renderRole Engine = "< Engine | Coordinator | Webapp >.Engine"
@@ -277,6 +296,7 @@ rawBootConfigDecoder =
       <*> Dhall.field "imageRegistry" Dhall.strictText
       <*> Dhall.field "httpListener" (Dhall.maybe httpListenerDecoder)
       <*> Dhall.field "webappPulsarWsUrl" (Dhall.maybe Dhall.strictText)
+      <*> Dhall.field "numericalWorkload" componentBudgetDecoder
 
 roleDecoder :: Dhall.Decoder Role
 roleDecoder =
@@ -324,6 +344,7 @@ rawToBootConfig raw = do
         , bootImageRegistry = rawImageRegistry raw
         , bootHttpListener = listener
         , bootWebappPulsarWsUrl = rawWebappPulsarWsUrl raw
+        , bootNumericalWorkload = rawNumericalWorkload raw
         }
     )
 

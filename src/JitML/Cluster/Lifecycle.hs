@@ -36,6 +36,7 @@ import JitML.Cluster.PVSnapshot
 import JitML.Cluster.PVSnapshotDocker qualified as Docker
 import JitML.Cluster.PVSnapshotPosix qualified as Posix
 import JitML.Cluster.PVSnapshotPrograms (defaultSnapshotPrograms)
+import JitML.Cluster.ResourceRuntime (checkResourceEnvelopeWithSiblingIO)
 import JitML.Cluster.Resources (ClusterResources, loadClusterResourcesOrDefault, workerCount)
 import JitML.Cluster.Storage (manualPVsFor, pvNodeDataPath)
 import JitML.Sub.Outcome
@@ -110,18 +111,11 @@ helperImage lease root = do
           root
           (subprocess "docker" ["image", "ls", "--no-trunc", "--quiet", "--filter", "reference=jitml:local"])
       readIDs = Text.lines . Text.strip <$> (runObserved lease inventory >>= requireSuccess)
-  initial <- readIDs
-  identifiers <- case initial of
-    [] -> do
-      -- A cold restore can precede bootstrap's later image phase. Build the
-      -- canonical project image before using any helper; retain both outcomes.
-      void
-        ( runObserved lease (inRoot root (subprocess "docker" ["compose", "build", "jitml"]))
-            >>= requireSuccess
-        )
-      readIDs
-    present -> pure present
+  identifiers <- readIDs
   case identifiers of
+    [] ->
+      failure
+        "snapshot helper image is absent; build jitml:local explicitly with the cluster stopped before lifecycle operations"
     [identifier] -> pure identifier
     _ -> failure "canonical helper image inventory is missing or ambiguous"
 
@@ -134,6 +128,15 @@ makeBackend
   -> Posix.PosixSnapshotStore
   -> IO Docker.DockerSnapshotConfig
 makeBackend lease root substrate resources token store = do
+  -- Snapshot helpers are siblings of a containerized CLI. Reserve their actual
+  -- fixed caps inside the selected job slot before creating any helper or
+  -- triggering the helper-image fallback build.
+  budget <-
+    checkResourceEnvelopeWithSiblingIO
+      Docker.snapshotHelperMemoryBytes
+      (Docker.snapshotHelperNanoCpus `div` 1000000)
+      resources
+  either (failure . Text.unpack) (const (pure ())) budget
   image <- helperImage lease root
   pure
     Docker.DockerSnapshotConfig
@@ -143,6 +146,7 @@ makeBackend lease root substrate resources token store = do
       , Docker.helperImageID = image
       , Docker.generationToken = token
       , Docker.programs = defaultSnapshotPrograms
+      , Docker.sourceMode = Docker.LiveQuiesced
       , Docker.kubectlCommand = \args ->
           inRoot root $
             subprocess
@@ -264,11 +268,13 @@ restoreCreatedCluster lease workspace substrate resources = do
                   (Text.dropWhileEnd (== '/') . Text.dropWhile (== '/') . pvNodeDataPath)
                   (manualPVsFor resources)
               )
-      restoration <- Posix.beginSnapshotRestore store request saved
       config <- makeBackend lease root substrate resources token store
       actual <- Docker.discoverSnapshotRequest config
       unless (actual == request) (failure "fresh Kind nodes changed after restore selection")
       backend <- Docker.dockerSnapshotBackend config
+      -- Caller/image/endpoint preflight failures must not consume a fresh-CID
+      -- restoration attempt by writing a pending marker before any restore.
+      restoration <- Posix.beginSnapshotRestore store request saved
       outcome <- restoreBeforeMounts backend (Posix.snapshotStore store) request
       unless
         (outcome == RestoredSnapshot (selectionGeneration saved))

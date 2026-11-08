@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-4-stateful-platform-services.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-13-no-caveat-model-runtime.md, ../../DEVELOPMENT_PLAN/phase-18-no-caveat-product-handoff.md, ../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, determinism_contract.md, training_workloads.md, durable_state_dsl.md, training_metrics_and_splits.md, numerical_core.md, product_completion_contract.md, run_contract.md
+**Referenced by**: README.md, ../documentation_standards.md, [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 133](../../DEVELOPMENT_PLAN/phase-133-persisted-checkpoint-proof-admission.md), [Phase 235](../../DEVELOPMENT_PLAN/phase-235-one-self-describing-checkpoint-envelope.md), [Phase 236](../../DEVELOPMENT_PLAN/phase-236-checkpoint-admission-single-path.md), [Phase 239](../../DEVELOPMENT_PLAN/phase-239-checkpoint-construction-from-the-trained-graph.md), [Phase 240](../../DEVELOPMENT_PLAN/phase-240-layer-graph-checkpoints-inference.md), ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, determinism_contract.md, training_workloads.md, durable_state_dsl.md, training_metrics_and_splits.md, numerical_core.md, product_completion_contract.md, run_contract.md
 **Generated sections**: none
 
 > **Purpose**: Project-specific checkpoint format for jitML — split-blob

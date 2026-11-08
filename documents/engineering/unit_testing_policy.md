@@ -39,6 +39,25 @@ bounded-prefix consistency, class coverage in both training partitions, invalid
 metadata rejection before bounding, and unchanged evaluation annotation order.
 The real lane journals remain the authority for actual training and convergence.
 
+The live GenericRL immutable-image proof reserves a sibling inside the selected
+typed client budget before creating it. One helper receives **0.5 CPU / 512 MiB**,
+no swap, **64 PIDs**, a read-only root, no network and a **64-MiB** temporary
+filesystem. Actual Docker identity, image, command, ownership and limits are
+checked after creation and immediately before start. A fixed helper name per
+caller prevents two concurrent proofs from consuming the same reservation.
+On the Mac profile, append `compose.lifecycle-bounded.yaml` after
+`compose.cluster-bounded.yaml` for these live tests: the caller receives
+**0.5 CPU / 3 GiB**, and caller plus helper fit the existing **1 CPU / 4 GiB**
+slot. Synthetic inspector-rejection controls do not establish real runtime fit.
+
+On the cluster-stopped Mac, the full negative-control command uses the normal
+full-test slot reduced to **1 CPU / 6 GiB / no swap**, with a **3-GiB RTS heap**
+and one Cabal job. An up-to-date Cabal cache still starts GHC for an ephemeral
+test target; the smaller **1-GiB** compiler heap can overflow before tests run.
+Treat dry-run readiness and actual full-command resource fit as separate checks.
+The smaller scoped-artifact budget and the live lifecycle client/helper budget
+remain separate; do not use this full-test slot while the cluster is running.
+
 The unfiltered `jitml-negative-controls` stanza also runs complete local
 families from the shared unit/SL modules, including compact policy/cohort,
 initial-comparison, qualification, physical receipt/object and actual injected
@@ -748,12 +767,18 @@ Live test driver:
    envelope; that wall-clock safety limit is not a
    training-budget axis, and expiry cannot contribute or authorize reuse of a
    partial row.
+   The command retains each fresh private attempt workspace under ignored
+   `.build/runtime/product-scenario-attempts/` on success, failure and managed
+   cancellation, while retiring its exact journal-key file even if setup fails.
+   Retained partial DATA cannot be resumed or admitted as a completed row.
 4. The parent writes an authenticated all-`NotRun` fallback in a separate
    parent-only temporary directory while the browser result path is absent.
    Only after that succeeds does it create the fresh `0600` browser-only key in
    the isolated writable browser scope. The exact catalogue and matching
    cluster publication are individual read-only mounts; the browser scope is
-   the only read-write mount.
+   the only read-write mount. An empty read-only filesystem covers `/work/.build`
+   inside the repository mount, keeping retained ProductScenario workspaces,
+   signing challenges and original checkpoint roots outside the browser input.
 5. The suite validates the exact live publication and catalogue and performs one
    authenticated real checkpoint API/panel load in a serial setup. It then runs
    one exact-title test per catalogue `e2e_test`; each case asserts its row id,

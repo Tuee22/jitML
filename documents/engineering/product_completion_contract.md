@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: ../../README.md, ../documentation_standards.md, README.md, checkpoint_format.md, training_workloads.md, purescript_frontend.md, unit_testing_policy.md, numerical_core.md, run_contract.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-22-canonical-matrix-and-dataset-integrity.md, ../../DEVELOPMENT_PLAN/phase-24-real-supervised-architectures.md, ../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md, ../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md, ../../DEVELOPMENT_PLAN/phase-27-demo-all-model-rendering.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-29-linux-cuda-product-lane.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md, ../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md, ../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md, ../../DEVELOPMENT_PLAN/phase-261-contract-driven-live-execution-integration-journal.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md
+**Referenced by**: ../../README.md, ../documentation_standards.md, README.md, checkpoint_format.md, training_workloads.md, purescript_frontend.md, unit_testing_policy.md, numerical_core.md, run_contract.md, ../../DEVELOPMENT_PLAN/README.md, [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 223](../../DEVELOPMENT_PLAN/phase-223-product-registry-plan-and-admitted-evidence-projection.md), [Phase 229](../../DEVELOPMENT_PLAN/phase-229-phase-specific-product-evidence-payloads.md), [Phase 236](../../DEVELOPMENT_PLAN/phase-236-checkpoint-admission-single-path.md), [Phase 246](../../DEVELOPMENT_PLAN/phase-246-completedtraining-sl-manifests.md), [Phase 249](../../DEVELOPMENT_PLAN/phase-249-per-row-convergence-and-evidence.md), [Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md), [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md), [Phase 286](../../DEVELOPMENT_PLAN/phase-286-evidence-derived-closure-guard.md), ../../DEVELOPMENT_PLAN/phase-261-contract-driven-live-execution-integration-journal.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md
 **Generated sections**: none
 
 > **Purpose**: Define the non-negotiable completion proof for jitML's documented
@@ -180,6 +180,14 @@ tune; this section names the obligation and the plan owns the implementation.
    qualification additionally requires exact paired improvement, all-five median
    and original index-zero eligibility. Phase `278` owns its final validation
    and actual qualification evidence.
+   The approved generic regression `reg-ord1` recipe additionally binds the full
+   epoch-order contract into regression ProductRow/cohort PlanIds and regression
+   report digests. Its finite quality criteria remain unchanged. Earlier failed
+   attempts remain evidence of their original recipe; new qualification requires
+   fresh complete five-seed runs under the changed identity. The already-seen
+   held-out results informed this approved revision, so the successor is not an
+   independent hold-out confirmation. Exact ordering semantics are specified in
+   [Determinism Contract](determinism_contract.md#the-contract).
    The scalar gate does not add a checkpoint companion or rerun on general
    weighted inference. Compact qualification is a separate detached object,
    bound to the index-zero Store admission through its publication reference;
@@ -301,8 +309,11 @@ Production ML paths must satisfy all rules below:
    (`JitML.Product.DeviceWitness`). That type has no exported constructor and no
    pure smart constructor: `witnessDeviceExecution` runs in `IO`, requires the
    compiled artifact the engine reported to be present at the path the engine
-   reported, digests its bytes, and records the execution-family backend and executed
-   identity. Loadable layer-graph kernels expose `jitml_layer_training_backend`;
+   reported, resolves that path in the caller's working directory to an absolute
+   canonical coordinate, digests its bytes, and records the execution-family backend
+   and executed identity. Parent/child comparisons retain all six witness fields;
+   different working directories do not change the coordinate of one shared artifact.
+   Loadable layer-graph kernels expose `jitml_layer_training_backend`;
    the Apple layer graph uses its fixed-bridge identity. MLP execution keeps the
    selected engine backend and reads the executed family through
    `jitml_kernel_family_name`, or the `family` field of its Metal source metadata.
@@ -441,8 +452,18 @@ completion, contribute a row, or weaken exact observed-budget equality, and a
 subsequent attempt starts a fresh scope rather than resuming or reusing partial
 roots.
 
-The authenticated parent issues a canonical version-`3` portable lane journal
-and its exact detached qualification objects before deleting the live scope.
+The command allocates each fresh private ProductScenario scope below ignored
+`.build/runtime/product-scenario-attempts/`. Original workspaces, issued slots,
+reports and available raw attempt payloads remain after success, failure or
+managed cancellation; a new command always allocates a new namespace. Scope
+cleanup removes only its exact signing-key file, including a setup failure
+after partial key creation. Retaining attempt DATA supplies no completion or
+admission authority. The browser's repository mount overlays `.build/` with an
+empty read-only filesystem; only its separately mounted catalogue, publication
+and writable browser scope are available there.
+
+The authenticated parent additionally issues a canonical version-`3` portable lane journal
+and its exact detached qualification objects after successful admission.
 It retains the complete refined `CompletedTraining` DTO together with the row,
 plan, substrate, admitted manifest, inference manifest, execution provenance,
 executable, invocation, contract and completion-journal identities. Native
@@ -456,6 +477,13 @@ binds the resulting native receipt and its complete identity in both row and
 aggregate authentication. Re-reading that journal in its live scope rechecks
 the retained physical evidence; parsed receipt data cannot construct an owned
 execution certificate.
+
+Native child refusal messages preserve bounded typed Candidate findings before
+captured outer diagnostics. Parent refusals preserve the nested evaluation stage
+and bounded nested diagnostic or refusal before the parent fallback. Missing or
+oversized detail supplies no reconstructed cause; error classification and
+qualification checks remain unchanged. Rendering follows no retained object
+references and does not dump producer, physical or evaluation payloads.
 
 Portable native admission requires a separate IO audit of the pinned lane and
 its complete content-addressed bundle. This checks retained bytes and recorded

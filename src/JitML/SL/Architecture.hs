@@ -1096,7 +1096,11 @@ serveClassifierGraphAccuracy _ _ [] =
 serveClassifierGraphAccuracy classes graph dataset = do
   predicted <-
     traverse
-      (fmap (VU.maxIndex . VU.take classes) . classifierGraphLogits graph . exampleFeatures)
+      ( \ex -> do
+          logits <- classifierGraphLogits graph (exampleFeatures ex)
+          let prediction = VU.maxIndex (VU.take classes logits)
+          prediction `seq` Right prediction
+      )
       dataset
   let correct = length (filter id (zipWith (==) predicted (fmap exampleLabel dataset)))
   Right (fromIntegral correct / fromIntegral (length dataset))
@@ -1109,9 +1113,12 @@ serveClassifierGraphCrossEntropy _ _ [] =
 serveClassifierGraphCrossEntropy classes graph dataset = do
   losses <-
     traverse
-      ( \ex ->
-          (\logits -> crossEntropyOne classes logits (exampleLabel ex))
-            <$> classifierGraphLogits graph (exampleFeatures ex)
+      ( \ex -> do
+          logits <- classifierGraphLogits graph (exampleFeatures ex)
+          let loss = crossEntropyOne classes logits (exampleLabel ex)
+          -- Settle each scalar before the next example so the result list
+          -- does not retain every example's complete forward tape.
+          loss `seq` Right loss
       )
       dataset
   Right (sum losses / fromIntegral (length dataset))

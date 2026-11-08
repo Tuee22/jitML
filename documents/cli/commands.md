@@ -2,7 +2,7 @@
 
 **Status**: Supporting reference
 **Supersedes**: N/A
-**Referenced by**: ../../README.md, ../engineering/cli_command_surface.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md
+**Referenced by**: ../../README.md, ../engineering/cli_command_surface.md, [Phase 5](../../DEVELOPMENT_PLAN/phase-5-commandspec-registry-and-generated-parser.md)
 **Generated sections**: none
 
 > **Purpose**: Fully generated command reference rendered from `CommandSpec`.

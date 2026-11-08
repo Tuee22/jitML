@@ -1,0 +1,2391 @@
+{
+  "format": "jitml-phase278-independent-criterion-judgment-v1",
+  "reviewer": "independent-resource-criterion-reviewer-b",
+  "agent_task_identity": "/root/resource_criterion_review_b",
+  "authored_utc": "2026-11-03T16:01:23.782062+00:00",
+  "decision": "ACCEPT_FOUR_PROSPECTIVE_SCOPES_WITH_EXPLICIT_FINITE_CLAIM_LIMITS",
+  "purpose": "New focused successor judgment for exact source656 and all four CPU/Apple supervised/native subjects. Prospective finite observed-learning applicability only. Complete scientific reasoning is embedded for portability; this artifact is not a relabeled490 judgment or runtime/canonical publication permission.",
+  "source": {
+    "algorithm": 1,
+    "sha256": "656efe8f4236a0720bdba9b582320beae922b6f95913e22f9989203d58b2b6c7",
+    "files": 617
+  },
+  "previous_source": {
+    "algorithm": 1,
+    "sha256": "490d5fa40c1890255785a994955fc17b1250f9fcbea460a019037f36324d91ad",
+    "files": 617
+  },
+  "independence": {
+    "current_reviewer_a_output_inspected": false,
+    "new_agents_spawned": false,
+    "own_prior_review_used_as_historical_context": {
+      "path": ".build/phase278-resource-criterion-review-a/reviewer-b/criterion-judgment-b-final.json",
+      "bytes": 119598,
+      "sha256": "715f4e30375c60d4dae8c70768191cb4e4557b2891e9cbe91f973b51b8345baf"
+    },
+    "old_judgment_relabeled": false,
+    "basis": "I inspected the exact current2-source/4-chart delta, full617 current source inventory, retained before bytes, actual helper/drivers, exact current subjects/contract vectors and structured evidence. My prior490 scientific reasoning was independently authored and is restated self-contained below after confirming all scientific code/contracts unchanged. No other current reviewer output was read.",
+    "activities": "Public source and deliberate criterion/ordinary metadata reads, hashes, in-memory reverse-patch and exact integer arithmetic only. No source/config/cache edits, builds/tests/training, VM/container operations, private model/evaluation/journal/key-body reads/hashes, git add/commit/push or additional agents. Only this final JSON is written in my assigned directory."
+  },
+  "source_and_contract_invariance": {
+    "manifest": {
+      "path": ".build/phase278-resource-helm-config-fix-a/candidate-source.json",
+      "bytes": 111473,
+      "sha256": "6796aad86c4c70f78d558956c1b2be6f02704625020d0d26077e9b5203bf5093"
+    },
+    "all617_current_raw_pins_match": true,
+    "actual_code_root_inventory_equals_manifest": true,
+    "source_digest_v1_independently_recomputed": "656efe8f4236a0720bdba9b582320beae922b6f95913e22f9989203d58b2b6c7",
+    "previous_inventory_names_equal": true,
+    "changed_source_files": [
+      "src/JitML/Service/ConfigMap.hs",
+      "test/unit/ClusterResourceRendering.hs"
+    ],
+    "changed_source_count": 2,
+    "unchanged_source_count": 615,
+    "six_section_exact_delta_reverse_verified_to_retained490_before_bytes": true,
+    "two_source_before_hashes_match_my_prior490_source_manifest": true,
+    "four_chart_changes": [
+      "chart/local/jitml-service/templates/configmap.yaml",
+      "chart/local/jitml-service/values.yaml",
+      "chart/local/jitml-demo/templates/configmap.yaml",
+      "chart/local/jitml-demo/values.yaml"
+    ],
+    "all11_current_local_chart_input_pins_match": true,
+    "all_four_operator_Dhall_configs_exactly_unchanged_from490": true,
+    "functional_delta": "renderServiceValues includes the selected numericalWorkload record; runtime overlays for jitml-service and jitml-demo carry the same complete record. Actual local templates insert it into Engine, Coordinator and Webapp BootConfigs. Authored values supply defaults. The new distinct-budget unit regression checks both local overlay maps. Universal BootConfig loading requires the field even for Webapp; adding it does not create Webapp numerical work.",
+    "configuration_binding": "The617 source digest excludes chart/root Dhall. This judgment separately binds current11 chart inputs and four operator Dhall pins. The Mac selection remains requests250m/1Gi, limits1CPU/1536Mi; generic scientific workload counts, recipes and all training budgets remain unchanged. Runtime overlays override authored chart defaults; no host Metal resource cap follows.",
+    "both_ordered55_current_exports_equal_actual490_export": true,
+    "all110_rows_and_four_subjects_exact": true,
+    "full55_domain_separated_set_digests_independently_recomputed": true,
+    "lanes": [
+      {
+        "lane": "linux-cpu",
+        "rows": 55,
+        "complete_ordered55_contract_set_sha256": "8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7"
+      },
+      {
+        "lane": "apple-silicon",
+        "rows": 55,
+        "complete_ordered55_contract_set_sha256": "a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c"
+      }
+    ],
+    "subject_scientific_limits_equal_my490_subjects": true,
+    "coverage": "For each lane11 supervised plus43 native unique/disjoint rows cover exactly54 training rows; hyperparameter-tuning is context only.",
+    "scientific_assessment": "No scientific recipe, algorithm, initialization, seed/headroom, data/split/evaluation, numeric operation, fixed reference, training budget, historical bar, exclusion or served0 policy changes. The scientific predicates reviewed below remain the actual current predicates. Invariance is an applicability argument, not execution or quality proof.",
+    "seal": "All617 actual public raw source files,11 chart inputs and4 operator Dhall files checked again at sealing. Any later change requires correct rebinding/appropriate review; never relabel this source-bound judgment."
+  },
+  "scopes": [
+    {
+      "lane": "linux-cpu",
+      "scope": "supervised",
+      "source": {
+        "algorithm": 1,
+        "sha256": "656efe8f4236a0720bdba9b582320beae922b6f95913e22f9989203d58b2b6c7",
+        "files": 617
+      },
+      "subject": {
+        "path": ".build/phase278-resource-helm-criterion-review-a/linux-cpu-supervised-subject.json",
+        "bytes": 19975,
+        "sha256": "5fc1b506120883dbc85c5e7de757feeb1f6dee20b21fb96a0baa7730d139b6c8"
+      },
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_OBSERVED_LEARNING_CRITERION",
+      "reasoning": "For these exact11 supervised rows, the successor only completes selected-budget transport through local Helm values/BootConfig. All scientific source and exact plans/contracts are unchanged. Five original ordered budget-complete members, strict own-initial improvement and final signal, at least3 same-member joint successes, whole-five unchanged historical metric median and independently eligible predetermined served0 remain mandatory. The full current scientific reasoning and limits embedded below support prospective finite observed-learning applicability; typed configuration success supplies no training or quality result.",
+      "lane_specific_reasoning": "This is a separate Linux CPU assessment. Actual oneDNN execution, selected running pod limits, aggregate node/VM/client/host headroom, complete original cohort outcomes and served0 physical replay/admission remain required. Successful Helm/Dhall loading does not establish these or prevent OOM under training.",
+      "scientific_row_count": 11,
+      "scientific_rows": [
+        {
+          "contract_sha256": "2b0f0c9427a2b82db3bec2d4e9be83d78c6cef29710b1b806543e8f338666d89",
+          "plan_id": "8d0e685d27f8718a09aca8d9cde10246d8b46b300107a21c780a567482c1c3d2",
+          "row_id": "mnist-shallow-mlp"
+        },
+        {
+          "contract_sha256": "0da5bb7256b5ecd738abdc81c0384d7403525c0a58efcc2e9f1f3dd2b7fc468d",
+          "plan_id": "7d6c88b9b487aceff26c06d1524ed2ed43acd17e6f8087941ff22dd39228bce0",
+          "row_id": "mnist-deep-mlp"
+        },
+        {
+          "contract_sha256": "c2e2393f77655c574ce79fadbd2701e94ca9063673bdbc365f0d4ea35f8683f6",
+          "plan_id": "cd822dc8fb4f572bd3afd7eb59db68cb8d855c845dcd790ed3752b2201b532d2",
+          "row_id": "mnist-lenet"
+        },
+        {
+          "contract_sha256": "7ddf1b2330614ad06aa785b7f853eef3cd42b3bcbd03d1b70e6b62d914484712",
+          "plan_id": "d9c4e4436dc9428d80a5460f51bc1f0edbf0720e8c0c615610aa138d9e0f9aad",
+          "row_id": "fashion-mnist-mlp"
+        },
+        {
+          "contract_sha256": "8afd7429805deec69ceb715b3e6f2dfb37b1161c5d7e6a9d419bcbe0f029c232",
+          "plan_id": "642dcb131084debf6bccbdd8672317a05944cfc60e132cd7008e91f082e2d011",
+          "row_id": "fashion-mnist-resnet"
+        },
+        {
+          "contract_sha256": "e62fd1e34a8a68f8c5b4d03a74230a007f6b97a0d2d2711e6fc13cdc7ed21be3",
+          "plan_id": "65c19dd44a4aca73e7edc5f3e02b8024384405f510b1eaf16b7db551dbbb7bf3",
+          "row_id": "cifar10-resnet20"
+        },
+        {
+          "contract_sha256": "4b84439cd31efbde505121d6743a17ed003a57a1be868bd8b59dbc5e68629372",
+          "plan_id": "89c824f4e59f96e5ab6f6f34f087be13cca712663149775ecf98a313666f1648",
+          "row_id": "cifar10-resnet56"
+        },
+        {
+          "contract_sha256": "3806772a5b8cf0976ab378bb16f0b42993d8a5b60530eb2fc8b6e4c7984779b5",
+          "plan_id": "13d288a249d79d2f92974df7d0b81d9a446b2be84201a9c0e38b325bc2638e7d",
+          "row_id": "cifar100-wide-resnet"
+        },
+        {
+          "contract_sha256": "db708282e304e2d8d20dfa662d13792a7c2ce762fbb6bf56e435ab45ce8dfe82",
+          "plan_id": "1528574480a5d949aab8e19a29dbe8d94f5161241a3559c07ac298b78fef2268",
+          "row_id": "cifar10-vit"
+        },
+        {
+          "contract_sha256": "a1683cceb3306f925a2797fc1fa5dc7ba809a0c7c89a09cc705996014cb5e226",
+          "plan_id": "1bf17525109200326669ce753b27f664ab44094195d7615892813e8a28929468",
+          "row_id": "tiny-imagenet-resnet50"
+        },
+        {
+          "contract_sha256": "13c8781db2d45a7f2dc1afec9d0b7bbc0cdc82d2c04ecf880188f90073f29f94",
+          "plan_id": "3bdc28adc596427a05779634500773b93913ce18d35819b86f66bb04995d72d2",
+          "row_id": "california-housing-mlp"
+        }
+      ],
+      "complete_ordered55_contract_set_sha256": "8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7",
+      "complete_ordered55_contracts": [
+        {
+          "contract_sha256": "2b0f0c9427a2b82db3bec2d4e9be83d78c6cef29710b1b806543e8f338666d89",
+          "plan_id": "8d0e685d27f8718a09aca8d9cde10246d8b46b300107a21c780a567482c1c3d2",
+          "row_id": "mnist-shallow-mlp"
+        },
+        {
+          "contract_sha256": "0da5bb7256b5ecd738abdc81c0384d7403525c0a58efcc2e9f1f3dd2b7fc468d",
+          "plan_id": "7d6c88b9b487aceff26c06d1524ed2ed43acd17e6f8087941ff22dd39228bce0",
+          "row_id": "mnist-deep-mlp"
+        },
+        {
+          "contract_sha256": "c2e2393f77655c574ce79fadbd2701e94ca9063673bdbc365f0d4ea35f8683f6",
+          "plan_id": "cd822dc8fb4f572bd3afd7eb59db68cb8d855c845dcd790ed3752b2201b532d2",
+          "row_id": "mnist-lenet"
+        },
+        {
+          "contract_sha256": "7ddf1b2330614ad06aa785b7f853eef3cd42b3bcbd03d1b70e6b62d914484712",
+          "plan_id": "d9c4e4436dc9428d80a5460f51bc1f0edbf0720e8c0c615610aa138d9e0f9aad",
+          "row_id": "fashion-mnist-mlp"
+        },
+        {
+          "contract_sha256": "8afd7429805deec69ceb715b3e6f2dfb37b1161c5d7e6a9d419bcbe0f029c232",
+          "plan_id": "642dcb131084debf6bccbdd8672317a05944cfc60e132cd7008e91f082e2d011",
+          "row_id": "fashion-mnist-resnet"
+        },
+        {
+          "contract_sha256": "e62fd1e34a8a68f8c5b4d03a74230a007f6b97a0d2d2711e6fc13cdc7ed21be3",
+          "plan_id": "65c19dd44a4aca73e7edc5f3e02b8024384405f510b1eaf16b7db551dbbb7bf3",
+          "row_id": "cifar10-resnet20"
+        },
+        {
+          "contract_sha256": "4b84439cd31efbde505121d6743a17ed003a57a1be868bd8b59dbc5e68629372",
+          "plan_id": "89c824f4e59f96e5ab6f6f34f087be13cca712663149775ecf98a313666f1648",
+          "row_id": "cifar10-resnet56"
+        },
+        {
+          "contract_sha256": "3806772a5b8cf0976ab378bb16f0b42993d8a5b60530eb2fc8b6e4c7984779b5",
+          "plan_id": "13d288a249d79d2f92974df7d0b81d9a446b2be84201a9c0e38b325bc2638e7d",
+          "row_id": "cifar100-wide-resnet"
+        },
+        {
+          "contract_sha256": "db708282e304e2d8d20dfa662d13792a7c2ce762fbb6bf56e435ab45ce8dfe82",
+          "plan_id": "1528574480a5d949aab8e19a29dbe8d94f5161241a3559c07ac298b78fef2268",
+          "row_id": "cifar10-vit"
+        },
+        {
+          "contract_sha256": "a1683cceb3306f925a2797fc1fa5dc7ba809a0c7c89a09cc705996014cb5e226",
+          "plan_id": "1bf17525109200326669ce753b27f664ab44094195d7615892813e8a28929468",
+          "row_id": "tiny-imagenet-resnet50"
+        },
+        {
+          "contract_sha256": "13c8781db2d45a7f2dc1afec9d0b7bbc0cdc82d2c04ecf880188f90073f29f94",
+          "plan_id": "3bdc28adc596427a05779634500773b93913ce18d35819b86f66bb04995d72d2",
+          "row_id": "california-housing-mlp"
+        },
+        {
+          "contract_sha256": "97d97b5a9115dc44c57543d7fd8552ead3ffd4407e2c7b5cfaaacf26ff29179e",
+          "plan_id": "4738f6852ded47b1d60c0f25934bace5cb7bfe14a71726815912ae88ca5482fd",
+          "row_id": "PPO/cartpole"
+        },
+        {
+          "contract_sha256": "4f128168a4ba25e1f647b995df7b503e59681da84868543cd76e07152cf7fe18",
+          "plan_id": "b560836fd2dbe374e8e7aaa898b51bdb2096ac93e30feb690bcac1d12f97bbbd",
+          "row_id": "PPO/mountain-car"
+        },
+        {
+          "contract_sha256": "a8290e19575cf6ffe5b3acb668c2a54a9e6762f7ea7fc255170129b917382678",
+          "plan_id": "1d2b533d9eb63b3223d1b65d11252fc8e450d617cf26c5bac7d228e5ee9e2ece",
+          "row_id": "PPO/acrobot"
+        },
+        {
+          "contract_sha256": "9cf6d8de8ae265ec9051352b0ee431b137e82cc2a82b902e7ef9c770f2d4defa",
+          "plan_id": "30e6fef48517b3aad55bd78fc9a2d11a91fea9baf3df122bbb4e778e0daa7045",
+          "row_id": "PPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "cb42a67176df531e55104b7020518f4711c83b9f312755b5d7468d22042e2889",
+          "plan_id": "3242bd966467db4950d9af908ca334071e692e8a13f57edacdea0d7a53f83573",
+          "row_id": "PPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "c8f003ba579ee3ef22734824e601f6b9967e662c21cf8223a714a5a75516e524",
+          "plan_id": "875597507848f0ff7aeb8860f1e8dc0e87cd9d78f42cc7cfe1998b369873d4e7",
+          "row_id": "PPO/gridworld-deterministic"
+        },
+        {
+          "contract_sha256": "52d29a3ace1c218f7757e07452f58d627fa76b1aa70145f6f1cff415e617115e",
+          "plan_id": "2c9d43cc1b30281c86d0aa42a47795a0bd5e238d1f4658373271e298a8036d79",
+          "row_id": "A2C/cartpole"
+        },
+        {
+          "contract_sha256": "cca1477d56c18c29098afc210c721dd3994a967f55060b9dc8dc214d2a04fc16",
+          "plan_id": "0f50baac23160462ad65a037188c5c5fda1e11dd8a657449e4ac0a3ad35105f2",
+          "row_id": "A2C/mountain-car"
+        },
+        {
+          "contract_sha256": "e900dc2c10d59c03ffd856deb1ce897cfd270ffc8d37940350c83881917f3463",
+          "plan_id": "e5c20d18ea819396f59413f1feb3e4d06bcf9959260935db2cd0765d44b71c88",
+          "row_id": "A2C/lunar-lander"
+        },
+        {
+          "contract_sha256": "5d6a2cae120623af83b4cee41d5ae3617beb5061a93bd4aa20509c4854c00b1d",
+          "plan_id": "edb6c13c3d2c175799714c2dcc14ae7f7e16392fbf25b83d95f961ab10c9b238",
+          "row_id": "A2C/key-door-grid"
+        },
+        {
+          "contract_sha256": "aa761aaf510c4061e633a5ae14b2e3d164a748c5ab1158400364574b6a0f7c50",
+          "plan_id": "140b0d1e6a970b0261e92119288a28cb288c7ebc99ff9aa7ac0452235b885d7e",
+          "row_id": "TRPO/cartpole"
+        },
+        {
+          "contract_sha256": "e54b3975118ebb3f40f8188d0af4f0fb24d9c61a435370bd7175f5480af86f0a",
+          "plan_id": "ea932ce8e676404c6845b4fe8fc3ef4ae851c51bc1ef1c2baa0fdcc8e8b26d6b",
+          "row_id": "TRPO/mountain-car"
+        },
+        {
+          "contract_sha256": "67111fb370e4d4f57683f10c7bf74720ae0961eda9ba1b6f894b7630dbd8b844",
+          "plan_id": "70462e574e19aa04a90e982d063d5801908cc358bc838f93c53da9d84e8e1dde",
+          "row_id": "TRPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "5ee6cd27bc5e589825a0d8df932fcd593bd83a6be41e8a56387214c1a2cb466f",
+          "plan_id": "dba414857f7ffead6ee377c5e5dc55c195177f980ef5af672ab3e9a88a8b0778",
+          "row_id": "TRPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "8044640163f2109f5ac0329c3dc9d8c7d031a70f0fe2dbbbb98bb1b278c9e694",
+          "plan_id": "723a2917e4935001acce8940208c4a712912c46d0a6d33c82a8dfb0ba0690330",
+          "row_id": "MaskablePPO/cartpole"
+        },
+        {
+          "contract_sha256": "a0b22bfd24e3d2deb160e2c2b5c41556aa26385bee6040e4cf22e81339f327bb",
+          "plan_id": "85ca26d47128af901af2a5a540e49a2396f3801ba272c04b53df012d3d45673a",
+          "row_id": "MaskablePPO/mountain-car"
+        },
+        {
+          "contract_sha256": "874ac25d604204279d8a47178e850f1af1094eb016b543f29387874636e30024",
+          "plan_id": "83773d586135b97df31b958d1b563c89805f6a09069d69b8e6e65fb5ac7b648b",
+          "row_id": "MaskablePPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "29e08ac7ecb31016c12a3ac7eeee603a669fe4e980552119906a0042c6ff7965",
+          "plan_id": "95c3fde209b95c84e0983bc8a1ab15004cc4d074566c1fa568d171d173fffd6e",
+          "row_id": "MaskablePPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "aa9216ccecf0b2255caaa28de69bfc723472d384fdec838cf8479e8abeeb3420",
+          "plan_id": "e3638fbb0afa548dffcf772950aa6fc028b52bbfac49330eee1b014ad2a980fb",
+          "row_id": "RecurrentPPO/cartpole"
+        },
+        {
+          "contract_sha256": "5864085e1a780b79181c48aa92f5939252ced2be83cc461ea314e06c296e800e",
+          "plan_id": "2e22c5d7db78eed527c09923c196a92bdd96fe5f9b305fff80740661775c1426",
+          "row_id": "RecurrentPPO/mountain-car"
+        },
+        {
+          "contract_sha256": "269319914eeb69624848db421d91d04d69d4331c3787d2890b4dfc9c592441a6",
+          "plan_id": "10124c9bdd7281ae5a3a3d1f1660b11dc64b05f26268e32a89cd2249aa03bf98",
+          "row_id": "RecurrentPPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "9b98e80190bc4a2e2089cf6d399e2cb419f6b7090453d5c049e5bb447993b6ec",
+          "plan_id": "8db33b19f18c5d97cccaac3911f08b9e63166c44708cffc3a90c253d3c49dfa6",
+          "row_id": "RecurrentPPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "fc7fbcf1c0bd5760b97a09fef18926c600b65284e5fb3ec79d0e21a7ec69d0a4",
+          "plan_id": "777e2c2422e4b2bc83fae3d8a3d3e79dba629340019c761ce9816d41c7b2346c",
+          "row_id": "DQN/cartpole"
+        },
+        {
+          "contract_sha256": "c8174517988359bd1c168eee6ecff627e47bc13edc841cacd0c701cce239bff0",
+          "plan_id": "6e45a778521cfaad1bbb4d2976dad8af8e97d6ddb3590ee24906fd07a9625e52",
+          "row_id": "DQN/mountain-car"
+        },
+        {
+          "contract_sha256": "87636ad94509940be447668573843aaa842ca5e2a7c319e24d39eb961fd38413",
+          "plan_id": "b51a3c6dd97466d68bd725cde8a58958003b07c55c089aadf49720615e9ae462",
+          "row_id": "DQN/key-door-grid"
+        },
+        {
+          "contract_sha256": "dfbf05098a3bafe59db3edb0bdcb5b9f050f4d914f15f8dca2be65701bed9e87",
+          "plan_id": "1af5b34cdd01a834ffdfc4b90ae61ecd56fe03111a6057e069a09732af0e0805",
+          "row_id": "QR-DQN/cartpole"
+        },
+        {
+          "contract_sha256": "88d7837cc0093aeff423cd5ca6822099fbac0e72c64bf32d1f472984cd85b54b",
+          "plan_id": "ad3db1ff9b71ec818060329a6d1a928c5e691f33cec5aac36d25fea3e482234c",
+          "row_id": "QR-DQN/mountain-car"
+        },
+        {
+          "contract_sha256": "e069a66f417d76d435b5936df13a40e315f32b1e5e141aeea593734d15c916ee",
+          "plan_id": "6d460c05503090a87700a3abc41c2d2b8a44cb385dab76aeb320ca81de615527",
+          "row_id": "QR-DQN/key-door-grid"
+        },
+        {
+          "contract_sha256": "0b00b3c053324c6ac8b479c6b16c23f2b1ecd76de0a288d86fe937c27ab9d331",
+          "plan_id": "49e0f1119a93110f6404f54e7f17c487e753dc992cd21ce23f38d2484fc8b0f0",
+          "row_id": "DDPG/lunar-lander"
+        },
+        {
+          "contract_sha256": "2c0f908bea64b6d0e0125fd111af2091464969d98c3752b7ca90ebfdf7b83891",
+          "plan_id": "7c467a8800795771440733dad69aa8fd34316003aa305947059a0e30539c38ec",
+          "row_id": "TD3/lunar-lander"
+        },
+        {
+          "contract_sha256": "40cff79b1217c09a76e538032be07f39e4e4f94e1e6a79db7a535277af56e83b",
+          "plan_id": "8f2a49e644952b49350b70ff937b525b9d116ad2309ebe8bd82981a18a011539",
+          "row_id": "SAC/lunar-lander"
+        },
+        {
+          "contract_sha256": "56d560406d4c7bec19aaf04553d73baabb64845df3d5e4af75f9cb2f0b4ed3bf",
+          "plan_id": "17ed88f8efadb3b8373a9ba8f51478f27a3d8971215f09ff8c452b32f39f68f7",
+          "row_id": "SAC/pendulum"
+        },
+        {
+          "contract_sha256": "513d4c45828931678963a242845ab472e599b78af53fc5b86b164a9e5a2b4bee",
+          "plan_id": "1e371e4cb09bfa6826436b334c600c4eee38b1e1d62b40bce0df0672c91ca2dd",
+          "row_id": "CrossQ/lunar-lander"
+        },
+        {
+          "contract_sha256": "87146d3a0b052d7c9d2437b04b832fd6b9c54ed305fbb80229b9de4dcd491cdb",
+          "plan_id": "61459512d7eac5f5946784503562b04afc7a09eb59c7d6fb2f3504affe195caa",
+          "row_id": "TQC/lunar-lander"
+        },
+        {
+          "contract_sha256": "5faa96ac72468ace693b46ae7d116e4e4e346bdd0f54be2459f316f204642660",
+          "plan_id": "1b8b6067991cd505dc839a72a8eb2c2d799fb36904e7ed6efdbce8e54338cfa6",
+          "row_id": "ARS/cartpole"
+        },
+        {
+          "contract_sha256": "e88021faa066f89157c20e3469d06527ad1722fe62a93b88bbd97a3d2eacd1b0",
+          "plan_id": "8a90a9ce4a6c465c0cde3841c1eb918a0126560bbd678a681c73fee8f9545d7b",
+          "row_id": "ARS/mountain-car"
+        },
+        {
+          "contract_sha256": "3d6346099397821a831c2e67ffa6d4218675ed415b7bed52f1f4a240f9aecd4b",
+          "plan_id": "346e16e06fd0632e205947b52e939b058de11f60330ec36bbfb057afdac78a3e",
+          "row_id": "ARS/lunar-lander"
+        },
+        {
+          "contract_sha256": "86eea7bf5de174cd91e44d64cfa126db35245edc6eba0881831d7973068c1b43",
+          "plan_id": "9e5e47efba8415453cb19fb8a1f1d3de78ff22c03977e57120bde0fac6ccb831",
+          "row_id": "ARS/key-door-grid"
+        },
+        {
+          "contract_sha256": "4240a5a23de857edb9c533c4f16e79789935b38fc0b63568f8043c52b88f1283",
+          "plan_id": "61ff4a52cb963afea5a44719466753c16bb5754a5245404f35046e2f829a7548",
+          "row_id": "HER/goal-reaching"
+        },
+        {
+          "contract_sha256": "954af02d8734e5cb1df7a7b09eb85b9786cb2b491dce4269165b58fa9c760bd0",
+          "plan_id": "c2c5caf762d9b1d322d87b12ce1406a74f44d40d04b054f635814c6906338ea9",
+          "row_id": "connect4"
+        },
+        {
+          "contract_sha256": "0191af33569290e301e02810c5bc2f7cdaa60366c85a0b49f733c50d89bceec4",
+          "plan_id": "e12682a93ff704f59576536fe1aa981ffdf828967b1dd0e35f7536cdc1d93c73",
+          "row_id": "othello"
+        },
+        {
+          "contract_sha256": "83ed06d07890d8ed0bc9c530279b1aab60258864c66c4bf102f8d8f6107d968b",
+          "plan_id": "a44cbeba8a9cb086b88beb07f8dfd3121a94830ff37e10a19eda9d81d3c30de4",
+          "row_id": "hex"
+        },
+        {
+          "contract_sha256": "2a09242488a3d87c73d2a9a1bd22f118bda90bc4898cd4d28ec2b289512eb073",
+          "plan_id": "75437658421a71735e90f06f0ad925544be1b9d0ebe9059ba3fbabf0b2f2ca55",
+          "row_id": "gomoku"
+        },
+        {
+          "contract_sha256": "db3d651c28a80efa52b4465b23fcc10f8a0b3d5adcbb829dcd1ef7724bb4a4db",
+          "plan_id": "4150d67ddfa20cda8b76351328560973fa713b98773cf08bb2456c2bfec56384",
+          "row_id": "hyperparameter-tuning"
+        }
+      ],
+      "criterion_applicability_blockers": [],
+      "additional_evidence_for_actual_pass": "Require authorized supervised real-lane acquisition under frozen prelaunch current source/review/full55 identity; every original0..4 outcome and unchanged actual work; authentic initial/effective/final plus same-case complete references; unchanged quality; original served0 physical eligibility/Store/replay; exhaustive attempts/failures and authenticated qualification/admission. Resolve live image/configuration/readiness and resource safety first. No actual pass is granted here."
+    },
+    {
+      "lane": "linux-cpu",
+      "scope": "native",
+      "source": {
+        "algorithm": 1,
+        "sha256": "656efe8f4236a0720bdba9b582320beae922b6f95913e22f9989203d58b2b6c7",
+        "files": 617
+      },
+      "subject": {
+        "path": ".build/phase278-resource-helm-criterion-review-a/linux-cpu-native-subject.json",
+        "bytes": 27217,
+        "sha256": "69cd0a010768ddaadb52caa8a5601a1360b22652d279be81239e32285c63c55c"
+      },
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_OBSERVED_LEARNING_CRITERION",
+      "reasoning": "For these exact43 native rows (38 RETURN,1 HER,4 AlphaZero), the successor completes selected-budget transport without changing algorithms, effective initialization, seeds42..46, training budgets, paired cases, full reference families, exact comparisons, quality bars or exclusions. At least3 original members must jointly meet their entire learning/reference predicate, complete five-member statistics remain, and original served0 separately qualifies. The embedded current reasoning preserves the restricted proven-optimum reference ties and strict own-initial gain. This supports prospective finite observed-learning applicability only; no native execution/quality evidence is supplied.",
+      "lane_specific_reasoning": "This is a separate Linux CPU assessment. Actual oneDNN execution, selected running pod limits, aggregate node/VM/client/host headroom, complete original cohort outcomes and served0 physical replay/admission remain required. Successful Helm/Dhall loading does not establish these or prevent OOM under training.",
+      "scientific_row_count": 43,
+      "scientific_rows": [
+        {
+          "contract_sha256": "97d97b5a9115dc44c57543d7fd8552ead3ffd4407e2c7b5cfaaacf26ff29179e",
+          "plan_id": "4738f6852ded47b1d60c0f25934bace5cb7bfe14a71726815912ae88ca5482fd",
+          "row_id": "PPO/cartpole"
+        },
+        {
+          "contract_sha256": "4f128168a4ba25e1f647b995df7b503e59681da84868543cd76e07152cf7fe18",
+          "plan_id": "b560836fd2dbe374e8e7aaa898b51bdb2096ac93e30feb690bcac1d12f97bbbd",
+          "row_id": "PPO/mountain-car"
+        },
+        {
+          "contract_sha256": "a8290e19575cf6ffe5b3acb668c2a54a9e6762f7ea7fc255170129b917382678",
+          "plan_id": "1d2b533d9eb63b3223d1b65d11252fc8e450d617cf26c5bac7d228e5ee9e2ece",
+          "row_id": "PPO/acrobot"
+        },
+        {
+          "contract_sha256": "9cf6d8de8ae265ec9051352b0ee431b137e82cc2a82b902e7ef9c770f2d4defa",
+          "plan_id": "30e6fef48517b3aad55bd78fc9a2d11a91fea9baf3df122bbb4e778e0daa7045",
+          "row_id": "PPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "cb42a67176df531e55104b7020518f4711c83b9f312755b5d7468d22042e2889",
+          "plan_id": "3242bd966467db4950d9af908ca334071e692e8a13f57edacdea0d7a53f83573",
+          "row_id": "PPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "c8f003ba579ee3ef22734824e601f6b9967e662c21cf8223a714a5a75516e524",
+          "plan_id": "875597507848f0ff7aeb8860f1e8dc0e87cd9d78f42cc7cfe1998b369873d4e7",
+          "row_id": "PPO/gridworld-deterministic"
+        },
+        {
+          "contract_sha256": "52d29a3ace1c218f7757e07452f58d627fa76b1aa70145f6f1cff415e617115e",
+          "plan_id": "2c9d43cc1b30281c86d0aa42a47795a0bd5e238d1f4658373271e298a8036d79",
+          "row_id": "A2C/cartpole"
+        },
+        {
+          "contract_sha256": "cca1477d56c18c29098afc210c721dd3994a967f55060b9dc8dc214d2a04fc16",
+          "plan_id": "0f50baac23160462ad65a037188c5c5fda1e11dd8a657449e4ac0a3ad35105f2",
+          "row_id": "A2C/mountain-car"
+        },
+        {
+          "contract_sha256": "e900dc2c10d59c03ffd856deb1ce897cfd270ffc8d37940350c83881917f3463",
+          "plan_id": "e5c20d18ea819396f59413f1feb3e4d06bcf9959260935db2cd0765d44b71c88",
+          "row_id": "A2C/lunar-lander"
+        },
+        {
+          "contract_sha256": "5d6a2cae120623af83b4cee41d5ae3617beb5061a93bd4aa20509c4854c00b1d",
+          "plan_id": "edb6c13c3d2c175799714c2dcc14ae7f7e16392fbf25b83d95f961ab10c9b238",
+          "row_id": "A2C/key-door-grid"
+        },
+        {
+          "contract_sha256": "aa761aaf510c4061e633a5ae14b2e3d164a748c5ab1158400364574b6a0f7c50",
+          "plan_id": "140b0d1e6a970b0261e92119288a28cb288c7ebc99ff9aa7ac0452235b885d7e",
+          "row_id": "TRPO/cartpole"
+        },
+        {
+          "contract_sha256": "e54b3975118ebb3f40f8188d0af4f0fb24d9c61a435370bd7175f5480af86f0a",
+          "plan_id": "ea932ce8e676404c6845b4fe8fc3ef4ae851c51bc1ef1c2baa0fdcc8e8b26d6b",
+          "row_id": "TRPO/mountain-car"
+        },
+        {
+          "contract_sha256": "67111fb370e4d4f57683f10c7bf74720ae0961eda9ba1b6f894b7630dbd8b844",
+          "plan_id": "70462e574e19aa04a90e982d063d5801908cc358bc838f93c53da9d84e8e1dde",
+          "row_id": "TRPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "5ee6cd27bc5e589825a0d8df932fcd593bd83a6be41e8a56387214c1a2cb466f",
+          "plan_id": "dba414857f7ffead6ee377c5e5dc55c195177f980ef5af672ab3e9a88a8b0778",
+          "row_id": "TRPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "8044640163f2109f5ac0329c3dc9d8c7d031a70f0fe2dbbbb98bb1b278c9e694",
+          "plan_id": "723a2917e4935001acce8940208c4a712912c46d0a6d33c82a8dfb0ba0690330",
+          "row_id": "MaskablePPO/cartpole"
+        },
+        {
+          "contract_sha256": "a0b22bfd24e3d2deb160e2c2b5c41556aa26385bee6040e4cf22e81339f327bb",
+          "plan_id": "85ca26d47128af901af2a5a540e49a2396f3801ba272c04b53df012d3d45673a",
+          "row_id": "MaskablePPO/mountain-car"
+        },
+        {
+          "contract_sha256": "874ac25d604204279d8a47178e850f1af1094eb016b543f29387874636e30024",
+          "plan_id": "83773d586135b97df31b958d1b563c89805f6a09069d69b8e6e65fb5ac7b648b",
+          "row_id": "MaskablePPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "29e08ac7ecb31016c12a3ac7eeee603a669fe4e980552119906a0042c6ff7965",
+          "plan_id": "95c3fde209b95c84e0983bc8a1ab15004cc4d074566c1fa568d171d173fffd6e",
+          "row_id": "MaskablePPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "aa9216ccecf0b2255caaa28de69bfc723472d384fdec838cf8479e8abeeb3420",
+          "plan_id": "e3638fbb0afa548dffcf772950aa6fc028b52bbfac49330eee1b014ad2a980fb",
+          "row_id": "RecurrentPPO/cartpole"
+        },
+        {
+          "contract_sha256": "5864085e1a780b79181c48aa92f5939252ced2be83cc461ea314e06c296e800e",
+          "plan_id": "2e22c5d7db78eed527c09923c196a92bdd96fe5f9b305fff80740661775c1426",
+          "row_id": "RecurrentPPO/mountain-car"
+        },
+        {
+          "contract_sha256": "269319914eeb69624848db421d91d04d69d4331c3787d2890b4dfc9c592441a6",
+          "plan_id": "10124c9bdd7281ae5a3a3d1f1660b11dc64b05f26268e32a89cd2249aa03bf98",
+          "row_id": "RecurrentPPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "9b98e80190bc4a2e2089cf6d399e2cb419f6b7090453d5c049e5bb447993b6ec",
+          "plan_id": "8db33b19f18c5d97cccaac3911f08b9e63166c44708cffc3a90c253d3c49dfa6",
+          "row_id": "RecurrentPPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "fc7fbcf1c0bd5760b97a09fef18926c600b65284e5fb3ec79d0e21a7ec69d0a4",
+          "plan_id": "777e2c2422e4b2bc83fae3d8a3d3e79dba629340019c761ce9816d41c7b2346c",
+          "row_id": "DQN/cartpole"
+        },
+        {
+          "contract_sha256": "c8174517988359bd1c168eee6ecff627e47bc13edc841cacd0c701cce239bff0",
+          "plan_id": "6e45a778521cfaad1bbb4d2976dad8af8e97d6ddb3590ee24906fd07a9625e52",
+          "row_id": "DQN/mountain-car"
+        },
+        {
+          "contract_sha256": "87636ad94509940be447668573843aaa842ca5e2a7c319e24d39eb961fd38413",
+          "plan_id": "b51a3c6dd97466d68bd725cde8a58958003b07c55c089aadf49720615e9ae462",
+          "row_id": "DQN/key-door-grid"
+        },
+        {
+          "contract_sha256": "dfbf05098a3bafe59db3edb0bdcb5b9f050f4d914f15f8dca2be65701bed9e87",
+          "plan_id": "1af5b34cdd01a834ffdfc4b90ae61ecd56fe03111a6057e069a09732af0e0805",
+          "row_id": "QR-DQN/cartpole"
+        },
+        {
+          "contract_sha256": "88d7837cc0093aeff423cd5ca6822099fbac0e72c64bf32d1f472984cd85b54b",
+          "plan_id": "ad3db1ff9b71ec818060329a6d1a928c5e691f33cec5aac36d25fea3e482234c",
+          "row_id": "QR-DQN/mountain-car"
+        },
+        {
+          "contract_sha256": "e069a66f417d76d435b5936df13a40e315f32b1e5e141aeea593734d15c916ee",
+          "plan_id": "6d460c05503090a87700a3abc41c2d2b8a44cb385dab76aeb320ca81de615527",
+          "row_id": "QR-DQN/key-door-grid"
+        },
+        {
+          "contract_sha256": "0b00b3c053324c6ac8b479c6b16c23f2b1ecd76de0a288d86fe937c27ab9d331",
+          "plan_id": "49e0f1119a93110f6404f54e7f17c487e753dc992cd21ce23f38d2484fc8b0f0",
+          "row_id": "DDPG/lunar-lander"
+        },
+        {
+          "contract_sha256": "2c0f908bea64b6d0e0125fd111af2091464969d98c3752b7ca90ebfdf7b83891",
+          "plan_id": "7c467a8800795771440733dad69aa8fd34316003aa305947059a0e30539c38ec",
+          "row_id": "TD3/lunar-lander"
+        },
+        {
+          "contract_sha256": "40cff79b1217c09a76e538032be07f39e4e4f94e1e6a79db7a535277af56e83b",
+          "plan_id": "8f2a49e644952b49350b70ff937b525b9d116ad2309ebe8bd82981a18a011539",
+          "row_id": "SAC/lunar-lander"
+        },
+        {
+          "contract_sha256": "56d560406d4c7bec19aaf04553d73baabb64845df3d5e4af75f9cb2f0b4ed3bf",
+          "plan_id": "17ed88f8efadb3b8373a9ba8f51478f27a3d8971215f09ff8c452b32f39f68f7",
+          "row_id": "SAC/pendulum"
+        },
+        {
+          "contract_sha256": "513d4c45828931678963a242845ab472e599b78af53fc5b86b164a9e5a2b4bee",
+          "plan_id": "1e371e4cb09bfa6826436b334c600c4eee38b1e1d62b40bce0df0672c91ca2dd",
+          "row_id": "CrossQ/lunar-lander"
+        },
+        {
+          "contract_sha256": "87146d3a0b052d7c9d2437b04b832fd6b9c54ed305fbb80229b9de4dcd491cdb",
+          "plan_id": "61459512d7eac5f5946784503562b04afc7a09eb59c7d6fb2f3504affe195caa",
+          "row_id": "TQC/lunar-lander"
+        },
+        {
+          "contract_sha256": "5faa96ac72468ace693b46ae7d116e4e4e346bdd0f54be2459f316f204642660",
+          "plan_id": "1b8b6067991cd505dc839a72a8eb2c2d799fb36904e7ed6efdbce8e54338cfa6",
+          "row_id": "ARS/cartpole"
+        },
+        {
+          "contract_sha256": "e88021faa066f89157c20e3469d06527ad1722fe62a93b88bbd97a3d2eacd1b0",
+          "plan_id": "8a90a9ce4a6c465c0cde3841c1eb918a0126560bbd678a681c73fee8f9545d7b",
+          "row_id": "ARS/mountain-car"
+        },
+        {
+          "contract_sha256": "3d6346099397821a831c2e67ffa6d4218675ed415b7bed52f1f4a240f9aecd4b",
+          "plan_id": "346e16e06fd0632e205947b52e939b058de11f60330ec36bbfb057afdac78a3e",
+          "row_id": "ARS/lunar-lander"
+        },
+        {
+          "contract_sha256": "86eea7bf5de174cd91e44d64cfa126db35245edc6eba0881831d7973068c1b43",
+          "plan_id": "9e5e47efba8415453cb19fb8a1f1d3de78ff22c03977e57120bde0fac6ccb831",
+          "row_id": "ARS/key-door-grid"
+        },
+        {
+          "contract_sha256": "4240a5a23de857edb9c533c4f16e79789935b38fc0b63568f8043c52b88f1283",
+          "plan_id": "61ff4a52cb963afea5a44719466753c16bb5754a5245404f35046e2f829a7548",
+          "row_id": "HER/goal-reaching"
+        },
+        {
+          "contract_sha256": "954af02d8734e5cb1df7a7b09eb85b9786cb2b491dce4269165b58fa9c760bd0",
+          "plan_id": "c2c5caf762d9b1d322d87b12ce1406a74f44d40d04b054f635814c6906338ea9",
+          "row_id": "connect4"
+        },
+        {
+          "contract_sha256": "0191af33569290e301e02810c5bc2f7cdaa60366c85a0b49f733c50d89bceec4",
+          "plan_id": "e12682a93ff704f59576536fe1aa981ffdf828967b1dd0e35f7536cdc1d93c73",
+          "row_id": "othello"
+        },
+        {
+          "contract_sha256": "83ed06d07890d8ed0bc9c530279b1aab60258864c66c4bf102f8d8f6107d968b",
+          "plan_id": "a44cbeba8a9cb086b88beb07f8dfd3121a94830ff37e10a19eda9d81d3c30de4",
+          "row_id": "hex"
+        },
+        {
+          "contract_sha256": "2a09242488a3d87c73d2a9a1bd22f118bda90bc4898cd4d28ec2b289512eb073",
+          "plan_id": "75437658421a71735e90f06f0ad925544be1b9d0ebe9059ba3fbabf0b2f2ca55",
+          "row_id": "gomoku"
+        }
+      ],
+      "complete_ordered55_contract_set_sha256": "8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7",
+      "complete_ordered55_contracts": [
+        {
+          "contract_sha256": "2b0f0c9427a2b82db3bec2d4e9be83d78c6cef29710b1b806543e8f338666d89",
+          "plan_id": "8d0e685d27f8718a09aca8d9cde10246d8b46b300107a21c780a567482c1c3d2",
+          "row_id": "mnist-shallow-mlp"
+        },
+        {
+          "contract_sha256": "0da5bb7256b5ecd738abdc81c0384d7403525c0a58efcc2e9f1f3dd2b7fc468d",
+          "plan_id": "7d6c88b9b487aceff26c06d1524ed2ed43acd17e6f8087941ff22dd39228bce0",
+          "row_id": "mnist-deep-mlp"
+        },
+        {
+          "contract_sha256": "c2e2393f77655c574ce79fadbd2701e94ca9063673bdbc365f0d4ea35f8683f6",
+          "plan_id": "cd822dc8fb4f572bd3afd7eb59db68cb8d855c845dcd790ed3752b2201b532d2",
+          "row_id": "mnist-lenet"
+        },
+        {
+          "contract_sha256": "7ddf1b2330614ad06aa785b7f853eef3cd42b3bcbd03d1b70e6b62d914484712",
+          "plan_id": "d9c4e4436dc9428d80a5460f51bc1f0edbf0720e8c0c615610aa138d9e0f9aad",
+          "row_id": "fashion-mnist-mlp"
+        },
+        {
+          "contract_sha256": "8afd7429805deec69ceb715b3e6f2dfb37b1161c5d7e6a9d419bcbe0f029c232",
+          "plan_id": "642dcb131084debf6bccbdd8672317a05944cfc60e132cd7008e91f082e2d011",
+          "row_id": "fashion-mnist-resnet"
+        },
+        {
+          "contract_sha256": "e62fd1e34a8a68f8c5b4d03a74230a007f6b97a0d2d2711e6fc13cdc7ed21be3",
+          "plan_id": "65c19dd44a4aca73e7edc5f3e02b8024384405f510b1eaf16b7db551dbbb7bf3",
+          "row_id": "cifar10-resnet20"
+        },
+        {
+          "contract_sha256": "4b84439cd31efbde505121d6743a17ed003a57a1be868bd8b59dbc5e68629372",
+          "plan_id": "89c824f4e59f96e5ab6f6f34f087be13cca712663149775ecf98a313666f1648",
+          "row_id": "cifar10-resnet56"
+        },
+        {
+          "contract_sha256": "3806772a5b8cf0976ab378bb16f0b42993d8a5b60530eb2fc8b6e4c7984779b5",
+          "plan_id": "13d288a249d79d2f92974df7d0b81d9a446b2be84201a9c0e38b325bc2638e7d",
+          "row_id": "cifar100-wide-resnet"
+        },
+        {
+          "contract_sha256": "db708282e304e2d8d20dfa662d13792a7c2ce762fbb6bf56e435ab45ce8dfe82",
+          "plan_id": "1528574480a5d949aab8e19a29dbe8d94f5161241a3559c07ac298b78fef2268",
+          "row_id": "cifar10-vit"
+        },
+        {
+          "contract_sha256": "a1683cceb3306f925a2797fc1fa5dc7ba809a0c7c89a09cc705996014cb5e226",
+          "plan_id": "1bf17525109200326669ce753b27f664ab44094195d7615892813e8a28929468",
+          "row_id": "tiny-imagenet-resnet50"
+        },
+        {
+          "contract_sha256": "13c8781db2d45a7f2dc1afec9d0b7bbc0cdc82d2c04ecf880188f90073f29f94",
+          "plan_id": "3bdc28adc596427a05779634500773b93913ce18d35819b86f66bb04995d72d2",
+          "row_id": "california-housing-mlp"
+        },
+        {
+          "contract_sha256": "97d97b5a9115dc44c57543d7fd8552ead3ffd4407e2c7b5cfaaacf26ff29179e",
+          "plan_id": "4738f6852ded47b1d60c0f25934bace5cb7bfe14a71726815912ae88ca5482fd",
+          "row_id": "PPO/cartpole"
+        },
+        {
+          "contract_sha256": "4f128168a4ba25e1f647b995df7b503e59681da84868543cd76e07152cf7fe18",
+          "plan_id": "b560836fd2dbe374e8e7aaa898b51bdb2096ac93e30feb690bcac1d12f97bbbd",
+          "row_id": "PPO/mountain-car"
+        },
+        {
+          "contract_sha256": "a8290e19575cf6ffe5b3acb668c2a54a9e6762f7ea7fc255170129b917382678",
+          "plan_id": "1d2b533d9eb63b3223d1b65d11252fc8e450d617cf26c5bac7d228e5ee9e2ece",
+          "row_id": "PPO/acrobot"
+        },
+        {
+          "contract_sha256": "9cf6d8de8ae265ec9051352b0ee431b137e82cc2a82b902e7ef9c770f2d4defa",
+          "plan_id": "30e6fef48517b3aad55bd78fc9a2d11a91fea9baf3df122bbb4e778e0daa7045",
+          "row_id": "PPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "cb42a67176df531e55104b7020518f4711c83b9f312755b5d7468d22042e2889",
+          "plan_id": "3242bd966467db4950d9af908ca334071e692e8a13f57edacdea0d7a53f83573",
+          "row_id": "PPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "c8f003ba579ee3ef22734824e601f6b9967e662c21cf8223a714a5a75516e524",
+          "plan_id": "875597507848f0ff7aeb8860f1e8dc0e87cd9d78f42cc7cfe1998b369873d4e7",
+          "row_id": "PPO/gridworld-deterministic"
+        },
+        {
+          "contract_sha256": "52d29a3ace1c218f7757e07452f58d627fa76b1aa70145f6f1cff415e617115e",
+          "plan_id": "2c9d43cc1b30281c86d0aa42a47795a0bd5e238d1f4658373271e298a8036d79",
+          "row_id": "A2C/cartpole"
+        },
+        {
+          "contract_sha256": "cca1477d56c18c29098afc210c721dd3994a967f55060b9dc8dc214d2a04fc16",
+          "plan_id": "0f50baac23160462ad65a037188c5c5fda1e11dd8a657449e4ac0a3ad35105f2",
+          "row_id": "A2C/mountain-car"
+        },
+        {
+          "contract_sha256": "e900dc2c10d59c03ffd856deb1ce897cfd270ffc8d37940350c83881917f3463",
+          "plan_id": "e5c20d18ea819396f59413f1feb3e4d06bcf9959260935db2cd0765d44b71c88",
+          "row_id": "A2C/lunar-lander"
+        },
+        {
+          "contract_sha256": "5d6a2cae120623af83b4cee41d5ae3617beb5061a93bd4aa20509c4854c00b1d",
+          "plan_id": "edb6c13c3d2c175799714c2dcc14ae7f7e16392fbf25b83d95f961ab10c9b238",
+          "row_id": "A2C/key-door-grid"
+        },
+        {
+          "contract_sha256": "aa761aaf510c4061e633a5ae14b2e3d164a748c5ab1158400364574b6a0f7c50",
+          "plan_id": "140b0d1e6a970b0261e92119288a28cb288c7ebc99ff9aa7ac0452235b885d7e",
+          "row_id": "TRPO/cartpole"
+        },
+        {
+          "contract_sha256": "e54b3975118ebb3f40f8188d0af4f0fb24d9c61a435370bd7175f5480af86f0a",
+          "plan_id": "ea932ce8e676404c6845b4fe8fc3ef4ae851c51bc1ef1c2baa0fdcc8e8b26d6b",
+          "row_id": "TRPO/mountain-car"
+        },
+        {
+          "contract_sha256": "67111fb370e4d4f57683f10c7bf74720ae0961eda9ba1b6f894b7630dbd8b844",
+          "plan_id": "70462e574e19aa04a90e982d063d5801908cc358bc838f93c53da9d84e8e1dde",
+          "row_id": "TRPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "5ee6cd27bc5e589825a0d8df932fcd593bd83a6be41e8a56387214c1a2cb466f",
+          "plan_id": "dba414857f7ffead6ee377c5e5dc55c195177f980ef5af672ab3e9a88a8b0778",
+          "row_id": "TRPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "8044640163f2109f5ac0329c3dc9d8c7d031a70f0fe2dbbbb98bb1b278c9e694",
+          "plan_id": "723a2917e4935001acce8940208c4a712912c46d0a6d33c82a8dfb0ba0690330",
+          "row_id": "MaskablePPO/cartpole"
+        },
+        {
+          "contract_sha256": "a0b22bfd24e3d2deb160e2c2b5c41556aa26385bee6040e4cf22e81339f327bb",
+          "plan_id": "85ca26d47128af901af2a5a540e49a2396f3801ba272c04b53df012d3d45673a",
+          "row_id": "MaskablePPO/mountain-car"
+        },
+        {
+          "contract_sha256": "874ac25d604204279d8a47178e850f1af1094eb016b543f29387874636e30024",
+          "plan_id": "83773d586135b97df31b958d1b563c89805f6a09069d69b8e6e65fb5ac7b648b",
+          "row_id": "MaskablePPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "29e08ac7ecb31016c12a3ac7eeee603a669fe4e980552119906a0042c6ff7965",
+          "plan_id": "95c3fde209b95c84e0983bc8a1ab15004cc4d074566c1fa568d171d173fffd6e",
+          "row_id": "MaskablePPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "aa9216ccecf0b2255caaa28de69bfc723472d384fdec838cf8479e8abeeb3420",
+          "plan_id": "e3638fbb0afa548dffcf772950aa6fc028b52bbfac49330eee1b014ad2a980fb",
+          "row_id": "RecurrentPPO/cartpole"
+        },
+        {
+          "contract_sha256": "5864085e1a780b79181c48aa92f5939252ced2be83cc461ea314e06c296e800e",
+          "plan_id": "2e22c5d7db78eed527c09923c196a92bdd96fe5f9b305fff80740661775c1426",
+          "row_id": "RecurrentPPO/mountain-car"
+        },
+        {
+          "contract_sha256": "269319914eeb69624848db421d91d04d69d4331c3787d2890b4dfc9c592441a6",
+          "plan_id": "10124c9bdd7281ae5a3a3d1f1660b11dc64b05f26268e32a89cd2249aa03bf98",
+          "row_id": "RecurrentPPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "9b98e80190bc4a2e2089cf6d399e2cb419f6b7090453d5c049e5bb447993b6ec",
+          "plan_id": "8db33b19f18c5d97cccaac3911f08b9e63166c44708cffc3a90c253d3c49dfa6",
+          "row_id": "RecurrentPPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "fc7fbcf1c0bd5760b97a09fef18926c600b65284e5fb3ec79d0e21a7ec69d0a4",
+          "plan_id": "777e2c2422e4b2bc83fae3d8a3d3e79dba629340019c761ce9816d41c7b2346c",
+          "row_id": "DQN/cartpole"
+        },
+        {
+          "contract_sha256": "c8174517988359bd1c168eee6ecff627e47bc13edc841cacd0c701cce239bff0",
+          "plan_id": "6e45a778521cfaad1bbb4d2976dad8af8e97d6ddb3590ee24906fd07a9625e52",
+          "row_id": "DQN/mountain-car"
+        },
+        {
+          "contract_sha256": "87636ad94509940be447668573843aaa842ca5e2a7c319e24d39eb961fd38413",
+          "plan_id": "b51a3c6dd97466d68bd725cde8a58958003b07c55c089aadf49720615e9ae462",
+          "row_id": "DQN/key-door-grid"
+        },
+        {
+          "contract_sha256": "dfbf05098a3bafe59db3edb0bdcb5b9f050f4d914f15f8dca2be65701bed9e87",
+          "plan_id": "1af5b34cdd01a834ffdfc4b90ae61ecd56fe03111a6057e069a09732af0e0805",
+          "row_id": "QR-DQN/cartpole"
+        },
+        {
+          "contract_sha256": "88d7837cc0093aeff423cd5ca6822099fbac0e72c64bf32d1f472984cd85b54b",
+          "plan_id": "ad3db1ff9b71ec818060329a6d1a928c5e691f33cec5aac36d25fea3e482234c",
+          "row_id": "QR-DQN/mountain-car"
+        },
+        {
+          "contract_sha256": "e069a66f417d76d435b5936df13a40e315f32b1e5e141aeea593734d15c916ee",
+          "plan_id": "6d460c05503090a87700a3abc41c2d2b8a44cb385dab76aeb320ca81de615527",
+          "row_id": "QR-DQN/key-door-grid"
+        },
+        {
+          "contract_sha256": "0b00b3c053324c6ac8b479c6b16c23f2b1ecd76de0a288d86fe937c27ab9d331",
+          "plan_id": "49e0f1119a93110f6404f54e7f17c487e753dc992cd21ce23f38d2484fc8b0f0",
+          "row_id": "DDPG/lunar-lander"
+        },
+        {
+          "contract_sha256": "2c0f908bea64b6d0e0125fd111af2091464969d98c3752b7ca90ebfdf7b83891",
+          "plan_id": "7c467a8800795771440733dad69aa8fd34316003aa305947059a0e30539c38ec",
+          "row_id": "TD3/lunar-lander"
+        },
+        {
+          "contract_sha256": "40cff79b1217c09a76e538032be07f39e4e4f94e1e6a79db7a535277af56e83b",
+          "plan_id": "8f2a49e644952b49350b70ff937b525b9d116ad2309ebe8bd82981a18a011539",
+          "row_id": "SAC/lunar-lander"
+        },
+        {
+          "contract_sha256": "56d560406d4c7bec19aaf04553d73baabb64845df3d5e4af75f9cb2f0b4ed3bf",
+          "plan_id": "17ed88f8efadb3b8373a9ba8f51478f27a3d8971215f09ff8c452b32f39f68f7",
+          "row_id": "SAC/pendulum"
+        },
+        {
+          "contract_sha256": "513d4c45828931678963a242845ab472e599b78af53fc5b86b164a9e5a2b4bee",
+          "plan_id": "1e371e4cb09bfa6826436b334c600c4eee38b1e1d62b40bce0df0672c91ca2dd",
+          "row_id": "CrossQ/lunar-lander"
+        },
+        {
+          "contract_sha256": "87146d3a0b052d7c9d2437b04b832fd6b9c54ed305fbb80229b9de4dcd491cdb",
+          "plan_id": "61459512d7eac5f5946784503562b04afc7a09eb59c7d6fb2f3504affe195caa",
+          "row_id": "TQC/lunar-lander"
+        },
+        {
+          "contract_sha256": "5faa96ac72468ace693b46ae7d116e4e4e346bdd0f54be2459f316f204642660",
+          "plan_id": "1b8b6067991cd505dc839a72a8eb2c2d799fb36904e7ed6efdbce8e54338cfa6",
+          "row_id": "ARS/cartpole"
+        },
+        {
+          "contract_sha256": "e88021faa066f89157c20e3469d06527ad1722fe62a93b88bbd97a3d2eacd1b0",
+          "plan_id": "8a90a9ce4a6c465c0cde3841c1eb918a0126560bbd678a681c73fee8f9545d7b",
+          "row_id": "ARS/mountain-car"
+        },
+        {
+          "contract_sha256": "3d6346099397821a831c2e67ffa6d4218675ed415b7bed52f1f4a240f9aecd4b",
+          "plan_id": "346e16e06fd0632e205947b52e939b058de11f60330ec36bbfb057afdac78a3e",
+          "row_id": "ARS/lunar-lander"
+        },
+        {
+          "contract_sha256": "86eea7bf5de174cd91e44d64cfa126db35245edc6eba0881831d7973068c1b43",
+          "plan_id": "9e5e47efba8415453cb19fb8a1f1d3de78ff22c03977e57120bde0fac6ccb831",
+          "row_id": "ARS/key-door-grid"
+        },
+        {
+          "contract_sha256": "4240a5a23de857edb9c533c4f16e79789935b38fc0b63568f8043c52b88f1283",
+          "plan_id": "61ff4a52cb963afea5a44719466753c16bb5754a5245404f35046e2f829a7548",
+          "row_id": "HER/goal-reaching"
+        },
+        {
+          "contract_sha256": "954af02d8734e5cb1df7a7b09eb85b9786cb2b491dce4269165b58fa9c760bd0",
+          "plan_id": "c2c5caf762d9b1d322d87b12ce1406a74f44d40d04b054f635814c6906338ea9",
+          "row_id": "connect4"
+        },
+        {
+          "contract_sha256": "0191af33569290e301e02810c5bc2f7cdaa60366c85a0b49f733c50d89bceec4",
+          "plan_id": "e12682a93ff704f59576536fe1aa981ffdf828967b1dd0e35f7536cdc1d93c73",
+          "row_id": "othello"
+        },
+        {
+          "contract_sha256": "83ed06d07890d8ed0bc9c530279b1aab60258864c66c4bf102f8d8f6107d968b",
+          "plan_id": "a44cbeba8a9cb086b88beb07f8dfd3121a94830ff37e10a19eda9d81d3c30de4",
+          "row_id": "hex"
+        },
+        {
+          "contract_sha256": "2a09242488a3d87c73d2a9a1bd22f118bda90bc4898cd4d28ec2b289512eb073",
+          "plan_id": "75437658421a71735e90f06f0ad925544be1b9d0ebe9059ba3fbabf0b2f2ca55",
+          "row_id": "gomoku"
+        },
+        {
+          "contract_sha256": "db3d651c28a80efa52b4465b23fcc10f8a0b3d5adcbb829dcd1ef7724bb4a4db",
+          "plan_id": "4150d67ddfa20cda8b76351328560973fa713b98773cf08bb2456c2bfec56384",
+          "row_id": "hyperparameter-tuning"
+        }
+      ],
+      "criterion_applicability_blockers": [],
+      "additional_evidence_for_actual_pass": "Require authorized supervised real-lane acquisition under frozen prelaunch current source/review/full55 identity; every original0..4 outcome and unchanged actual work; authentic initial/effective/final plus same-case complete references; unchanged quality; original served0 physical eligibility/Store/replay; exhaustive attempts/failures and authenticated qualification/admission. Resolve live image/configuration/readiness and resource safety first. No actual pass is granted here."
+    },
+    {
+      "lane": "apple-silicon",
+      "scope": "supervised",
+      "source": {
+        "algorithm": 1,
+        "sha256": "656efe8f4236a0720bdba9b582320beae922b6f95913e22f9989203d58b2b6c7",
+        "files": 617
+      },
+      "subject": {
+        "path": ".build/phase278-resource-helm-criterion-review-a/apple-silicon-supervised-subject.json",
+        "bytes": 19979,
+        "sha256": "cce01b195ea330d3f6e8310cbbc5447041c295a7b42869c8991c3849eb98ad1c"
+      },
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_OBSERVED_LEARNING_CRITERION",
+      "reasoning": "For these exact11 supervised rows, the successor only completes selected-budget transport through local Helm values/BootConfig. All scientific source and exact plans/contracts are unchanged. Five original ordered budget-complete members, strict own-initial improvement and final signal, at least3 same-member joint successes, whole-five unchanged historical metric median and independently eligible predetermined served0 remain mandatory. The full current scientific reasoning and limits embedded below support prospective finite observed-learning applicability; typed configuration success supplies no training or quality result.",
+      "lane_specific_reasoning": "This is a separate Apple assessment, not extrapolation from CPU or decoding an apple-silicon string. Native Metal host work remains outside Kubernetes CPU/RAM caps. Require explicit native CPU/heap/host-pressure supervision and actual hardware/device or honest host provenance, original cohort retention and served0 physical replay before qualification.",
+      "scientific_row_count": 11,
+      "scientific_rows": [
+        {
+          "contract_sha256": "2b0f0c9427a2b82db3bec2d4e9be83d78c6cef29710b1b806543e8f338666d89",
+          "plan_id": "7da4faeee152de78039933a7e42500e9cbd96597e257348bf91ff5ce3c35bf70",
+          "row_id": "mnist-shallow-mlp"
+        },
+        {
+          "contract_sha256": "0da5bb7256b5ecd738abdc81c0384d7403525c0a58efcc2e9f1f3dd2b7fc468d",
+          "plan_id": "fcce4d702e8e401e579cf561d3180c2d63b32eb9a43c17f6bc1fa8ef421fd4ac",
+          "row_id": "mnist-deep-mlp"
+        },
+        {
+          "contract_sha256": "c2e2393f77655c574ce79fadbd2701e94ca9063673bdbc365f0d4ea35f8683f6",
+          "plan_id": "825767c8fc3fbcd29c82cbca3b5a64fdb7d94ada466553be958d9f04312438a9",
+          "row_id": "mnist-lenet"
+        },
+        {
+          "contract_sha256": "7ddf1b2330614ad06aa785b7f853eef3cd42b3bcbd03d1b70e6b62d914484712",
+          "plan_id": "0db1451eb071cbf8402164805bb9b51162ce339498fa39e16e497af8cfa49cd5",
+          "row_id": "fashion-mnist-mlp"
+        },
+        {
+          "contract_sha256": "8afd7429805deec69ceb715b3e6f2dfb37b1161c5d7e6a9d419bcbe0f029c232",
+          "plan_id": "0d0144d31841a201770c8a73fbbe04727e7c4f97ba40d25bc80f476d2d7e8eeb",
+          "row_id": "fashion-mnist-resnet"
+        },
+        {
+          "contract_sha256": "e62fd1e34a8a68f8c5b4d03a74230a007f6b97a0d2d2711e6fc13cdc7ed21be3",
+          "plan_id": "8acc466dab1dfd454d067a5aa99a917a813cb8ed8370ade261cbe2a40277502d",
+          "row_id": "cifar10-resnet20"
+        },
+        {
+          "contract_sha256": "4b84439cd31efbde505121d6743a17ed003a57a1be868bd8b59dbc5e68629372",
+          "plan_id": "78c7cec5fe7c636a7611e3cbc0bb484094fc4f13b322d4dc48e6379e7166b5e7",
+          "row_id": "cifar10-resnet56"
+        },
+        {
+          "contract_sha256": "3806772a5b8cf0976ab378bb16f0b42993d8a5b60530eb2fc8b6e4c7984779b5",
+          "plan_id": "6a514742423d4ec693cc406b61bb3f9f1069e0803a10b19f2340b972527185e5",
+          "row_id": "cifar100-wide-resnet"
+        },
+        {
+          "contract_sha256": "db708282e304e2d8d20dfa662d13792a7c2ce762fbb6bf56e435ab45ce8dfe82",
+          "plan_id": "6f74b23e005855e31b98c9e34a681ac558439defb4ed48ee473376963f5f9454",
+          "row_id": "cifar10-vit"
+        },
+        {
+          "contract_sha256": "a1683cceb3306f925a2797fc1fa5dc7ba809a0c7c89a09cc705996014cb5e226",
+          "plan_id": "808f353500ed56966cf246d80116ca2168cec786dc51c8ce37fbcb6e42ce7ec2",
+          "row_id": "tiny-imagenet-resnet50"
+        },
+        {
+          "contract_sha256": "13c8781db2d45a7f2dc1afec9d0b7bbc0cdc82d2c04ecf880188f90073f29f94",
+          "plan_id": "572c209070a570d7423c17748cbd7be61571125f7b2f6ecc5aea950b3819d14b",
+          "row_id": "california-housing-mlp"
+        }
+      ],
+      "complete_ordered55_contract_set_sha256": "a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c",
+      "complete_ordered55_contracts": [
+        {
+          "contract_sha256": "2b0f0c9427a2b82db3bec2d4e9be83d78c6cef29710b1b806543e8f338666d89",
+          "plan_id": "7da4faeee152de78039933a7e42500e9cbd96597e257348bf91ff5ce3c35bf70",
+          "row_id": "mnist-shallow-mlp"
+        },
+        {
+          "contract_sha256": "0da5bb7256b5ecd738abdc81c0384d7403525c0a58efcc2e9f1f3dd2b7fc468d",
+          "plan_id": "fcce4d702e8e401e579cf561d3180c2d63b32eb9a43c17f6bc1fa8ef421fd4ac",
+          "row_id": "mnist-deep-mlp"
+        },
+        {
+          "contract_sha256": "c2e2393f77655c574ce79fadbd2701e94ca9063673bdbc365f0d4ea35f8683f6",
+          "plan_id": "825767c8fc3fbcd29c82cbca3b5a64fdb7d94ada466553be958d9f04312438a9",
+          "row_id": "mnist-lenet"
+        },
+        {
+          "contract_sha256": "7ddf1b2330614ad06aa785b7f853eef3cd42b3bcbd03d1b70e6b62d914484712",
+          "plan_id": "0db1451eb071cbf8402164805bb9b51162ce339498fa39e16e497af8cfa49cd5",
+          "row_id": "fashion-mnist-mlp"
+        },
+        {
+          "contract_sha256": "8afd7429805deec69ceb715b3e6f2dfb37b1161c5d7e6a9d419bcbe0f029c232",
+          "plan_id": "0d0144d31841a201770c8a73fbbe04727e7c4f97ba40d25bc80f476d2d7e8eeb",
+          "row_id": "fashion-mnist-resnet"
+        },
+        {
+          "contract_sha256": "e62fd1e34a8a68f8c5b4d03a74230a007f6b97a0d2d2711e6fc13cdc7ed21be3",
+          "plan_id": "8acc466dab1dfd454d067a5aa99a917a813cb8ed8370ade261cbe2a40277502d",
+          "row_id": "cifar10-resnet20"
+        },
+        {
+          "contract_sha256": "4b84439cd31efbde505121d6743a17ed003a57a1be868bd8b59dbc5e68629372",
+          "plan_id": "78c7cec5fe7c636a7611e3cbc0bb484094fc4f13b322d4dc48e6379e7166b5e7",
+          "row_id": "cifar10-resnet56"
+        },
+        {
+          "contract_sha256": "3806772a5b8cf0976ab378bb16f0b42993d8a5b60530eb2fc8b6e4c7984779b5",
+          "plan_id": "6a514742423d4ec693cc406b61bb3f9f1069e0803a10b19f2340b972527185e5",
+          "row_id": "cifar100-wide-resnet"
+        },
+        {
+          "contract_sha256": "db708282e304e2d8d20dfa662d13792a7c2ce762fbb6bf56e435ab45ce8dfe82",
+          "plan_id": "6f74b23e005855e31b98c9e34a681ac558439defb4ed48ee473376963f5f9454",
+          "row_id": "cifar10-vit"
+        },
+        {
+          "contract_sha256": "a1683cceb3306f925a2797fc1fa5dc7ba809a0c7c89a09cc705996014cb5e226",
+          "plan_id": "808f353500ed56966cf246d80116ca2168cec786dc51c8ce37fbcb6e42ce7ec2",
+          "row_id": "tiny-imagenet-resnet50"
+        },
+        {
+          "contract_sha256": "13c8781db2d45a7f2dc1afec9d0b7bbc0cdc82d2c04ecf880188f90073f29f94",
+          "plan_id": "572c209070a570d7423c17748cbd7be61571125f7b2f6ecc5aea950b3819d14b",
+          "row_id": "california-housing-mlp"
+        },
+        {
+          "contract_sha256": "97d97b5a9115dc44c57543d7fd8552ead3ffd4407e2c7b5cfaaacf26ff29179e",
+          "plan_id": "66ff26f1e3efeaf4cb0b7b6cb8b45c69fd9780793e428704f82b180fc11b713b",
+          "row_id": "PPO/cartpole"
+        },
+        {
+          "contract_sha256": "4f128168a4ba25e1f647b995df7b503e59681da84868543cd76e07152cf7fe18",
+          "plan_id": "21d881226609d1c25c76d71323a6271bb6009c70ffda5b21a1b05bbccefc0f09",
+          "row_id": "PPO/mountain-car"
+        },
+        {
+          "contract_sha256": "a8290e19575cf6ffe5b3acb668c2a54a9e6762f7ea7fc255170129b917382678",
+          "plan_id": "469fdfc0a380601f913635a1656dc4d51b634875d5d4d29c6a6e53eccc217c16",
+          "row_id": "PPO/acrobot"
+        },
+        {
+          "contract_sha256": "9cf6d8de8ae265ec9051352b0ee431b137e82cc2a82b902e7ef9c770f2d4defa",
+          "plan_id": "3492799add8b166ce431798ad6df73f2dca7cfed00ac75f59a785107220444de",
+          "row_id": "PPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "cb42a67176df531e55104b7020518f4711c83b9f312755b5d7468d22042e2889",
+          "plan_id": "df6c00e43401011b2c59d6946d306c8ecb95dd563f2e1829d632324d997d201b",
+          "row_id": "PPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "c8f003ba579ee3ef22734824e601f6b9967e662c21cf8223a714a5a75516e524",
+          "plan_id": "8929bd4f8063c46b29468d00037513fa38e46cc2b400024cb2eea6669f9c30cf",
+          "row_id": "PPO/gridworld-deterministic"
+        },
+        {
+          "contract_sha256": "52d29a3ace1c218f7757e07452f58d627fa76b1aa70145f6f1cff415e617115e",
+          "plan_id": "175fbb46c8c539b756c3841517ce21c2bfad9081bf6f9e9b6c01b86d5856a015",
+          "row_id": "A2C/cartpole"
+        },
+        {
+          "contract_sha256": "cca1477d56c18c29098afc210c721dd3994a967f55060b9dc8dc214d2a04fc16",
+          "plan_id": "e6f3c46364f44227e435af5c79a0e6c5640bccfb7549bd15a66d0c2156d961c2",
+          "row_id": "A2C/mountain-car"
+        },
+        {
+          "contract_sha256": "e900dc2c10d59c03ffd856deb1ce897cfd270ffc8d37940350c83881917f3463",
+          "plan_id": "e0ab7366874911b3c365f44edb2d881c2afcfa92b2401fcef0bc78018bf1c6df",
+          "row_id": "A2C/lunar-lander"
+        },
+        {
+          "contract_sha256": "5d6a2cae120623af83b4cee41d5ae3617beb5061a93bd4aa20509c4854c00b1d",
+          "plan_id": "927870a09414a2290b0733b9e769f4894efb57d578400983f3eeb4d7b4f82933",
+          "row_id": "A2C/key-door-grid"
+        },
+        {
+          "contract_sha256": "aa761aaf510c4061e633a5ae14b2e3d164a748c5ab1158400364574b6a0f7c50",
+          "plan_id": "64f3d41c00fc97046e50652def2eb18c0102ec12af10cc16e364595706f5c4fc",
+          "row_id": "TRPO/cartpole"
+        },
+        {
+          "contract_sha256": "e54b3975118ebb3f40f8188d0af4f0fb24d9c61a435370bd7175f5480af86f0a",
+          "plan_id": "7b9bfbd360484e060dd7930c7c280b5dae66b5d453ba42e9ea221aa965e6ae07",
+          "row_id": "TRPO/mountain-car"
+        },
+        {
+          "contract_sha256": "67111fb370e4d4f57683f10c7bf74720ae0961eda9ba1b6f894b7630dbd8b844",
+          "plan_id": "c285ef2a46d8f044a3c7caa07a91cfae24e37b2c339cad400b54bb080914baf8",
+          "row_id": "TRPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "5ee6cd27bc5e589825a0d8df932fcd593bd83a6be41e8a56387214c1a2cb466f",
+          "plan_id": "1a5d4700dd7a7676e9ca5ac8337b7286675cfe6d45cea9f59be1865b6f8afb12",
+          "row_id": "TRPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "8044640163f2109f5ac0329c3dc9d8c7d031a70f0fe2dbbbb98bb1b278c9e694",
+          "plan_id": "0b227fd91cf61a6a6137338e19d1aa73e8a49175d34a49e9af5ff6064ccab876",
+          "row_id": "MaskablePPO/cartpole"
+        },
+        {
+          "contract_sha256": "a0b22bfd24e3d2deb160e2c2b5c41556aa26385bee6040e4cf22e81339f327bb",
+          "plan_id": "323f7b2a1c2af6a8fdb0d45febc4077b8019b2e12f4e21fa8cc840e079477f1a",
+          "row_id": "MaskablePPO/mountain-car"
+        },
+        {
+          "contract_sha256": "874ac25d604204279d8a47178e850f1af1094eb016b543f29387874636e30024",
+          "plan_id": "3ff30bbf32692ad80fac4f939121737ab034eff285c13e71e7f5cf33c8271bfc",
+          "row_id": "MaskablePPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "29e08ac7ecb31016c12a3ac7eeee603a669fe4e980552119906a0042c6ff7965",
+          "plan_id": "900a30029bc6d587ad24821a4b8e96b08a7277467869e19bbd12632018bfe3f7",
+          "row_id": "MaskablePPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "aa9216ccecf0b2255caaa28de69bfc723472d384fdec838cf8479e8abeeb3420",
+          "plan_id": "78e77b75b3e4d4cfaad7fbb4f12c9110ffa5c8898c2f69e79563d0ae477329f7",
+          "row_id": "RecurrentPPO/cartpole"
+        },
+        {
+          "contract_sha256": "5864085e1a780b79181c48aa92f5939252ced2be83cc461ea314e06c296e800e",
+          "plan_id": "07ef5aafa97a4c56cc3a96b0d04f7d7fe9aba77aeaa82d9db9ad5c807e2711ca",
+          "row_id": "RecurrentPPO/mountain-car"
+        },
+        {
+          "contract_sha256": "269319914eeb69624848db421d91d04d69d4331c3787d2890b4dfc9c592441a6",
+          "plan_id": "2e7832fba7f6007461e6605d910e2717b62a0e87b7156af5cd29d2d027d98ae2",
+          "row_id": "RecurrentPPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "9b98e80190bc4a2e2089cf6d399e2cb419f6b7090453d5c049e5bb447993b6ec",
+          "plan_id": "3ef4586036819f29fcf0959109af2b8ef296ae627ef9c6872b2789f4ffb9246c",
+          "row_id": "RecurrentPPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "fc7fbcf1c0bd5760b97a09fef18926c600b65284e5fb3ec79d0e21a7ec69d0a4",
+          "plan_id": "9accaa1e159511d9406b6620398fee2f455e5aaed52a1b544f73aa1bdcd3420a",
+          "row_id": "DQN/cartpole"
+        },
+        {
+          "contract_sha256": "c8174517988359bd1c168eee6ecff627e47bc13edc841cacd0c701cce239bff0",
+          "plan_id": "9fbfc4d264c1153c36a1af7dcfaa533a19401eb3fd33a15b7392127b327cd9b7",
+          "row_id": "DQN/mountain-car"
+        },
+        {
+          "contract_sha256": "87636ad94509940be447668573843aaa842ca5e2a7c319e24d39eb961fd38413",
+          "plan_id": "aebcd29d5939a0fd88af2baef8c1849da90122877a4368d0a95e3830d7d9723f",
+          "row_id": "DQN/key-door-grid"
+        },
+        {
+          "contract_sha256": "dfbf05098a3bafe59db3edb0bdcb5b9f050f4d914f15f8dca2be65701bed9e87",
+          "plan_id": "7095b8274e586b63d4c4c8898a86872597626e72219e5ebbf3c56b925fb2256d",
+          "row_id": "QR-DQN/cartpole"
+        },
+        {
+          "contract_sha256": "88d7837cc0093aeff423cd5ca6822099fbac0e72c64bf32d1f472984cd85b54b",
+          "plan_id": "c5e78334d33b9c8fa77d79f3d56fa15bc6b5dcf6f97bef8f2917f954cee12dc4",
+          "row_id": "QR-DQN/mountain-car"
+        },
+        {
+          "contract_sha256": "e069a66f417d76d435b5936df13a40e315f32b1e5e141aeea593734d15c916ee",
+          "plan_id": "4cc8ea724a504fe001b6725ea61035e81e54b95a88a2887049c88bfe86f865b4",
+          "row_id": "QR-DQN/key-door-grid"
+        },
+        {
+          "contract_sha256": "0b00b3c053324c6ac8b479c6b16c23f2b1ecd76de0a288d86fe937c27ab9d331",
+          "plan_id": "e6ceaec37946bffec4386264b381f8b85c69488a5042a1f149170c7481b4beb4",
+          "row_id": "DDPG/lunar-lander"
+        },
+        {
+          "contract_sha256": "2c0f908bea64b6d0e0125fd111af2091464969d98c3752b7ca90ebfdf7b83891",
+          "plan_id": "9cc8314620cf1e6d3a7f2a2c637eca9ed919babdba4d5e42969380e299c77410",
+          "row_id": "TD3/lunar-lander"
+        },
+        {
+          "contract_sha256": "40cff79b1217c09a76e538032be07f39e4e4f94e1e6a79db7a535277af56e83b",
+          "plan_id": "5525a03b46e8beed32b7ca6603305524735e9cd7c5a0e2707e78511a6fbb5f03",
+          "row_id": "SAC/lunar-lander"
+        },
+        {
+          "contract_sha256": "56d560406d4c7bec19aaf04553d73baabb64845df3d5e4af75f9cb2f0b4ed3bf",
+          "plan_id": "f118b362b6fbd9c30665054947f2994a875bcd10be99c97120a1af5ed6ce417f",
+          "row_id": "SAC/pendulum"
+        },
+        {
+          "contract_sha256": "513d4c45828931678963a242845ab472e599b78af53fc5b86b164a9e5a2b4bee",
+          "plan_id": "7ad337e855cedf38c1f69bdb32bb363268a93dd73e9823a953ab34715e67b465",
+          "row_id": "CrossQ/lunar-lander"
+        },
+        {
+          "contract_sha256": "87146d3a0b052d7c9d2437b04b832fd6b9c54ed305fbb80229b9de4dcd491cdb",
+          "plan_id": "a1f17c4d4c7ed02f3a48110b16d415af3c28a77a4c920425f08bcd59129344cf",
+          "row_id": "TQC/lunar-lander"
+        },
+        {
+          "contract_sha256": "5faa96ac72468ace693b46ae7d116e4e4e346bdd0f54be2459f316f204642660",
+          "plan_id": "7eb4d4f2f64025dd4e30f1eeb50d6312b0b3c2a0ae6ce3311c3b382c1219816d",
+          "row_id": "ARS/cartpole"
+        },
+        {
+          "contract_sha256": "e88021faa066f89157c20e3469d06527ad1722fe62a93b88bbd97a3d2eacd1b0",
+          "plan_id": "50434967e14c04aa48aabcdad21b6a5ca6b21319810d6c419d442f66f6c09501",
+          "row_id": "ARS/mountain-car"
+        },
+        {
+          "contract_sha256": "3d6346099397821a831c2e67ffa6d4218675ed415b7bed52f1f4a240f9aecd4b",
+          "plan_id": "d954720f048d8acbf18316a3bcbb7193bb5be653a665790565e3bcf6b63c4757",
+          "row_id": "ARS/lunar-lander"
+        },
+        {
+          "contract_sha256": "86eea7bf5de174cd91e44d64cfa126db35245edc6eba0881831d7973068c1b43",
+          "plan_id": "f568446a774cdcd9128dd57026912f7e0aef8b7e9b4863c9fe0d5692bca6099b",
+          "row_id": "ARS/key-door-grid"
+        },
+        {
+          "contract_sha256": "4240a5a23de857edb9c533c4f16e79789935b38fc0b63568f8043c52b88f1283",
+          "plan_id": "e2e959786728055df24eca72b82cee9a166f4491a2332e60af4c62b5705ae644",
+          "row_id": "HER/goal-reaching"
+        },
+        {
+          "contract_sha256": "954af02d8734e5cb1df7a7b09eb85b9786cb2b491dce4269165b58fa9c760bd0",
+          "plan_id": "b4a3d416b1dd090f74b3cc91da39fd8e8b7641a0d6dbad7ffadbf570cb53015c",
+          "row_id": "connect4"
+        },
+        {
+          "contract_sha256": "0191af33569290e301e02810c5bc2f7cdaa60366c85a0b49f733c50d89bceec4",
+          "plan_id": "1be0778c2da43c7acda56a4df305460d2e41da9118aadab83fbca24d2020c79f",
+          "row_id": "othello"
+        },
+        {
+          "contract_sha256": "83ed06d07890d8ed0bc9c530279b1aab60258864c66c4bf102f8d8f6107d968b",
+          "plan_id": "592092f87e5bdf91da6ec0cdbe958a879075119acf4e473b80c18e52f5ca97db",
+          "row_id": "hex"
+        },
+        {
+          "contract_sha256": "2a09242488a3d87c73d2a9a1bd22f118bda90bc4898cd4d28ec2b289512eb073",
+          "plan_id": "9876668b4d1cdd74a03279e4ef811129264cdc1dfd56fabd94f1308af068a365",
+          "row_id": "gomoku"
+        },
+        {
+          "contract_sha256": "db3d651c28a80efa52b4465b23fcc10f8a0b3d5adcbb829dcd1ef7724bb4a4db",
+          "plan_id": "5fcef09cdaab17fdfa1fad975f49ecc7f6cbbad8c1b26cc9d40018a51bb9006a",
+          "row_id": "hyperparameter-tuning"
+        }
+      ],
+      "criterion_applicability_blockers": [],
+      "additional_evidence_for_actual_pass": "Require authorized supervised real-lane acquisition under frozen prelaunch current source/review/full55 identity; every original0..4 outcome and unchanged actual work; authentic initial/effective/final plus same-case complete references; unchanged quality; original served0 physical eligibility/Store/replay; exhaustive attempts/failures and authenticated qualification/admission. Resolve live image/configuration/readiness and resource safety first. No actual pass is granted here."
+    },
+    {
+      "lane": "apple-silicon",
+      "scope": "native",
+      "source": {
+        "algorithm": 1,
+        "sha256": "656efe8f4236a0720bdba9b582320beae922b6f95913e22f9989203d58b2b6c7",
+        "files": 617
+      },
+      "subject": {
+        "path": ".build/phase278-resource-helm-criterion-review-a/apple-silicon-native-subject.json",
+        "bytes": 27221,
+        "sha256": "3502febfc7e7692b6c0a47447e3290058dfb79d7623689da1823409cf60de825"
+      },
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_OBSERVED_LEARNING_CRITERION",
+      "reasoning": "For these exact43 native rows (38 RETURN,1 HER,4 AlphaZero), the successor completes selected-budget transport without changing algorithms, effective initialization, seeds42..46, training budgets, paired cases, full reference families, exact comparisons, quality bars or exclusions. At least3 original members must jointly meet their entire learning/reference predicate, complete five-member statistics remain, and original served0 separately qualifies. The embedded current reasoning preserves the restricted proven-optimum reference ties and strict own-initial gain. This supports prospective finite observed-learning applicability only; no native execution/quality evidence is supplied.",
+      "lane_specific_reasoning": "This is a separate Apple assessment, not extrapolation from CPU or decoding an apple-silicon string. Native Metal host work remains outside Kubernetes CPU/RAM caps. Require explicit native CPU/heap/host-pressure supervision and actual hardware/device or honest host provenance, original cohort retention and served0 physical replay before qualification.",
+      "scientific_row_count": 43,
+      "scientific_rows": [
+        {
+          "contract_sha256": "97d97b5a9115dc44c57543d7fd8552ead3ffd4407e2c7b5cfaaacf26ff29179e",
+          "plan_id": "66ff26f1e3efeaf4cb0b7b6cb8b45c69fd9780793e428704f82b180fc11b713b",
+          "row_id": "PPO/cartpole"
+        },
+        {
+          "contract_sha256": "4f128168a4ba25e1f647b995df7b503e59681da84868543cd76e07152cf7fe18",
+          "plan_id": "21d881226609d1c25c76d71323a6271bb6009c70ffda5b21a1b05bbccefc0f09",
+          "row_id": "PPO/mountain-car"
+        },
+        {
+          "contract_sha256": "a8290e19575cf6ffe5b3acb668c2a54a9e6762f7ea7fc255170129b917382678",
+          "plan_id": "469fdfc0a380601f913635a1656dc4d51b634875d5d4d29c6a6e53eccc217c16",
+          "row_id": "PPO/acrobot"
+        },
+        {
+          "contract_sha256": "9cf6d8de8ae265ec9051352b0ee431b137e82cc2a82b902e7ef9c770f2d4defa",
+          "plan_id": "3492799add8b166ce431798ad6df73f2dca7cfed00ac75f59a785107220444de",
+          "row_id": "PPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "cb42a67176df531e55104b7020518f4711c83b9f312755b5d7468d22042e2889",
+          "plan_id": "df6c00e43401011b2c59d6946d306c8ecb95dd563f2e1829d632324d997d201b",
+          "row_id": "PPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "c8f003ba579ee3ef22734824e601f6b9967e662c21cf8223a714a5a75516e524",
+          "plan_id": "8929bd4f8063c46b29468d00037513fa38e46cc2b400024cb2eea6669f9c30cf",
+          "row_id": "PPO/gridworld-deterministic"
+        },
+        {
+          "contract_sha256": "52d29a3ace1c218f7757e07452f58d627fa76b1aa70145f6f1cff415e617115e",
+          "plan_id": "175fbb46c8c539b756c3841517ce21c2bfad9081bf6f9e9b6c01b86d5856a015",
+          "row_id": "A2C/cartpole"
+        },
+        {
+          "contract_sha256": "cca1477d56c18c29098afc210c721dd3994a967f55060b9dc8dc214d2a04fc16",
+          "plan_id": "e6f3c46364f44227e435af5c79a0e6c5640bccfb7549bd15a66d0c2156d961c2",
+          "row_id": "A2C/mountain-car"
+        },
+        {
+          "contract_sha256": "e900dc2c10d59c03ffd856deb1ce897cfd270ffc8d37940350c83881917f3463",
+          "plan_id": "e0ab7366874911b3c365f44edb2d881c2afcfa92b2401fcef0bc78018bf1c6df",
+          "row_id": "A2C/lunar-lander"
+        },
+        {
+          "contract_sha256": "5d6a2cae120623af83b4cee41d5ae3617beb5061a93bd4aa20509c4854c00b1d",
+          "plan_id": "927870a09414a2290b0733b9e769f4894efb57d578400983f3eeb4d7b4f82933",
+          "row_id": "A2C/key-door-grid"
+        },
+        {
+          "contract_sha256": "aa761aaf510c4061e633a5ae14b2e3d164a748c5ab1158400364574b6a0f7c50",
+          "plan_id": "64f3d41c00fc97046e50652def2eb18c0102ec12af10cc16e364595706f5c4fc",
+          "row_id": "TRPO/cartpole"
+        },
+        {
+          "contract_sha256": "e54b3975118ebb3f40f8188d0af4f0fb24d9c61a435370bd7175f5480af86f0a",
+          "plan_id": "7b9bfbd360484e060dd7930c7c280b5dae66b5d453ba42e9ea221aa965e6ae07",
+          "row_id": "TRPO/mountain-car"
+        },
+        {
+          "contract_sha256": "67111fb370e4d4f57683f10c7bf74720ae0961eda9ba1b6f894b7630dbd8b844",
+          "plan_id": "c285ef2a46d8f044a3c7caa07a91cfae24e37b2c339cad400b54bb080914baf8",
+          "row_id": "TRPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "5ee6cd27bc5e589825a0d8df932fcd593bd83a6be41e8a56387214c1a2cb466f",
+          "plan_id": "1a5d4700dd7a7676e9ca5ac8337b7286675cfe6d45cea9f59be1865b6f8afb12",
+          "row_id": "TRPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "8044640163f2109f5ac0329c3dc9d8c7d031a70f0fe2dbbbb98bb1b278c9e694",
+          "plan_id": "0b227fd91cf61a6a6137338e19d1aa73e8a49175d34a49e9af5ff6064ccab876",
+          "row_id": "MaskablePPO/cartpole"
+        },
+        {
+          "contract_sha256": "a0b22bfd24e3d2deb160e2c2b5c41556aa26385bee6040e4cf22e81339f327bb",
+          "plan_id": "323f7b2a1c2af6a8fdb0d45febc4077b8019b2e12f4e21fa8cc840e079477f1a",
+          "row_id": "MaskablePPO/mountain-car"
+        },
+        {
+          "contract_sha256": "874ac25d604204279d8a47178e850f1af1094eb016b543f29387874636e30024",
+          "plan_id": "3ff30bbf32692ad80fac4f939121737ab034eff285c13e71e7f5cf33c8271bfc",
+          "row_id": "MaskablePPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "29e08ac7ecb31016c12a3ac7eeee603a669fe4e980552119906a0042c6ff7965",
+          "plan_id": "900a30029bc6d587ad24821a4b8e96b08a7277467869e19bbd12632018bfe3f7",
+          "row_id": "MaskablePPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "aa9216ccecf0b2255caaa28de69bfc723472d384fdec838cf8479e8abeeb3420",
+          "plan_id": "78e77b75b3e4d4cfaad7fbb4f12c9110ffa5c8898c2f69e79563d0ae477329f7",
+          "row_id": "RecurrentPPO/cartpole"
+        },
+        {
+          "contract_sha256": "5864085e1a780b79181c48aa92f5939252ced2be83cc461ea314e06c296e800e",
+          "plan_id": "07ef5aafa97a4c56cc3a96b0d04f7d7fe9aba77aeaa82d9db9ad5c807e2711ca",
+          "row_id": "RecurrentPPO/mountain-car"
+        },
+        {
+          "contract_sha256": "269319914eeb69624848db421d91d04d69d4331c3787d2890b4dfc9c592441a6",
+          "plan_id": "2e7832fba7f6007461e6605d910e2717b62a0e87b7156af5cd29d2d027d98ae2",
+          "row_id": "RecurrentPPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "9b98e80190bc4a2e2089cf6d399e2cb419f6b7090453d5c049e5bb447993b6ec",
+          "plan_id": "3ef4586036819f29fcf0959109af2b8ef296ae627ef9c6872b2789f4ffb9246c",
+          "row_id": "RecurrentPPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "fc7fbcf1c0bd5760b97a09fef18926c600b65284e5fb3ec79d0e21a7ec69d0a4",
+          "plan_id": "9accaa1e159511d9406b6620398fee2f455e5aaed52a1b544f73aa1bdcd3420a",
+          "row_id": "DQN/cartpole"
+        },
+        {
+          "contract_sha256": "c8174517988359bd1c168eee6ecff627e47bc13edc841cacd0c701cce239bff0",
+          "plan_id": "9fbfc4d264c1153c36a1af7dcfaa533a19401eb3fd33a15b7392127b327cd9b7",
+          "row_id": "DQN/mountain-car"
+        },
+        {
+          "contract_sha256": "87636ad94509940be447668573843aaa842ca5e2a7c319e24d39eb961fd38413",
+          "plan_id": "aebcd29d5939a0fd88af2baef8c1849da90122877a4368d0a95e3830d7d9723f",
+          "row_id": "DQN/key-door-grid"
+        },
+        {
+          "contract_sha256": "dfbf05098a3bafe59db3edb0bdcb5b9f050f4d914f15f8dca2be65701bed9e87",
+          "plan_id": "7095b8274e586b63d4c4c8898a86872597626e72219e5ebbf3c56b925fb2256d",
+          "row_id": "QR-DQN/cartpole"
+        },
+        {
+          "contract_sha256": "88d7837cc0093aeff423cd5ca6822099fbac0e72c64bf32d1f472984cd85b54b",
+          "plan_id": "c5e78334d33b9c8fa77d79f3d56fa15bc6b5dcf6f97bef8f2917f954cee12dc4",
+          "row_id": "QR-DQN/mountain-car"
+        },
+        {
+          "contract_sha256": "e069a66f417d76d435b5936df13a40e315f32b1e5e141aeea593734d15c916ee",
+          "plan_id": "4cc8ea724a504fe001b6725ea61035e81e54b95a88a2887049c88bfe86f865b4",
+          "row_id": "QR-DQN/key-door-grid"
+        },
+        {
+          "contract_sha256": "0b00b3c053324c6ac8b479c6b16c23f2b1ecd76de0a288d86fe937c27ab9d331",
+          "plan_id": "e6ceaec37946bffec4386264b381f8b85c69488a5042a1f149170c7481b4beb4",
+          "row_id": "DDPG/lunar-lander"
+        },
+        {
+          "contract_sha256": "2c0f908bea64b6d0e0125fd111af2091464969d98c3752b7ca90ebfdf7b83891",
+          "plan_id": "9cc8314620cf1e6d3a7f2a2c637eca9ed919babdba4d5e42969380e299c77410",
+          "row_id": "TD3/lunar-lander"
+        },
+        {
+          "contract_sha256": "40cff79b1217c09a76e538032be07f39e4e4f94e1e6a79db7a535277af56e83b",
+          "plan_id": "5525a03b46e8beed32b7ca6603305524735e9cd7c5a0e2707e78511a6fbb5f03",
+          "row_id": "SAC/lunar-lander"
+        },
+        {
+          "contract_sha256": "56d560406d4c7bec19aaf04553d73baabb64845df3d5e4af75f9cb2f0b4ed3bf",
+          "plan_id": "f118b362b6fbd9c30665054947f2994a875bcd10be99c97120a1af5ed6ce417f",
+          "row_id": "SAC/pendulum"
+        },
+        {
+          "contract_sha256": "513d4c45828931678963a242845ab472e599b78af53fc5b86b164a9e5a2b4bee",
+          "plan_id": "7ad337e855cedf38c1f69bdb32bb363268a93dd73e9823a953ab34715e67b465",
+          "row_id": "CrossQ/lunar-lander"
+        },
+        {
+          "contract_sha256": "87146d3a0b052d7c9d2437b04b832fd6b9c54ed305fbb80229b9de4dcd491cdb",
+          "plan_id": "a1f17c4d4c7ed02f3a48110b16d415af3c28a77a4c920425f08bcd59129344cf",
+          "row_id": "TQC/lunar-lander"
+        },
+        {
+          "contract_sha256": "5faa96ac72468ace693b46ae7d116e4e4e346bdd0f54be2459f316f204642660",
+          "plan_id": "7eb4d4f2f64025dd4e30f1eeb50d6312b0b3c2a0ae6ce3311c3b382c1219816d",
+          "row_id": "ARS/cartpole"
+        },
+        {
+          "contract_sha256": "e88021faa066f89157c20e3469d06527ad1722fe62a93b88bbd97a3d2eacd1b0",
+          "plan_id": "50434967e14c04aa48aabcdad21b6a5ca6b21319810d6c419d442f66f6c09501",
+          "row_id": "ARS/mountain-car"
+        },
+        {
+          "contract_sha256": "3d6346099397821a831c2e67ffa6d4218675ed415b7bed52f1f4a240f9aecd4b",
+          "plan_id": "d954720f048d8acbf18316a3bcbb7193bb5be653a665790565e3bcf6b63c4757",
+          "row_id": "ARS/lunar-lander"
+        },
+        {
+          "contract_sha256": "86eea7bf5de174cd91e44d64cfa126db35245edc6eba0881831d7973068c1b43",
+          "plan_id": "f568446a774cdcd9128dd57026912f7e0aef8b7e9b4863c9fe0d5692bca6099b",
+          "row_id": "ARS/key-door-grid"
+        },
+        {
+          "contract_sha256": "4240a5a23de857edb9c533c4f16e79789935b38fc0b63568f8043c52b88f1283",
+          "plan_id": "e2e959786728055df24eca72b82cee9a166f4491a2332e60af4c62b5705ae644",
+          "row_id": "HER/goal-reaching"
+        },
+        {
+          "contract_sha256": "954af02d8734e5cb1df7a7b09eb85b9786cb2b491dce4269165b58fa9c760bd0",
+          "plan_id": "b4a3d416b1dd090f74b3cc91da39fd8e8b7641a0d6dbad7ffadbf570cb53015c",
+          "row_id": "connect4"
+        },
+        {
+          "contract_sha256": "0191af33569290e301e02810c5bc2f7cdaa60366c85a0b49f733c50d89bceec4",
+          "plan_id": "1be0778c2da43c7acda56a4df305460d2e41da9118aadab83fbca24d2020c79f",
+          "row_id": "othello"
+        },
+        {
+          "contract_sha256": "83ed06d07890d8ed0bc9c530279b1aab60258864c66c4bf102f8d8f6107d968b",
+          "plan_id": "592092f87e5bdf91da6ec0cdbe958a879075119acf4e473b80c18e52f5ca97db",
+          "row_id": "hex"
+        },
+        {
+          "contract_sha256": "2a09242488a3d87c73d2a9a1bd22f118bda90bc4898cd4d28ec2b289512eb073",
+          "plan_id": "9876668b4d1cdd74a03279e4ef811129264cdc1dfd56fabd94f1308af068a365",
+          "row_id": "gomoku"
+        }
+      ],
+      "complete_ordered55_contract_set_sha256": "a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c",
+      "complete_ordered55_contracts": [
+        {
+          "contract_sha256": "2b0f0c9427a2b82db3bec2d4e9be83d78c6cef29710b1b806543e8f338666d89",
+          "plan_id": "7da4faeee152de78039933a7e42500e9cbd96597e257348bf91ff5ce3c35bf70",
+          "row_id": "mnist-shallow-mlp"
+        },
+        {
+          "contract_sha256": "0da5bb7256b5ecd738abdc81c0384d7403525c0a58efcc2e9f1f3dd2b7fc468d",
+          "plan_id": "fcce4d702e8e401e579cf561d3180c2d63b32eb9a43c17f6bc1fa8ef421fd4ac",
+          "row_id": "mnist-deep-mlp"
+        },
+        {
+          "contract_sha256": "c2e2393f77655c574ce79fadbd2701e94ca9063673bdbc365f0d4ea35f8683f6",
+          "plan_id": "825767c8fc3fbcd29c82cbca3b5a64fdb7d94ada466553be958d9f04312438a9",
+          "row_id": "mnist-lenet"
+        },
+        {
+          "contract_sha256": "7ddf1b2330614ad06aa785b7f853eef3cd42b3bcbd03d1b70e6b62d914484712",
+          "plan_id": "0db1451eb071cbf8402164805bb9b51162ce339498fa39e16e497af8cfa49cd5",
+          "row_id": "fashion-mnist-mlp"
+        },
+        {
+          "contract_sha256": "8afd7429805deec69ceb715b3e6f2dfb37b1161c5d7e6a9d419bcbe0f029c232",
+          "plan_id": "0d0144d31841a201770c8a73fbbe04727e7c4f97ba40d25bc80f476d2d7e8eeb",
+          "row_id": "fashion-mnist-resnet"
+        },
+        {
+          "contract_sha256": "e62fd1e34a8a68f8c5b4d03a74230a007f6b97a0d2d2711e6fc13cdc7ed21be3",
+          "plan_id": "8acc466dab1dfd454d067a5aa99a917a813cb8ed8370ade261cbe2a40277502d",
+          "row_id": "cifar10-resnet20"
+        },
+        {
+          "contract_sha256": "4b84439cd31efbde505121d6743a17ed003a57a1be868bd8b59dbc5e68629372",
+          "plan_id": "78c7cec5fe7c636a7611e3cbc0bb484094fc4f13b322d4dc48e6379e7166b5e7",
+          "row_id": "cifar10-resnet56"
+        },
+        {
+          "contract_sha256": "3806772a5b8cf0976ab378bb16f0b42993d8a5b60530eb2fc8b6e4c7984779b5",
+          "plan_id": "6a514742423d4ec693cc406b61bb3f9f1069e0803a10b19f2340b972527185e5",
+          "row_id": "cifar100-wide-resnet"
+        },
+        {
+          "contract_sha256": "db708282e304e2d8d20dfa662d13792a7c2ce762fbb6bf56e435ab45ce8dfe82",
+          "plan_id": "6f74b23e005855e31b98c9e34a681ac558439defb4ed48ee473376963f5f9454",
+          "row_id": "cifar10-vit"
+        },
+        {
+          "contract_sha256": "a1683cceb3306f925a2797fc1fa5dc7ba809a0c7c89a09cc705996014cb5e226",
+          "plan_id": "808f353500ed56966cf246d80116ca2168cec786dc51c8ce37fbcb6e42ce7ec2",
+          "row_id": "tiny-imagenet-resnet50"
+        },
+        {
+          "contract_sha256": "13c8781db2d45a7f2dc1afec9d0b7bbc0cdc82d2c04ecf880188f90073f29f94",
+          "plan_id": "572c209070a570d7423c17748cbd7be61571125f7b2f6ecc5aea950b3819d14b",
+          "row_id": "california-housing-mlp"
+        },
+        {
+          "contract_sha256": "97d97b5a9115dc44c57543d7fd8552ead3ffd4407e2c7b5cfaaacf26ff29179e",
+          "plan_id": "66ff26f1e3efeaf4cb0b7b6cb8b45c69fd9780793e428704f82b180fc11b713b",
+          "row_id": "PPO/cartpole"
+        },
+        {
+          "contract_sha256": "4f128168a4ba25e1f647b995df7b503e59681da84868543cd76e07152cf7fe18",
+          "plan_id": "21d881226609d1c25c76d71323a6271bb6009c70ffda5b21a1b05bbccefc0f09",
+          "row_id": "PPO/mountain-car"
+        },
+        {
+          "contract_sha256": "a8290e19575cf6ffe5b3acb668c2a54a9e6762f7ea7fc255170129b917382678",
+          "plan_id": "469fdfc0a380601f913635a1656dc4d51b634875d5d4d29c6a6e53eccc217c16",
+          "row_id": "PPO/acrobot"
+        },
+        {
+          "contract_sha256": "9cf6d8de8ae265ec9051352b0ee431b137e82cc2a82b902e7ef9c770f2d4defa",
+          "plan_id": "3492799add8b166ce431798ad6df73f2dca7cfed00ac75f59a785107220444de",
+          "row_id": "PPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "cb42a67176df531e55104b7020518f4711c83b9f312755b5d7468d22042e2889",
+          "plan_id": "df6c00e43401011b2c59d6946d306c8ecb95dd563f2e1829d632324d997d201b",
+          "row_id": "PPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "c8f003ba579ee3ef22734824e601f6b9967e662c21cf8223a714a5a75516e524",
+          "plan_id": "8929bd4f8063c46b29468d00037513fa38e46cc2b400024cb2eea6669f9c30cf",
+          "row_id": "PPO/gridworld-deterministic"
+        },
+        {
+          "contract_sha256": "52d29a3ace1c218f7757e07452f58d627fa76b1aa70145f6f1cff415e617115e",
+          "plan_id": "175fbb46c8c539b756c3841517ce21c2bfad9081bf6f9e9b6c01b86d5856a015",
+          "row_id": "A2C/cartpole"
+        },
+        {
+          "contract_sha256": "cca1477d56c18c29098afc210c721dd3994a967f55060b9dc8dc214d2a04fc16",
+          "plan_id": "e6f3c46364f44227e435af5c79a0e6c5640bccfb7549bd15a66d0c2156d961c2",
+          "row_id": "A2C/mountain-car"
+        },
+        {
+          "contract_sha256": "e900dc2c10d59c03ffd856deb1ce897cfd270ffc8d37940350c83881917f3463",
+          "plan_id": "e0ab7366874911b3c365f44edb2d881c2afcfa92b2401fcef0bc78018bf1c6df",
+          "row_id": "A2C/lunar-lander"
+        },
+        {
+          "contract_sha256": "5d6a2cae120623af83b4cee41d5ae3617beb5061a93bd4aa20509c4854c00b1d",
+          "plan_id": "927870a09414a2290b0733b9e769f4894efb57d578400983f3eeb4d7b4f82933",
+          "row_id": "A2C/key-door-grid"
+        },
+        {
+          "contract_sha256": "aa761aaf510c4061e633a5ae14b2e3d164a748c5ab1158400364574b6a0f7c50",
+          "plan_id": "64f3d41c00fc97046e50652def2eb18c0102ec12af10cc16e364595706f5c4fc",
+          "row_id": "TRPO/cartpole"
+        },
+        {
+          "contract_sha256": "e54b3975118ebb3f40f8188d0af4f0fb24d9c61a435370bd7175f5480af86f0a",
+          "plan_id": "7b9bfbd360484e060dd7930c7c280b5dae66b5d453ba42e9ea221aa965e6ae07",
+          "row_id": "TRPO/mountain-car"
+        },
+        {
+          "contract_sha256": "67111fb370e4d4f57683f10c7bf74720ae0961eda9ba1b6f894b7630dbd8b844",
+          "plan_id": "c285ef2a46d8f044a3c7caa07a91cfae24e37b2c339cad400b54bb080914baf8",
+          "row_id": "TRPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "5ee6cd27bc5e589825a0d8df932fcd593bd83a6be41e8a56387214c1a2cb466f",
+          "plan_id": "1a5d4700dd7a7676e9ca5ac8337b7286675cfe6d45cea9f59be1865b6f8afb12",
+          "row_id": "TRPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "8044640163f2109f5ac0329c3dc9d8c7d031a70f0fe2dbbbb98bb1b278c9e694",
+          "plan_id": "0b227fd91cf61a6a6137338e19d1aa73e8a49175d34a49e9af5ff6064ccab876",
+          "row_id": "MaskablePPO/cartpole"
+        },
+        {
+          "contract_sha256": "a0b22bfd24e3d2deb160e2c2b5c41556aa26385bee6040e4cf22e81339f327bb",
+          "plan_id": "323f7b2a1c2af6a8fdb0d45febc4077b8019b2e12f4e21fa8cc840e079477f1a",
+          "row_id": "MaskablePPO/mountain-car"
+        },
+        {
+          "contract_sha256": "874ac25d604204279d8a47178e850f1af1094eb016b543f29387874636e30024",
+          "plan_id": "3ff30bbf32692ad80fac4f939121737ab034eff285c13e71e7f5cf33c8271bfc",
+          "row_id": "MaskablePPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "29e08ac7ecb31016c12a3ac7eeee603a669fe4e980552119906a0042c6ff7965",
+          "plan_id": "900a30029bc6d587ad24821a4b8e96b08a7277467869e19bbd12632018bfe3f7",
+          "row_id": "MaskablePPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "aa9216ccecf0b2255caaa28de69bfc723472d384fdec838cf8479e8abeeb3420",
+          "plan_id": "78e77b75b3e4d4cfaad7fbb4f12c9110ffa5c8898c2f69e79563d0ae477329f7",
+          "row_id": "RecurrentPPO/cartpole"
+        },
+        {
+          "contract_sha256": "5864085e1a780b79181c48aa92f5939252ced2be83cc461ea314e06c296e800e",
+          "plan_id": "07ef5aafa97a4c56cc3a96b0d04f7d7fe9aba77aeaa82d9db9ad5c807e2711ca",
+          "row_id": "RecurrentPPO/mountain-car"
+        },
+        {
+          "contract_sha256": "269319914eeb69624848db421d91d04d69d4331c3787d2890b4dfc9c592441a6",
+          "plan_id": "2e7832fba7f6007461e6605d910e2717b62a0e87b7156af5cd29d2d027d98ae2",
+          "row_id": "RecurrentPPO/lunar-lander"
+        },
+        {
+          "contract_sha256": "9b98e80190bc4a2e2089cf6d399e2cb419f6b7090453d5c049e5bb447993b6ec",
+          "plan_id": "3ef4586036819f29fcf0959109af2b8ef296ae627ef9c6872b2789f4ffb9246c",
+          "row_id": "RecurrentPPO/key-door-grid"
+        },
+        {
+          "contract_sha256": "fc7fbcf1c0bd5760b97a09fef18926c600b65284e5fb3ec79d0e21a7ec69d0a4",
+          "plan_id": "9accaa1e159511d9406b6620398fee2f455e5aaed52a1b544f73aa1bdcd3420a",
+          "row_id": "DQN/cartpole"
+        },
+        {
+          "contract_sha256": "c8174517988359bd1c168eee6ecff627e47bc13edc841cacd0c701cce239bff0",
+          "plan_id": "9fbfc4d264c1153c36a1af7dcfaa533a19401eb3fd33a15b7392127b327cd9b7",
+          "row_id": "DQN/mountain-car"
+        },
+        {
+          "contract_sha256": "87636ad94509940be447668573843aaa842ca5e2a7c319e24d39eb961fd38413",
+          "plan_id": "aebcd29d5939a0fd88af2baef8c1849da90122877a4368d0a95e3830d7d9723f",
+          "row_id": "DQN/key-door-grid"
+        },
+        {
+          "contract_sha256": "dfbf05098a3bafe59db3edb0bdcb5b9f050f4d914f15f8dca2be65701bed9e87",
+          "plan_id": "7095b8274e586b63d4c4c8898a86872597626e72219e5ebbf3c56b925fb2256d",
+          "row_id": "QR-DQN/cartpole"
+        },
+        {
+          "contract_sha256": "88d7837cc0093aeff423cd5ca6822099fbac0e72c64bf32d1f472984cd85b54b",
+          "plan_id": "c5e78334d33b9c8fa77d79f3d56fa15bc6b5dcf6f97bef8f2917f954cee12dc4",
+          "row_id": "QR-DQN/mountain-car"
+        },
+        {
+          "contract_sha256": "e069a66f417d76d435b5936df13a40e315f32b1e5e141aeea593734d15c916ee",
+          "plan_id": "4cc8ea724a504fe001b6725ea61035e81e54b95a88a2887049c88bfe86f865b4",
+          "row_id": "QR-DQN/key-door-grid"
+        },
+        {
+          "contract_sha256": "0b00b3c053324c6ac8b479c6b16c23f2b1ecd76de0a288d86fe937c27ab9d331",
+          "plan_id": "e6ceaec37946bffec4386264b381f8b85c69488a5042a1f149170c7481b4beb4",
+          "row_id": "DDPG/lunar-lander"
+        },
+        {
+          "contract_sha256": "2c0f908bea64b6d0e0125fd111af2091464969d98c3752b7ca90ebfdf7b83891",
+          "plan_id": "9cc8314620cf1e6d3a7f2a2c637eca9ed919babdba4d5e42969380e299c77410",
+          "row_id": "TD3/lunar-lander"
+        },
+        {
+          "contract_sha256": "40cff79b1217c09a76e538032be07f39e4e4f94e1e6a79db7a535277af56e83b",
+          "plan_id": "5525a03b46e8beed32b7ca6603305524735e9cd7c5a0e2707e78511a6fbb5f03",
+          "row_id": "SAC/lunar-lander"
+        },
+        {
+          "contract_sha256": "56d560406d4c7bec19aaf04553d73baabb64845df3d5e4af75f9cb2f0b4ed3bf",
+          "plan_id": "f118b362b6fbd9c30665054947f2994a875bcd10be99c97120a1af5ed6ce417f",
+          "row_id": "SAC/pendulum"
+        },
+        {
+          "contract_sha256": "513d4c45828931678963a242845ab472e599b78af53fc5b86b164a9e5a2b4bee",
+          "plan_id": "7ad337e855cedf38c1f69bdb32bb363268a93dd73e9823a953ab34715e67b465",
+          "row_id": "CrossQ/lunar-lander"
+        },
+        {
+          "contract_sha256": "87146d3a0b052d7c9d2437b04b832fd6b9c54ed305fbb80229b9de4dcd491cdb",
+          "plan_id": "a1f17c4d4c7ed02f3a48110b16d415af3c28a77a4c920425f08bcd59129344cf",
+          "row_id": "TQC/lunar-lander"
+        },
+        {
+          "contract_sha256": "5faa96ac72468ace693b46ae7d116e4e4e346bdd0f54be2459f316f204642660",
+          "plan_id": "7eb4d4f2f64025dd4e30f1eeb50d6312b0b3c2a0ae6ce3311c3b382c1219816d",
+          "row_id": "ARS/cartpole"
+        },
+        {
+          "contract_sha256": "e88021faa066f89157c20e3469d06527ad1722fe62a93b88bbd97a3d2eacd1b0",
+          "plan_id": "50434967e14c04aa48aabcdad21b6a5ca6b21319810d6c419d442f66f6c09501",
+          "row_id": "ARS/mountain-car"
+        },
+        {
+          "contract_sha256": "3d6346099397821a831c2e67ffa6d4218675ed415b7bed52f1f4a240f9aecd4b",
+          "plan_id": "d954720f048d8acbf18316a3bcbb7193bb5be653a665790565e3bcf6b63c4757",
+          "row_id": "ARS/lunar-lander"
+        },
+        {
+          "contract_sha256": "86eea7bf5de174cd91e44d64cfa126db35245edc6eba0881831d7973068c1b43",
+          "plan_id": "f568446a774cdcd9128dd57026912f7e0aef8b7e9b4863c9fe0d5692bca6099b",
+          "row_id": "ARS/key-door-grid"
+        },
+        {
+          "contract_sha256": "4240a5a23de857edb9c533c4f16e79789935b38fc0b63568f8043c52b88f1283",
+          "plan_id": "e2e959786728055df24eca72b82cee9a166f4491a2332e60af4c62b5705ae644",
+          "row_id": "HER/goal-reaching"
+        },
+        {
+          "contract_sha256": "954af02d8734e5cb1df7a7b09eb85b9786cb2b491dce4269165b58fa9c760bd0",
+          "plan_id": "b4a3d416b1dd090f74b3cc91da39fd8e8b7641a0d6dbad7ffadbf570cb53015c",
+          "row_id": "connect4"
+        },
+        {
+          "contract_sha256": "0191af33569290e301e02810c5bc2f7cdaa60366c85a0b49f733c50d89bceec4",
+          "plan_id": "1be0778c2da43c7acda56a4df305460d2e41da9118aadab83fbca24d2020c79f",
+          "row_id": "othello"
+        },
+        {
+          "contract_sha256": "83ed06d07890d8ed0bc9c530279b1aab60258864c66c4bf102f8d8f6107d968b",
+          "plan_id": "592092f87e5bdf91da6ec0cdbe958a879075119acf4e473b80c18e52f5ca97db",
+          "row_id": "hex"
+        },
+        {
+          "contract_sha256": "2a09242488a3d87c73d2a9a1bd22f118bda90bc4898cd4d28ec2b289512eb073",
+          "plan_id": "9876668b4d1cdd74a03279e4ef811129264cdc1dfd56fabd94f1308af068a365",
+          "row_id": "gomoku"
+        },
+        {
+          "contract_sha256": "db3d651c28a80efa52b4465b23fcc10f8a0b3d5adcbb829dcd1ef7724bb4a4db",
+          "plan_id": "5fcef09cdaab17fdfa1fad975f49ecc7f6cbbad8c1b26cc9d40018a51bb9006a",
+          "row_id": "hyperparameter-tuning"
+        }
+      ],
+      "criterion_applicability_blockers": [],
+      "additional_evidence_for_actual_pass": "Require authorized supervised real-lane acquisition under frozen prelaunch current source/review/full55 identity; every original0..4 outcome and unchanged actual work; authentic initial/effective/final plus same-case complete references; unchanged quality; original served0 physical eligibility/Store/replay; exhaustive attempts/failures and authenticated qualification/admission. Resolve live image/configuration/readiness and resource safety first. No actual pass is granted here."
+    }
+  ],
+  "scientific_reasoning_and_claim_limits": {
+    "classification": {
+      "predicate": "Final exact held-out correct count strictly exceeds own authentic initial count and meets max(actual held-out majority count+1, exact uniform-binomial critical count). This is a finite comparator, not rejection of every possible trivial predictor or arbitrary untrained network.",
+      "independent_exact_integer_check": [
+        {
+          "classes": 10,
+          "examples": 1000,
+          "minimum_uniform_correct": 136
+        },
+        {
+          "classes": 100,
+          "examples": 1000,
+          "minimum_uniform_correct": 24
+        },
+        {
+          "classes": 200,
+          "examples": 1000,
+          "minimum_uniform_correct": 16
+        }
+      ],
+      "calculation": "Independently summed integer binomial weights. Each k is first with5000*sum_{j=k..1000} C(1000,j)*(classes-1)^(1000-j)<=classes^1000; k-1 fails. Actual majority bound also applies without balanced-label assumption.",
+      "conditional_probability": "Only for prospectively allocated all-five-null cohorts with iid uniform-per-example guesses within each member: joint success is contained in a tail event<=1/5000; Markov gives P(N>=3)<=5/(3*5000)=1/3000 without seed independence. Union bound over at most30 such prospectively allocated cohorts gives<=0.01.",
+      "limitations": "No automatic0.01 claim under adaptive/repeated/score-selected attempts. No mixed-null, uniform-marginal-only, correlated/nonuniform guess, arbitrary random-network, regression, native-RL or population guarantee. Remaining multiplicity allocation/global attempt-ledger completeness were not audited."
+    },
+    "regression": "Positive finite scale, finite predictions/targets and positive held-out variance remain required. Exact binary64-rational SSE_final<SSE_initial and SSE_final<SST establish finite paired improvement and strictly positive empirical held-out R-squared versus the best constant on those exact targets, without population confidence. Original standardized-RMSE arithmetic/ceiling, full-five median and served0 conditions remain additional.",
+    "historical_bars": {
+      "status": "All exact target/slack values/comparison arithmetic remain, with historical/outcome-calibrated or unproven provenance. Labels/consistency do not establish independently justified published-model convergence.",
+      "examples": "LeNet0.99-0.69 retains0.30; CIFAR1000.78-0.74 retains0.04; Tiny0.64-0.632 retains0.008, explicitly chosen after observed0.012. Tiny12/1000 cannot pass the extra uniform16-correct control; actual majority may be stronger. New learning guards do not rewrite this history.",
+      "regression": "Original standardized RMSE target0.9/slack0.1 remains.",
+      "native": "RETURN exact per-row target/slack, HER success0.90/slack0.05 and distance ceiling0.05, arena0.45/slack0.05, legal rate1 and original0.5 exclusion/tolerance remain. Literature-labelled RL targets plus project-calibrated slack do not establish research/SB3-recipe parity."
+    },
+    "native_RETURN": "All38 RETURN rows retain every prescribed controller once in canonical order and complete paired fixed-case initial/final episodes. Each joint success strictly improves exact median over its own effective initialization and beats every reference. Discrete constant actions, complete legal masked-preference permutations and continuous zero/lower/upper endpoints remain required where applicable. Equality only when both actual reference and final equal the independently recomputed exact maximum of the complete current KeyDoor full-state/time simulator DP. Other RETURN ties remain refused; supplied/historical maxima and forged above-bound rewards grant nothing.",
+    "native_HER": "The6-bit/horizon6/20-case scope retains all46656 goal-blind sequences, actual replay, exact extrema and all attaining IDs. Each joint success requires both strict success-count increase and strict exact mean-distance decrease from its own initial model plus both reference predicates. Equality only when both actual reference and final attain structural20-success/zero-distance optimum. Tying weaker references fails; own-initial gain is never waived.",
+    "native_arena": "Four games retain exact tape/all nine addressed outcomes, authentic learned initial/final and plain-legal-uniform plus neutral-legal-MCTS references. Exact rational WDL score strictly improves over initialization and beats each reference, except both actual scores at structural maximum1. Complete nine-case counts establish this finite bound. Original quality/legal metrics and0.5 exclusion/tolerance remain independent.",
+    "effective_initial_and_provenance": "SAC effective/warm initialization cannot be replaced by an easier cold baseline; current producer captures effective state before initial evaluation. ARS actual aggregate-step lineage and honest host provenance remain required. Native serving candidate requires the original child execution witness or actual recorded ARS host reference; names/hashes provide no physical/provider provenance.",
+    "cohort_and_served_identity": "Exactly five original ordered complete outcomes0..4 with canonical seeds and actual unchanged work remain. At least3 same original models jointly meet their entire learning/reference predicate; full-five statistics retain finite failures. Predetermined original index0 independently meets learning, unchanged quality, budget and physical serving/admission/replay requirements. Auxiliary members need not all individually pass quality, but cannot be dropped. Missing/incomplete/nonfinite/substituted/wrong-budget members cannot be scored as a completed successful cohort.",
+    "no_adaptive_relaxation": "No pooling/splicing, best-seed substitution, score-selected retries/restarts, cherry-picking, budget extension, changed recipe/bar, metric-parity tolerance borrowed for strict learning comparisons, or retroactive conversion of old failures to success. Every attempt/outcome remains retained.",
+    "tuning_context_only": {
+      "row_id": "hyperparameter-tuning",
+      "seed": 1729,
+      "trials": 128,
+      "scientific_endorsement": false,
+      "note": "Original explicitly absent source provenance is not invented; full55 context/admission obligations remain."
+    },
+    "tuning_explanation": "Not one of54 scientifically endorsed training rows. Absent original source provenance is not invented. Exact full55 context contract and original lane admission still apply."
+  },
+  "current_scientific_reasoning_reconfirmation": "The embedded reasoning is a current assessment of unchanged actual scientific source, not an inherited verdict. Its complete classification/regression/native/cohort/served0/historical/adaptivity/exclusion/tuning limitations are mandatory for every current scope. The exact integer binomial critical counts136/24/16 were recomputed in this focused review. The actual615 unchanged-file comparison and exact110 contract equality support this reuse of scientific analysis. No scientific execution, population claim or remaining multiplicity allocation is inferred.",
+  "compiled_and_mechanical_evidence": {
+    "current_library_cli": {
+      "receipt": {
+        "path": ".build/phase278-resource-helm-config-fix-a/compile-work/payload-result.json",
+        "bytes": 3564,
+        "sha256": "74fb355516ae03f3367f7b16e70647435383770bd5fc5ad265489b67ecb605ac"
+      },
+      "actual_exit": 0,
+      "compiled_authority": {
+        "compiler": "ghc-9.12.4",
+        "arch": "aarch64",
+        "os": "linux",
+        "cli_path": "/jitml/dist-newstyle/build/aarch64-linux/ghc-9.12.4/jitml-0.1.0.0/x/jitml/build/jitml/jitml",
+        "cli": {
+          "bytes": 238142736,
+          "sha256": "fbb3727007bcc95078464cae461569a75f112585da5ddb943e6ab5751b469fb4"
+        },
+        "library": {
+          "bytes": 279289304,
+          "sha256": "d40e362ca8f5bec3130f9cc26daf00ae0390592f88f2485462caa30c1d92eb0c"
+        },
+        "library_unit": "jitml-0.1.0.0-inplace",
+        "components": {
+          "lib": "jitml-0.1.0.0-inplace",
+          "exe:jitml": "jitml-0.1.0.0-inplace-jitml",
+          "test:jitml-backends": "jitml-0.1.0.0-inplace-jitml-backends",
+          "test:jitml-daemon-lifecycle": "jitml-0.1.0.0-inplace-jitml-daemon-lifecycle",
+          "test:jitml-e2e": "jitml-0.1.0.0-inplace-jitml-e2e",
+          "test:jitml-hyperparameter": "jitml-0.1.0.0-inplace-jitml-hyperparameter",
+          "test:jitml-integration": "jitml-0.1.0.0-inplace-jitml-integration",
+          "test:jitml-model-convergence": "jitml-0.1.0.0-inplace-jitml-model-convergence",
+          "test:jitml-negative-controls": "jitml-0.1.0.0-inplace-jitml-negative-controls",
+          "test:jitml-rl-canonicals": "jitml-0.1.0.0-inplace-jitml-rl-canonicals",
+          "test:jitml-sl-canonicals": "jitml-0.1.0.0-inplace-jitml-sl-canonicals",
+          "test:jitml-unit": "jitml-0.1.0.0-inplace-jitml-unit"
+        }
+      },
+      "wall_seconds": 75.00215274499999,
+      "no_test_stanza_or_large_unit_entry_build": true,
+      "scope": "Current development library/CLI compilation only."
+    },
+    "current_scoped_resource_checks": {
+      "receipt": {
+        "path": ".build/phase278-resource-helm-config-fix-a/scoped-work/payload-result.json",
+        "bytes": 2234,
+        "sha256": "0c6c0e6a060539c7f3a6912f08e5d4015cbd924bdabe06095a6957bbcd3be90c"
+      },
+      "actual_exit": 0,
+      "listed": 68,
+      "passed": 68,
+      "compiled_home_modules": [
+        "ClusterResourceBudget",
+        "ClusterResourceRendering",
+        "Main"
+      ],
+      "full_unit_main_or_standing_stanza": false,
+      "training_executed": false
+    },
+    "actual_Helm_to_typed_BootConfig": {
+      "receipt": {
+        "path": ".build/phase278-resource-helm-config-fix-a/helm-work/payload-result.json",
+        "bytes": 9267,
+        "sha256": "fd8fe483d2699b0079ac0fc1ef14ea0e235596356e8bd15a6c0b2b55ef3a35e3"
+      },
+      "driver": {
+        "path": ".build/phase278-resource-helm-config-fix-a/helm_payload.py",
+        "bytes": 8938,
+        "sha256": "bcfa536ec32bd791185deb8e7f74409815146b8b73ceeb502562b6dbc94c08f8"
+      },
+      "typed_helper": {
+        "path": ".build/phase278-resource-helm-config-fix-a/HelmBootConfigValidation.hs",
+        "bytes": 2745,
+        "sha256": "e45320f5e0992d1cb9b8389ea2ea04853218ae25ca1b43a9a01f8c34c51e2cab"
+      },
+      "actual_exit": 0,
+      "actual_helm_rendering": true,
+      "actual_typed_BootConfig_loader": true,
+      "unique_cases": 45,
+      "coverage": "27 runtime-overlay cases:3 profiles(default/mac16/distinct) x3 declared substrate names x3 roles;18 generated-service-default cases:3 profiles x3 names x2 service roles. Each extracted actual Helm ConfigMap body is loaded by loadBootConfig and checked for exact selected budget, substrate and role.",
+      "original_missing_field_controls": [
+        {
+          "role": "Engine",
+          "actual_exit": 1,
+          "missing_field": "numericalWorkload"
+        },
+        {
+          "role": "Coordinator",
+          "actual_exit": 1,
+          "missing_field": "numericalWorkload"
+        },
+        {
+          "role": "Webapp",
+          "actual_exit": 1,
+          "missing_field": "numericalWorkload"
+        }
+      ],
+      "scope_limit": "The three substrate strings cover software rendering/decoding only. They establish no CUDA/Metal hardware/runtime or real lane test."
+    },
+    "compiled_binding": "Both scoped68 and Helm helper receipts name exactly the new compilation authority_after. I inspected helper/drivers: helper compilation is package-isolated against the current library, actual Helm output is extracted and passed to the real typed loader, and distinct values guard against silently using defaults. Parsing/hashes still supply no authenticated producer/reviewer or physical execution authority.",
+    "actual_new_export": {
+      "receipt": {
+        "path": ".build/phase278-resource-helm-config-fix-a/export-work/result.json",
+        "bytes": 1249,
+        "sha256": "d0dbf0dbd979de7f5afdc4910ba088b23f1dd39e0f4bd0540ec99699c90241d3"
+      },
+      "actual_exit": 0,
+      "compiled_home_modules": [
+        "Main"
+      ],
+      "helper": {
+        "bytes": 206322792,
+        "sha256": "325c0d0231cb5868f6549fb32488e6f71aafd922cfaf47029e1877a7d600caaa"
+      },
+      "full_two_ordered55_vectors_equal": true,
+      "training_executed": false,
+      "scope": "Freshly linked unchanged EvidenceHelper Main against the new pinned library; all110 current contracts equal previous lane vectors. No quality/admission proof."
+    },
+    "registered_generation": {
+      "receipt": {
+        "path": ".build/phase278-resource-helm-config-fix-a/registered-comparison.json",
+        "bytes": 253,
+        "sha256": "fdbcc755aa8dd466aa44e0d96b2c82ed3c7c32ad6521628a1fd11514f189e131"
+      },
+      "actual_generation_receipt": {
+        "path": ".build/phase278-resource-helm-config-fix-a/generation-work/result.json",
+        "bytes": 8048,
+        "sha256": "49d631984d5e41631630362c6686f6624d383a6891394168dd078eac6ace75d6"
+      },
+      "registered_count": 38,
+      "all_current_canonical_file_pins_independently_match": true,
+      "reflected_boot_schema_equals_current_Dhall": true,
+      "scope": "Actual candidate CLI isolated generation and schema output, not standing/scientific/phase success."
+    },
+    "authority_limit": "These are software configuration/development/mechanical receipts only. No current canonical image adoption, live readiness/resource fit, full standing, scientific result, Store/lane admission or phase closure follows."
+  },
+  "criterion_applicability_blockers": [],
+  "execution_and_qualification_obligations_not_closed": [
+    {
+      "id": "live-pod-parent-fit",
+      "status": "UNPROVEN",
+      "evidence_needed": "Actual rendered/running numerical pod requests/limits, coherent node/VM/client/sibling budgets, measured real workload peak demand/completion/time margin, one heavy job at a time, explicit host/VM reserves and stop thresholds. Component/per-node checks and replicas1 do not prove aggregate scheduling fit, global seriality/admission, full55 demand or prevention of parent OOM."
+    },
+    {
+      "id": "apple-native-host-budget",
+      "status": "UNPROVEN",
+      "evidence_needed": "Native Metal host CPU/heap/RAM is not capped by Kubernetes limits. Establish explicit native supervision and host-memory-pressure budget before real Apple acquisition, plus actual Metal execution and original child physical provenance/replay."
+    },
+    {
+      "id": "actual-science-and-admission",
+      "status": "OPEN",
+      "evidence_needed": "Complete authorized real CPU then Apple acquisition in designated phase order under exact frozen source/review/full55 identity; all original cohort/attempt/failure/work/initial/effective/final/reference evidence; unchanged quality; original served0 physical quality/Store/replay and authenticated lane admission. No run pooling or score-selected repetition."
+    },
+    {
+      "id": "standing-and-phase-validation",
+      "status": "OPEN",
+      "evidence_needed": "Required engineering/standing/plan gates in actual hardware lanes. Compilation and scoped synthetic assertions do not close these or any phase."
+    },
+    {
+      "id": "current-live-configuration-restoration",
+      "status": "OPEN",
+      "evidence_needed": "Adopt and verify the exact current image/selected configuration in a separately authorized supervised live bootstrap; prove actual pods load it, complete readiness/roles and original application-data readback under retained resource budgets. Offline Helm/typed-loader checks do not establish successful restoration or complete the source490 failed attempt."
+    }
+  ],
+  "historical_run_boundary": {
+    "sourcej_retained": {
+      "origin": "Parent-supplied historical context, not newly executed/replayed by this read-only reviewer.",
+      "preserved": "SourceJ daemon exit1/two OOMKilled137 pods among75 tests remains failed; four original after-roles remain NotRun. Separate original12, fixture recovery0 and native2237 metadata retention do not retroactively finish it. No new training occurred in this review."
+    },
+    "source490_failure": {
+      "review": {
+        "path": ".build/phase278-resource-helm-config-fix-a/failure-review.json",
+        "bytes": 12699,
+        "sha256": "d35671bf4fcbc542e562d2ef23cf64e8a1f6270b804698ca633a549acd1f928a"
+      },
+      "evidence_kind": "Root curated diagnosis, not a reconstructed primary Pod receipt",
+      "actual_bootstrap_exit": 1,
+      "reported_stage_count_context": "Parent reports78 bootstrap steps; this curated failure-review is explicitly not a reconstructed primary Pod receipt.",
+      "original_application_readback": "NotRun after bootstrap1",
+      "observed_engine_previous_exit": 2,
+      "configmap_numericalWorkload_present": false,
+      "cause": "Authored local Helm ConfigMaps omit newly required BootConfig.numericalWorkload; selected typed budget was rendered only into umbrella assets, not local Helm values/templates.",
+      "training_started": false,
+      "VM_state_in_record": "Stopped by supervisor after normal nonpass",
+      "native2237_metadata_exact_after_nonpass": true,
+      "scope": "Configuration diagnosis/nonpass and retention context only. No training/convergence/readback success; old failures and NotRun closings remain literal."
+    }
+  },
+  "runtime_or_canonical_publication_authority": false,
+  "not_claimed": [
+    "Actual scientific execution or pass",
+    "Reviewer authentication or producer provenance from hashes/parsing",
+    "CPU/Apple/CUDA hardware validation",
+    "Complete qualification or Store/lane admission",
+    "Ready/runtime/full-stack restoration",
+    "Full55 memory/time fit or safe native Metal demand",
+    "Full standing/code-quality gate pass",
+    "Published-model parity or population generalization",
+    "Automatic familywise guarantee under adaptive attempts",
+    "Tuning scientific endorsement",
+    "Canonical criterion materialization/registration",
+    "Phase278 or later closure",
+    "Hardware validation from the3 Helm substrate labels",
+    "Success of current live bootstrap or pending original application-data readback"
+  ],
+  "evidence_references": [
+    {
+      "path": ".build/phase278-resource-helm-criterion-review-a/review-request.json",
+      "bytes": 6102,
+      "sha256": "df16acbce626b773db1701de5e61f6b00a6df50bd335b297d440164d836d55bc"
+    },
+    {
+      "path": ".build/phase278-resource-criterion-review-a/reviewer-b/criterion-judgment-b-final.json",
+      "bytes": 119598,
+      "sha256": "715f4e30375c60d4dae8c70768191cb4e4557b2891e9cbe91f973b51b8345baf"
+    },
+    {
+      "path": ".build/phase278-resource-review-repair-a/candidate-source-b.json",
+      "bytes": 111449,
+      "sha256": "3cdfb87ad280e72c46d68a66557f0715826dc983cc8386620643e790d810e613"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/candidate-source.json",
+      "bytes": 111473,
+      "sha256": "6796aad86c4c70f78d558956c1b2be6f02704625020d0d26077e9b5203bf5093"
+    },
+    {
+      "path": ".build/phase278-resource-helm-criterion-review-a/delta-from-490.diff",
+      "bytes": 6476,
+      "sha256": "83509a387b478e80968a17b1bddac212e801a8e3d763f62ce764b5e282f021fd"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/export-work/export.stdout",
+      "bytes": 21726,
+      "sha256": "8972d6fa9712f6aa82be8c3f04faa24ef5c16bd467213dbe11b709dd5cbe8fc7"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/export-work/result.json",
+      "bytes": 1249,
+      "sha256": "d0dbf0dbd979de7f5afdc4910ba088b23f1dd39e0f4bd0540ec99699c90241d3"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/compile-work/payload-result.json",
+      "bytes": 3564,
+      "sha256": "74fb355516ae03f3367f7b16e70647435383770bd5fc5ad265489b67ecb605ac"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/scoped-work/payload-result.json",
+      "bytes": 2234,
+      "sha256": "0c6c0e6a060539c7f3a6912f08e5d4015cbd924bdabe06095a6957bbcd3be90c"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/helm-work/payload-result.json",
+      "bytes": 9267,
+      "sha256": "fd8fe483d2699b0079ac0fc1ef14ea0e235596356e8bd15a6c0b2b55ef3a35e3"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/helm_payload.py",
+      "bytes": 8938,
+      "sha256": "bcfa536ec32bd791185deb8e7f74409815146b8b73ceeb502562b6dbc94c08f8"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/HelmBootConfigValidation.hs",
+      "bytes": 2745,
+      "sha256": "e45320f5e0992d1cb9b8389ea2ea04853218ae25ca1b43a9a01f8c34c51e2cab"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/registered-comparison.json",
+      "bytes": 253,
+      "sha256": "fdbcc755aa8dd466aa44e0d96b2c82ed3c7c32ad6521628a1fd11514f189e131"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/chart-inputs.json",
+      "bytes": 1846,
+      "sha256": "12e890e31351f61e8fcf84636e0ad673b4dacd4571b80738a3e488879cd1bd03"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/failure-review.json",
+      "bytes": 12699,
+      "sha256": "d35671bf4fcbc542e562d2ef23cf64e8a1f6270b804698ca633a549acd1f928a"
+    },
+    {
+      "path": ".build/phase278-resource-helm-criterion-review-a/linux-cpu-supervised-subject.json",
+      "bytes": 19975,
+      "sha256": "5fc1b506120883dbc85c5e7de757feeb1f6dee20b21fb96a0baa7730d139b6c8"
+    },
+    {
+      "path": ".build/phase278-resource-helm-criterion-review-a/linux-cpu-native-subject.json",
+      "bytes": 27217,
+      "sha256": "69cd0a010768ddaadb52caa8a5601a1360b22652d279be81239e32285c63c55c"
+    },
+    {
+      "path": ".build/phase278-resource-helm-criterion-review-a/apple-silicon-supervised-subject.json",
+      "bytes": 19979,
+      "sha256": "cce01b195ea330d3f6e8310cbbc5447041c295a7b42869c8991c3849eb98ad1c"
+    },
+    {
+      "path": ".build/phase278-resource-helm-criterion-review-a/apple-silicon-native-subject.json",
+      "bytes": 27221,
+      "sha256": "3502febfc7e7692b6c0a47447e3290058dfb79d7623689da1823409cf60de825"
+    },
+    {
+      "path": "dhall/cluster/Schema.dhall",
+      "before_sha256": "0f8b8043dc9c70d2359ea5e850afc642a623e255323804aac6278473f51daacd",
+      "bytes": 1347,
+      "sha256": "be1fa9d08d1150b1335bcf8c15ae4a2582c87fc76da3aad74aaa4fe4fd8a153d"
+    },
+    {
+      "path": "dhall/cluster/resources.dhall",
+      "before_sha256": "6fbdbe0c001569d1820905070c5c43b7653da3ad0f2d8736ee49b8315af96310",
+      "bytes": 3167,
+      "sha256": "dbed796eb7f9d287907300449fc25487264b575052088c9e808b500a2ce4c66e"
+    },
+    {
+      "path": "dhall/cluster/mac16.dhall",
+      "before_sha256": "637bbeabd2988c52ef300cec2becd79928433d84d70879d54253c3c37ce96c12",
+      "bytes": 1522,
+      "sha256": "b5c32ab921b070892877c241a3d8b811f8e8cf93430d6d1cd020050c5b6032ac"
+    },
+    {
+      "path": "dhall/service/BootConfig.dhall",
+      "before_sha256": "38e72ff5580eaf9e42454fba3741a4d64475a7945b82010edb5afb45cd578d5a",
+      "bytes": 496,
+      "sha256": "e24bd441982ce1b0b44f68844162b30d66ef392bc58a1dfc220c3ac3eefdeaba"
+    },
+    {
+      "path": "chart/local/jitml-demo/Chart.yaml",
+      "bytes": 132,
+      "sha256": "ffe30a6649ae5c34a99428df4deded8e06e2584d2c0d5db257f58919fd944b98"
+    },
+    {
+      "path": "chart/local/jitml-demo/templates/configmap.yaml",
+      "bytes": 2157,
+      "sha256": "c6ab55dbfcee5eabc835605c5c668df698f30388ffaeebc2b0e57a2f00bc956e"
+    },
+    {
+      "path": "chart/local/jitml-demo/templates/deployment.yaml",
+      "bytes": 1451,
+      "sha256": "fb30ffa4ddcfeec86bce806f660a7a6921681ae9a400f71e694cadd9f3fddbb5"
+    },
+    {
+      "path": "chart/local/jitml-demo/templates/service.yaml",
+      "bytes": 182,
+      "sha256": "6db3b3436c14325f2cd675aa999c94dc2a54443a863019334559051c5593f10e"
+    },
+    {
+      "path": "chart/local/jitml-demo/values.yaml",
+      "bytes": 252,
+      "sha256": "fc55a62b9f13348faa203270418f7e6b238322f6817fe974a1bbdc1ce92b5926"
+    },
+    {
+      "path": "chart/local/jitml-service/Chart.yaml",
+      "bytes": 133,
+      "sha256": "8672afc81306891668cd975f10437198dd589c82f1247a0a2dc79be78b0080a7"
+    },
+    {
+      "path": "chart/local/jitml-service/templates/configmap.yaml",
+      "bytes": 3453,
+      "sha256": "81d5da4a5c9e65226366639a41c5095e975db013c628074d01206f8b3779a717"
+    },
+    {
+      "path": "chart/local/jitml-service/templates/deployment.yaml",
+      "bytes": 4593,
+      "sha256": "4a797ae6ae8b7b6873078727c2f1f0093c1ab5e9ad39fabf4c85cf6fac91e6f0"
+    },
+    {
+      "path": "chart/local/jitml-service/templates/rbac.yaml",
+      "bytes": 1002,
+      "sha256": "d480ef7bd2fe61cfa4d1076145985d17eee0d12905e4d8f2685da9771e71858e"
+    },
+    {
+      "path": "chart/local/jitml-service/templates/service.yaml",
+      "bytes": 240,
+      "sha256": "add3a721542b16baf6e06a02909a06915a6c983dc87d529e885028d2c2773023"
+    },
+    {
+      "path": "chart/local/jitml-service/values.yaml",
+      "bytes": 426,
+      "sha256": "3a98ffa0a14991910e90e4cd974c3cea7aef8092d569d61d7be3c032fe1d0db2"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/before-inputs.json",
+      "bytes": 1324,
+      "sha256": "f6ac9935649374682d103e94faacf704271359282e5f85db31d37b0ad3566b96"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/generation_payload.py",
+      "bytes": 2548,
+      "sha256": "6a0ffff17de2ae490b77ed706fef3256e7ea6b07a108dece02b233c3ac1aee7c"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/generation-work/result.json",
+      "bytes": 8048,
+      "sha256": "49d631984d5e41631630362c6686f6624d383a6891394168dd078eac6ace75d6"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/export_payload.py",
+      "bytes": 5319,
+      "sha256": "23372cdc3ec97a30a9e65f5d93fc433a11a33e2f2937bf9e26e6b8c4d2f86ca2"
+    },
+    {
+      "path": ".build/phase278-current/EvidenceHelper.hs",
+      "bytes": 21237,
+      "sha256": "8d44c8f68a3b491b00e62ad1c568e6a65e8d3e71ca398b91150b72a5a388d71b"
+    }
+  ],
+  "current_delta_and_software_driver_references": [
+    {
+      "path": "src/JitML/Service/ConfigMap.hs",
+      "bytes": 18288,
+      "sha256": "515c9189748b853cab4facd2a01c9447bf3c86e9b3b13589e9cfb5fb16f4bcd8"
+    },
+    {
+      "path": "test/unit/ClusterResourceRendering.hs",
+      "bytes": 47746,
+      "sha256": "944ad9591e3482fe5fd70391404808fe67362ec607a0aa11a6e1feef03fcff18"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/generation_payload.py",
+      "bytes": 2548,
+      "sha256": "6a0ffff17de2ae490b77ed706fef3256e7ea6b07a108dece02b233c3ac1aee7c"
+    },
+    {
+      "path": ".build/phase278-resource-helm-config-fix-a/export_payload.py",
+      "bytes": 5319,
+      "sha256": "23372cdc3ec97a30a9e65f5d93fc433a11a33e2f2937bf9e26e6b8c4d2f86ca2"
+    }
+  ],
+  "unchanged_scientific_sources_reconfirmed": [
+    {
+      "path": "src/JitML/Product/SourceDigest.hs",
+      "bytes": 9144,
+      "sha256": "c73142926a0c592791160d9fc185b281027d0d57ab30e3f625c2f8c19f52c646"
+    },
+    {
+      "path": "src/JitML/Product/LaneRegistrationData.hs",
+      "bytes": 17302,
+      "sha256": "a2b8f87d824fd3ec14947152ed1c74a0ea276aa6bae71b05c01227334f587857"
+    },
+    {
+      "path": "src/JitML/Product/Matrix.hs",
+      "bytes": 89038,
+      "sha256": "7a020368dc1423a68f12a624e1f4d256ab3543e2f5c572d20b367866b5de1855"
+    },
+    {
+      "path": "src/JitML/Product/LearningSignal.hs",
+      "bytes": 7023,
+      "sha256": "f21727b739073aa3d0bc2118ee3b7818690cff57ec30bea01bb35df6ad5b2f31"
+    },
+    {
+      "path": "src/JitML/Product/SupervisedQualificationPolicy.hs",
+      "bytes": 14275,
+      "sha256": "50e89bd9078bfe25055bcf5e1be6ccf7e36c0ca1b69488eedf2904e944b70c9d"
+    },
+    {
+      "path": "src/JitML/Product/SupervisedQualification.hs",
+      "bytes": 36933,
+      "sha256": "2c28b93d9366c4259a4ab45d04d5903768483d4869bebf487d1b9a9e64108fce"
+    },
+    {
+      "path": "src/JitML/Product/NativeReturnLearningPolicy.hs",
+      "bytes": 15540,
+      "sha256": "f028b706b40387d29e3e43257d750e2b243dc6f70632ab1e4fba633714258274"
+    },
+    {
+      "path": "src/JitML/Product/NativeHerLearningPolicy.hs",
+      "bytes": 31241,
+      "sha256": "6f0c617b901bc2318a13b5a07efef4dd900f509bf57a693f360984fe28ba67df"
+    },
+    {
+      "path": "src/JitML/Product/NativeArenaLearningPolicy.hs",
+      "bytes": 28996,
+      "sha256": "af62169d3656d559deeaaed8d2c281a8a192cf9c6f781ee1610c3fc905eccb0d"
+    },
+    {
+      "path": "src/JitML/Product/NativeRlAssessment.hs",
+      "bytes": 23989,
+      "sha256": "5f920685385fcebf0e2d731ca5f1ea844fc2e2cde8bd14a79ef2eabed95d42a2"
+    },
+    {
+      "path": "src/JitML/Product/NativeRlProducer.hs",
+      "bytes": 78389,
+      "sha256": "c2a4be679394153c57fd2025d3233366547435fd95b93a5c82e817f5702b0742"
+    },
+    {
+      "path": "src/JitML/Product/NativeRlServingCandidate.hs",
+      "bytes": 17019,
+      "sha256": "b287d726e83248a25a6c69bf6d4464eb5f83cf838a0859280fc7c9b64269a2f0"
+    },
+    {
+      "path": "src/JitML/Product/NativeRlCohortPlan.hs",
+      "bytes": 36360,
+      "sha256": "95b39c4123e31642ec98dcf3721b1e652444565d6df879dfd0e3d7e55d36362a"
+    },
+    {
+      "path": "src/JitML/RL/NativeReturnReferences.hs",
+      "bytes": 18535,
+      "sha256": "59e53e6704d4c1e45bce96a863e7a9823dbffa1188c25fa97f03bfdee56ad36e"
+    },
+    {
+      "path": "src/JitML/RL/NativeReturnCeiling.hs",
+      "bytes": 9774,
+      "sha256": "8e2784c126881767d74d40d3de3dcea6663232a8433f0c86e4a3be6b32fda5d6"
+    },
+    {
+      "path": "src/JitML/RL/ConvergenceThresholds.hs",
+      "bytes": 15245,
+      "sha256": "5275585e1cfa6caff46fea1e9180f6af9b018d6971bad2bd5c9b86c20be24e1c"
+    },
+    {
+      "path": "src/JitML/SL/ConvergenceThresholds.hs",
+      "bytes": 6145,
+      "sha256": "ca87a62ed2b1718595dcf5c7328f0cf261a148a791e6fc42ad37803cd1002ab6"
+    },
+    {
+      "path": "src/JitML/Service/Consumer.hs",
+      "bytes": 27579,
+      "sha256": "354e5c60233c0fb7eb632397621b53e6b3a9be17b421773ca860dc67d464207e"
+    },
+    {
+      "path": "src/JitML/Product/CriterionReviewData.hs",
+      "bytes": 16933,
+      "sha256": "a3adda9f708de936aaaa2425ed03ced94ff055667ea7b3a257263a2074cc7735"
+    }
+  ]
+}

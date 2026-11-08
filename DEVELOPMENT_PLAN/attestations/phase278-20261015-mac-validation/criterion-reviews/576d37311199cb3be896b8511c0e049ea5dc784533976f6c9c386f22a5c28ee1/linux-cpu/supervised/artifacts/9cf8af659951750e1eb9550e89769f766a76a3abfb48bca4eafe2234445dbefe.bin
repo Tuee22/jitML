@@ -1,0 +1,45 @@
+{
+  "source_reviewed": {
+    "algorithm": 1,
+    "sha256": "57cf61d1cf6149f353d852e21d8c663418d40e0ecc415e30d54dbdf5ef57ae16"
+  },
+  "method": "Fresh math.comb integer weights/tails and all32 pointwise indicator patterns re-evaluated for final57cf; no project imports/training/calibration",
+  "classification": [
+    {
+      "classes": 10,
+      "evaluation_examples": 1000,
+      "critical_count": 136,
+      "critical_tail_le_1_over_5000": true,
+      "predecessor_tail_gt_1_over_5000": true,
+      "integer_tail_numerator_sha256": "4e2e6e178eba4da3414dc2eb87d1460b43182ccbad8027ed2fcd29d2aabfce04",
+      "integer_denominator_sha256": "4d20ea8840f0be06124aa54cac837707b5259196832785a09391d1f15fda98f9"
+    },
+    {
+      "classes": 100,
+      "evaluation_examples": 1000,
+      "critical_count": 24,
+      "critical_tail_le_1_over_5000": true,
+      "predecessor_tail_gt_1_over_5000": true,
+      "integer_tail_numerator_sha256": "5ce12caec01f102e1603caefd48a67a3b93d460e9144bcd8cc7e3f3e51afeead",
+      "integer_denominator_sha256": "a5135b5e08004b75aacd14c4511d71c7f6512f2a2aaae52a87bf5d118df7bbe9"
+    },
+    {
+      "classes": 200,
+      "evaluation_examples": 1000,
+      "critical_count": 16,
+      "critical_tail_le_1_over_5000": true,
+      "predecessor_tail_gt_1_over_5000": true,
+      "integer_tail_numerator_sha256": "3e51e0784b8bffabe855efa7034bc0beb2a295de59ad5d5119e03e6a15fc65c3",
+      "integer_denominator_sha256": "a50cd6d43b95b066ab6f3ae9326a00f8f323bcde8bd21a8a4bd4a61f1c4a180e"
+    }
+  ],
+  "held_out_rule": "Require max(exact majority count+1, exact binomial critical count), plus strictly greater count than the same-seed actual initial predictor on identical pinned held-out inputs.",
+  "cohort_argument": "Under the all-five independent-uniform-per-example null, each joint success probability is at most1/5000. For K=sum of five joint-success indicators, E[K]<=5/5000; pointwise3*1[K>=3]<=K gives P[K>=3]<=1/3000. At most30 prospectively planned such all-null cohorts give union bound1/100. No between-seed independence is required.",
+  "regression_argument": "Finite binary64 values are embedded as exact rationals. SSE(final)<SST(targets) beats the best held-out constant; SSE(final)<SSE(initial) separately proves paired descriptive improvement. A positive finite common training scale cancels. Empty, nonfinite, unequal-length or zero-target-variance inputs refuse. The unchanged served RMSE ceiling is an additional restriction.",
+  "limits": [
+    "Not a claim for arbitrary untrained networks or nonuniform predictors.",
+    "Not a mixed-null, adaptive repeated-attempt, regression significance, population-generalization or published-architecture reproduction bound.",
+    "No experimental samples, training outcome or prospective result-dependent choice is supplied.",
+    "The old Tiny comment says15; actual executable exact critical count is16/1000. No policy/threshold change is made."
+  ]
+}

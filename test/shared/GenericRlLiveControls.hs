@@ -114,6 +114,8 @@ import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Cluster.Publication qualified as Publication
+import JitML.Cluster.ResourceRuntime qualified as ResourceRuntime
+import JitML.Cluster.Resources qualified as ClusterResources
 import JitML.Coordinator.Topology (ProtocolRoute (..), Topic, topicFor, topicName)
 import JitML.Experiment.Product qualified as ProductExperiment
 import JitML.Plan.Plan (PlanId, finiteMeasurementValue, refinePlanIdText)
@@ -1844,6 +1846,20 @@ captureGenericRlImagePin cliPin@(GenericRlCliPin _ expectedCli expectedSource) s
     "aarch64" -> pure "arm64"
     "x86_64" -> pure "amd64"
     _ -> assertFailureWithIO "unsupported current Linux image architecture"
+  resources <- ClusterResources.loadClusterResourcesOrDefault "."
+  _ <-
+    ResourceRuntime.checkResourceEnvelopeWithSiblingIO
+      Physical.imageProofHelperMemoryBytes
+      (Physical.imageProofHelperNanoCpus `div` 1000000)
+      resources
+      >>= genericExpect
+  suppliedOwner <- lookupEnv "JITML_DAEMON_SELF_CONTAINER"
+  hostname <- lookupEnv "HOSTNAME"
+  owner <- case suppliedOwner of
+    Just value | not (null value) -> pure (Text.pack value)
+    _ -> case hostname of
+      Just value | not (null value) -> pure (Text.pack value)
+      _ -> assertFailureWithIO "GenericRL image proof needs its explicit caller name or Docker hostname"
   target <-
     Text.strip
       <$> genericCommand "docker" ["image", "inspect", "--format={{.Descriptor.digest}}", "jitml:local"]
@@ -1854,17 +1870,7 @@ captureGenericRlImagePin cliPin@(GenericRlCliPin _ expectedCli expectedSource) s
     Text.strip
       <$> genericCommand
         "docker"
-        [ "create"
-        , "--pull"
-        , "never"
-        , "--platform"
-        , "linux/" <> architecture
-        , "--entrypoint"
-        , "/bin/sh"
-        , target
-        , "-c"
-        , "command -v jitml"
-        ]
+        (Physical.imageProofHelperCreateArguments architecture target owner expectedSource)
   genericExpect (Physical.validateOwnedContainerId container)
   withOwnedScenarioCleanup
     "GenericRL immutable image capability"
@@ -1883,6 +1889,7 @@ captureGenericRlImagePin cliPin@(GenericRlCliPin _ expectedCli expectedSource) s
           _ -> assertFailureWithIO "docker inspect did not identify the one owned image container"
         config <- genericField description "Config"
         genericExpect (Physical.validateImageDescriptor target config)
+        genericExpect (Physical.validateImageProofHelper target owner expectedSource description)
         _ <- genericCommand "docker" ["cp", container <> ":/usr/local/bin/jitml", Text.pack executable]
         actualBytes <- StrictByteString.readFile executable
         genericExpect (Physical.validateImageExecutable expectedCli actualBytes)
@@ -1899,6 +1906,12 @@ captureGenericRlImagePin cliPin@(GenericRlCliPin _ expectedCli expectedSource) s
           (SourceDigest.sourceDigestDirectoryRoots <> SourceDigest.sourceDigestFileRoots)
         actualSource <- SourceDigest.computeSourceStampIn sourceRoot >>= genericExpect
         genericExpect (Physical.validateImageSource expectedSource actualSource)
+        ready <- genericJsonCommand "image-proof-helper-before-start" "docker" ["inspect", container]
+        case ready of
+          Aeson.Array values
+            | [value] <- toList values ->
+                genericExpect (Physical.validateImageProofHelper target owner expectedSource value)
+          _ -> assertFailureWithIO "docker inspect did not identify the owned helper before start"
         resolved <- Text.strip <$> genericCommand "docker" ["start", "--attach", container]
         genericExpect (Physical.validateResolvedExecutable resolved)
         pure ()

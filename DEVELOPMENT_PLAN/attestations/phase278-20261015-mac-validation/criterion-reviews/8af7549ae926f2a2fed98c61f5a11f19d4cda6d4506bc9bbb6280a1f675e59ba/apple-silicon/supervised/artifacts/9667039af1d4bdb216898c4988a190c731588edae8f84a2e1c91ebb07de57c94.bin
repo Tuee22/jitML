@@ -1,0 +1,115 @@
+# Compact-recipe predictive-learning qualification, revision 2
+
+**Status**: Prospective independent-review proposal; unimplemented
+**Supersedes**: Revision 1 for review purposes only; its original bytes are preserved in `prior-original/` and at their original paths
+**Referenced by**: Root Phase 278 compact-criterion decision review
+**Generated**: Manual source review and exact independent arithmetic, 2026-10-16 UTC
+
+## Decided prospective scope
+
+Retain every documented compact graph, dataset selection, training schedule and **per-run** budget. Retain every stronger current product floor, including the exact current binary64 comparisons. Add exact initial-to-final held-out predictive improvement. Each row's five training seeds are its existing canonical base seed plus offsets **0,1,2,3,4**, in that order; **index 0 is the predetermined served run**. No winning seed, replacement member, budget extension or benchmark-recipe substitution is selected after measurement. Phase 278 owns the implementation and actual qualification evidence. Phase 285 is not a prerequisite.
+
+Proposed identity, before wire encoding is finalized:
+
+```
+compact-predictive-learning-v2:
+  pool=canonical-base-plus-0..4; serve-index=0;
+  majority=strict; uniform-binomial-alpha=1/5000;
+  regression=SSE<SST-exact-binary64;
+  improvement=final-correct>initial-correct | final-SSE<initial-SSE;
+  joint-successes>=3-of-5;
+  median=all-five-final-metrics-vs-unchanged-legacy-floor;
+  served-index0=independently-eligible;
+  raw-below-bar=retained-not-CompletedTraining
+```
+
+The actual canonical transport must encode/version these fields injectively rather than use this illustrative whitespace. No existing journal, singleton checkpoint or policy-v1 token attests this v2 qualification.
+
+## Exact per-seed measurements
+
+Each initial/final pair has identical static graph descriptor, inference mode, input/output transforms fitted from training data, held-out input/target bytes and ordering. Static descriptor equality excludes **only parameter payload values**: shape, operator geometry, mode, activation, tensor ordering/layout and every nonparameter state field remain bound. A future mutable nonparameter inference state must be captured explicitly, never silently excluded. Decode the actual initial F64 JMW1 snapshot and final F64 artifact, validate all shapes/finiteness, and execute the exact serving interpreter for both. Final index-0 measurements must additionally be recomputed from its real Store-admitted final checkpoint. No initial model is labelled completed or Store-admitted.
+
+For classification with `n` held-out labels and semantic class count `C`:
+
+```
+M = largest held-out label frequency
+B = least k with P[Binomial(n,1/C) >= k] <= 1/5000
+signal_s = final_correct_s >= max(M+1, B)
+improves_s = final_correct_s > initial_correct_s
+joint_s = signal_s && improves_s
+```
+
+Use exact integer correct counts and binomial-tail arithmetic, not rounded accuracy, stored Passed flags or parity tolerance. `B=n+1` fails a sample too small for attainable evidence. Require valid nonempty labels, `C>=2`, semantic labels in range, output width `C`, finite predictions and a correct count in `[0,n]`. The label histogram is derived from the pinned held-out data, never from the model's outputs.
+
+For regression, use exact rationals of the actual finite binary64 targets/predictions:
+
+```
+SST = sum((target - exact_target_mean)^2) > 0
+SSE_initial_s = sum((initial_prediction - target)^2)
+SSE_final_s = sum((final_prediction - target)^2)
+signal_s = SSE_final_s < SST
+improves_s = SSE_final_s < SSE_initial_s
+joint_s = signal_s && improves_s
+```
+
+The same positive finite target scale/standardization is bound to both computations. Constant targets, empty/misaligned vectors or non-finite initial/final predictions fail. Non-finite initialization cannot become an infinite-error baseline that makes any final prediction “improve.” Strict inequality has no epsilon or rounding exception. Positive R² is a fixed-sample, best-constant-relative criterion; the [official metric definition](https://scikit-learn.org/stable/modules/generated/sklearn.metrics.r2_score.html) supports that boundary, not a population-confidence assertion.
+
+## Whole-cohort acceptance and served-model acceptance
+
+All five prescribed children must complete the unchanged budget with producer-observed exact counters, valid device evidence and replayable finite initial/final results. Finite below-floor, below-signal or non-improving outcomes remain in the cohort and its median. They are not completed eligible checkpoints. A missing, substituted, duplicate, incomplete, wrong-budget or non-finite child fails qualification; it is never replaced by another seed.
+
+Let `N=sum(joint_s)` over exactly indices 0..4. Require **N>=3**. Also require the **median of all five final primary metrics** to clear the unchanged row floor, using the same metric units/direction as the current row. Counts/SSE are retained in addition to the display metric; the two exact strict predicates do not use rounded RMSE. Initial/final improvements are paired per seed, not inferred by subtracting two unrelated medians.
+
+Index 0 must independently pass **all per-artifact requirements**: its unchanged historical floor, signal at alpha1/5000/positive R², strict initial-to-final improvement, exact budget/update/device/dataset/runtime identity, genuine CompletedTraining, physical Store admission and read-time final served-metric verification. Cohort success cannot authorize index 0 if it fails any of these. Index 0 remains the served artifact even if another seed scores higher. A product row passes only when cohort qualification **and** index-0 eligibility both pass.
+
+The checkpoint's `test_accuracy` or `rmse` is index 0's own served-model metric. It must not be overwritten by the cohort median. Cohort median, five paired measurements, N and the qualification artifact address form a separate typed channel. `CompletedTraining` for index 0 keeps its real per-run budget and metric; it is not a synthetic five-run completion. All pre-existing architecture/device, actual training-loss/gradient/curve-sanity, validation-only selection and run-to-run determinism requirements remain in force; this qualification does not replace or waive them.
+
+There remain 55 ProductRow report rows per lane. Their 11 supervised qualifications require **55 actual SL training runs per lane**: 50 classification and 5 regression. Over three lanes that is 30 classification cohorts/150 classification runs and 3 regression cohorts/15 regression runs. The unchanged single-cohort SL work totals become 5×6,075 = **30,375 updates** and 5×770,000 = **3,850,000 processed examples per lane**, subject to actual counter verification. These are planned deterministic work counts, not measured runtime or permission to run training now.
+
+## Probability argument: verified and precisely limited
+
+For one classification cohort, condition on its fixed valid held-out labels. Under its **all-five uniform-guess null**, each seed's final predicted labels are independent uniform draws across the `n` held-out examples, independent of those targets, so its correct count has the stated binomial distribution. The five prediction vectors may be arbitrarily dependent **between seeds**. Different row/lane cohorts may also be dependent.
+
+The joint event is a subset of the exact binomial-tail event, irrespective of how initial predictions or improvement depend on final predictions:
+
+```
+P(joint_s=1) <= 1/5000
+E[N] = sum_s E[joint_s] <= 5/5000
+3 * 1{N>=3} <= N
+P(N>=3) <= E[N]/3 <= 1/3000
+P(any all-five-null cohort qualifies among30) <= 30/3000 = 0.01
+```
+
+Linearity of expectation, the displayed pointwise inequality and the union bound need no cross-seed/cross-cohort independence. The expectation bound is [Markov's inequality](https://ocw.mit.edu/courses/res-6-012-introduction-to-probability-spring-2018/d973b10c2587781f86ca4f2aff49098f_MITRES_6_012S18_Textbook.pdf), page38 of the PDF; the finite-family union bound is described by [NIST](https://www.itl.nist.gov/div898/handbook/prc/section4/prc473.htm). Mandatory index-0 eligibility and the historical median floor only restrict the qualifying event further, so they cannot invalidate this upper bound.
+
+**The null does not mean “at least three seeds are uniform guessers.”** The guarantee applies to a cohort where **all five** satisfy their individual uniform-guess nulls. A mixture of two skilled models and three uniform guessers is not an all-five-null cohort; this proof gives no 0.01 guarantee that at least three seeds contain population signal. It also does not test every feature-independent classifier: nonuniform guessing or label-order leakage is a different null. The majority rule separately rejects every constant predictor on the fixed labels.
+
+The probability statement excludes regression and descriptive initial-to-final improvement. Five seeds on a deterministic public prefix are not five independent population samples. No generalization confidence, application utility margin, published-model parity or behavioral detector is claimed. The new criterion must still be independently reviewed prospectively; statistically justified algebra alone does not prove the graph was trained or the evidence came from these runs.
+
+All qualifying attempts, including finite failures and infrastructure-aborted attempts, belong to an append-only attempt ledger bound to recipe, source, seeds and artifact hashes. The 0.01 statement is for the fixed first family of at most30 planned cohort attempts; a selected rerun after inspecting failure is not covered for free. If a later independently reviewed correction requires another family, disclose it and use an explicitly reviewed cumulative error budget or narrow the probability claim; never erase earlier attempts. Freezing a new version does not make already examined benchmark data fresh. [Cawley and Talbot's primary study](https://www.jmlr.org/papers/v11/cawley10a.html) supports this selection-bias caution.
+
+## Exact new critical counts
+
+All current classification descriptors request 1,000 held-out examples. Critical counts are computed from **C**, not the number of observed labels:
+
+| Semantic classes | Previous alpha1/3000 | Proposed alpha1/5000 | Tail at proposed k-1 | Tail at proposed k |
+| --- | ---: | ---: | ---: | ---: |
+|10|135|136|0.00024394550714750528|0.0001693452442258408|
+|100|23|24|0.0002721563481729341|0.00010908385071228082|
+|200|15|16|0.00021580336348481794|0.00006515582032004274|
+
+Displayed tails are decimal summaries only. `verify-proposal.py` checks boundaries using exact integers/rationals. The actual passing count remains `max(M+1,B)`; the table alone does not know a dataset's actual majority count. Every new binomial guard is at least as strict as v1, and no historical floor changes.
+
+## Why this is sufficient for the chosen compact product claim
+
+Qualification establishes a concrete observed result: a majority of five actual fixed-budget compact training runs improves over its own starting predictor and beats defined trivial-reference controls on the pinned evaluation; their full-cohort median clears every retained product restriction; and the predetermined served model independently satisfies the same additional controls and all current artifact requirements. An unchanged/untrained copy fails strict improvement. A constant classifier/regressor fails signal. Winner selection, dropped failures and fabricated completion fail identity/evidence checks. This is a falsifiable bounded predictive-learning product acceptance contract, with no unsupported numeric margin invented from unrelated architectures.
+
+It is not sufficient for the old unqualified phrase “literature-derived convergence.” The governed doctrine must explicitly identify this compact qualification and preserve historical floor provenance. In particular, Tiny's `0.008` remains a measured-calibrated legacy restriction, never a published anchor; any other unproven slack remains labelled unproven/project policy. Their conjunction with the new criterion does not retroactively repair their provenance. The old historical artifacts keep their original meaning and bytes.
+
+Exit26's “frozen external constants” must explicitly become **frozen independently chosen constants or fully specified comparison procedures** for this compact scope. The strict boundaries and algorithms are chosen before qualifying execution. `M`, `SST` and the initial predictor are separate comparison inputs, not targets fitted to the final metric. Initial/final results may be statistically dependent; independence here describes criterion provenance and separation of measurement roles, not an assumption that two states from one training run are independent random samples.
+
+Proposed doctrine wording:
+
+> Compact canonical SL rows qualify under the versioned five-training-seed predictive-learning contract: exact initial-to-final improvement, majority/uniform-reference or positive-R² signal, all-five median against unchanged historical product floors, and independent eligibility of the predetermined served seed. Constants and comparison procedures are fixed before qualifying execution and are not fitted to its final measurements; data-only statistics and an authentic pre-update initial model supply the specified comparison inputs. Historical product floors retain their documented provenance as additional restrictions; published targets are reference context for their actual recipes, not claimed compact-model anchors. Reported primary metrics are independently recomputed from the exact served artifact; cohort statistics and raw below-bar outcomes are separately authenticated and replayable. Existing curve-sanity, real-device, split and determinism obligations remain unchanged.
+
+Exit Definitions6/26, README methodology and Phase278 ownership/closure text need an overt reviewed reconciliation to this chosen scope. Do not say that an historically measured-derived eligibility floor was always independent. If governance insists that each retained historical literal independently satisfy the old external-origin wording, a separate independent normative justification of each is still required; this proposal cannot solve that conflict by relabelling. No status/context guard is removed until implementation, real five-run evidence, journals and all other owned obligations pass. No Phase285 or Phase279 backward prerequisite is introduced.

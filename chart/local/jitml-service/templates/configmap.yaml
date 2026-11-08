@@ -15,6 +15,7 @@ data:
     , imageRegistry = "registry.platform.svc.cluster.local:5000/library"
     , httpListener = Some { host = "0.0.0.0", port = 8080 }
     , webappPulsarWsUrl = None Text
+    , numericalWorkload = { replicas = {{ .Values.numericalWorkload.replicas }}, cpuRequest = {{ .Values.numericalWorkload.cpuRequest | quote }}, cpuLimit = {{ .Values.numericalWorkload.cpuLimit | quote }}, memoryRequest = {{ .Values.numericalWorkload.memoryRequest | quote }}, memoryLimit = {{ .Values.numericalWorkload.memoryLimit | quote }} }
     }
   LiveConfig.dhall: |
     { logLevel = < Debug | Info | Warn | Error >.Info
@@ -43,6 +44,7 @@ data:
     , imageRegistry = "registry.platform.svc.cluster.local:5000/library"
     , httpListener = Some { host = "0.0.0.0", port = 8080 }
     , webappPulsarWsUrl = None Text
+    , numericalWorkload = { replicas = {{ .Values.numericalWorkload.replicas }}, cpuRequest = {{ .Values.numericalWorkload.cpuRequest | quote }}, cpuLimit = {{ .Values.numericalWorkload.cpuLimit | quote }}, memoryRequest = {{ .Values.numericalWorkload.memoryRequest | quote }}, memoryLimit = {{ .Values.numericalWorkload.memoryLimit | quote }} }
     }
   LiveConfig.dhall: |
     { logLevel = < Debug | Info | Warn | Error >.Info

@@ -563,9 +563,10 @@ collectRolloutInEnvironment countTable environment config params startState gen0
                     , rsValue = pvValue pvOut
                     , rsReward =
                         simStepReward stepResult
-                          + RewardShaping.shapingBonus
+                          + RewardShaping.shapingBonusForTransition
                             (envName environment)
                             (ppoGamma config)
+                            (simStepDone stepResult)
                             obs
                             nextObs
                           + countBonus
@@ -1955,12 +1956,12 @@ preparePpoInEnvironment environment config = do
                     normAdvs = standardise advs
                     triples = zip3 (rolloutSteps rollout) normAdvs targets
                     (paramsAfter, adamAfter) = ppoUpdate config params adam triples
-                    actorStepsAfter =
+                    !actorStepsAfter =
                       actorSteps
                         + if trpoActorParametersChanged config params paramsAfter then 1 else 0
-                    transitionsAfter = transitions + toInteger (length (rolloutSteps rollout))
+                    !transitionsAfter = transitions + toInteger (length (rolloutSteps rollout))
                     episodeReturns = rolloutEpisodes rollout
-                    stat = rolloutSummary iteration episodeReturns
+                    !stat = rolloutSummary iteration episodeReturns
                 pure
                   ( nextState
                   , nextGen
@@ -2154,11 +2155,14 @@ preparePpoOnDeviceWithEnvironment device environment config = do
         case updated of
           Left e -> pure (Left e)
           Right (paramsAfter, adamAfter) ->
-            let actorStepsAfter =
+            -- Consume the completed rollout before the next iteration. Lazy
+            -- counters/summaries otherwise retain every earlier rollout and
+            -- parameter root until the final result is demanded.
+            let !actorStepsAfter =
                   actorSteps
                     + if trpoActorParametersChanged config params paramsAfter then 1 else 0
-                transitionsAfter = transitions + toInteger (length (rolloutSteps rollout))
-                stat = rolloutSummary iteration (rolloutEpisodes rollout)
+                !transitionsAfter = transitions + toInteger (length (rolloutSteps rollout))
+                !stat = rolloutSummary iteration (rolloutEpisodes rollout)
              in pure
                   ( Right
                       ( nextVecEnv
@@ -2329,9 +2333,10 @@ collectRolloutVectorizedOnDevice device countTable environment config params vec
             (VecEnv.vecTransitionEpisodeLengthBefore transition)
         reward =
           VecEnv.vecTransitionReward transition
-            + RewardShaping.shapingBonus
+            + RewardShaping.shapingBonusForTransition
               (envName environment)
               (ppoGamma config)
+              (VecEnv.vecTransitionTerminated transition)
               obs
               nextObs
             + countBonus

@@ -89,8 +89,11 @@ import JitML.Cluster.PostgresRegistry qualified as PostgresRegistry
 import JitML.Cluster.Publication qualified as Publication
 import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
 import JitML.Cluster.Readiness qualified as Readiness
+import JitML.Cluster.Resources qualified as NumericalResources
 import JitML.Cluster.Resources qualified as Resources
+import JitML.Cluster.StatefulPV qualified as StatefulPV
 import JitML.Cluster.Storage qualified as Storage
+
 import JitML.Coordinator.Topology
   ( ProtocolRoute (..)
   , Topic
@@ -217,7 +220,7 @@ import JitML.Sub.Outcome
   )
 import JitML.Sub.Render (renderSubprocess)
 import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
-import JitML.Sub.Subprocess (Subprocess, subprocess, subprocessWithStdin)
+import JitML.Sub.Subprocess (Subprocess, subprocess, subprocessArguments, subprocessWithStdin)
 import JitML.Sub.Subprocess qualified
 import JitML.Substrate (Substrate (..), parseSubstrate, renderSubstrate)
 import JitML.Test.LiveEvidence qualified as LiveEvidence
@@ -2888,6 +2891,7 @@ main = do
           WorkflowMatrix.workflowPlacementExpectation WorkflowMatrix.RlTrain LinuxCUDA
             @?= WorkflowMatrix.WorkflowClusterJobExpected
           case Workload.planWorkloadPlacement
+            (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
             BootConfig.Cluster
             (Workload.ResolvedTrainingLaunch trainingStart trainingPlan) of
             Right (Workload.WorkloadHostCommand spec) -> do
@@ -2896,6 +2900,7 @@ main = do
                 @?= Training.renderTrainingCommand (Training.TrainingStart trainingStart)
             other -> assertFailure ("expected typed training host placement, got " <> show other)
           case Workload.planWorkloadPlacement
+            (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
             BootConfig.Cluster
             (Workload.RlLaunch (rlStart AppleSilicon)) of
             Right (Workload.WorkloadHostCommand spec) -> do
@@ -2904,6 +2909,7 @@ main = do
                 @?= ProtoRl.renderRlCommand (ProtoRl.RlStart (rlStart AppleSilicon))
             other -> assertFailure ("expected typed RL host placement, got " <> show other)
           case Workload.planWorkloadPlacement
+            (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
             BootConfig.Cluster
             (Workload.TuneLaunch tuneStart tunePlan) of
             Right (Workload.WorkloadHostCommand spec) -> do
@@ -2912,6 +2918,7 @@ main = do
                 @?= ProtoTune.renderTuneCommand (ProtoTune.TuneStart tuneStart)
             other -> assertFailure ("expected typed tune host placement, got " <> show other)
           case Workload.planWorkloadPlacement
+            (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
             BootConfig.Cluster
             (Workload.RlLaunch (rlStart LinuxCPU)) of
             Right (Workload.WorkloadClusterJob spec) -> do
@@ -3141,17 +3148,23 @@ main = do
                 ( "expected exactly one rendered registry route, got "
                     <> show (length other)
                 )
-      , testCase "EnvoyProxy renderer pins local data-plane resource requests" $ do
-          let envoyProxy = Gateway.renderEnvoyProxy 9091
+      , testCase "EnvoyProxy renderer uses the selected data-plane resource budget" $ do
+          let resources = Resources.defaultClusterResources
+              budget = Resources.gateway resources
+              envoyProxy = Gateway.renderEnvoyProxy resources 9091
+              quantity = Text.Encoding.decodeUtf8 . ByteString.Lazy.toStrict . Aeson.encode
           assertBool
-            "Envoy data-plane CPU request stays local-friendly"
-            ("cpu: 50m" `Text.isInfixOf` envoyProxy)
+            "Envoy data-plane CPU request comes from the selected profile"
+            (("cpu: " <> quantity (Resources.budgetCpuRequest budget)) `Text.isInfixOf` envoyProxy)
           assertBool
-            "Envoy data-plane memory request stays local-friendly"
-            ("memory: 512Mi" `Text.isInfixOf` envoyProxy)
+            "Envoy data-plane memory request comes from the selected profile"
+            (("memory: " <> quantity (Resources.budgetMemoryRequest budget)) `Text.isInfixOf` envoyProxy)
           assertBool
-            "Envoy data-plane memory limit keeps archive uploads bounded"
-            ("memory: 1Gi" `Text.isInfixOf` envoyProxy)
+            "Envoy data-plane memory limit comes from the selected profile"
+            (("memory: " <> quantity (Resources.budgetMemoryLimit budget)) `Text.isInfixOf` envoyProxy)
+          assertBool
+            "Envoy data-plane CPU limit is explicit"
+            (("cpu: " <> quantity (Resources.budgetCpuLimit budget)) `Text.isInfixOf` envoyProxy)
           assertBool
             "Envoy readiness tolerates saturated local Kind workers"
             ( "readinessProbe:\n                        failureThreshold: 12\n                        periodSeconds: 5\n                        timeoutSeconds: 10"
@@ -4004,7 +4017,7 @@ main = do
           let topics = fmap PulsarBootstrap.topicName PulsarBootstrap.pulsarTopics
               statsCommands =
                 fmap
-                  (renderSubprocess . PulsarBootstrap.pulsarTopicStatsSubprocess)
+                  PulsarBootstrap.pulsarTopicStatsSubprocess
                   PulsarBootstrap.pulsarTopics
               logicalStores =
                 fmap
@@ -4014,9 +4027,16 @@ main = do
           -- substrate lanes are derived from the Coordinator topology.
           length topics @?= 34
           length statsCommands @?= 34
-          assertBool
-            "every exact topic probe uses read-only stats rather than a namespace list"
-            (all ("topics stats persistent://public/default/" `Text.isInfixOf`) statsCommands)
+          traverse_
+            ( \(topic, command) -> do
+                let arguments = JitML.Sub.Subprocess.subprocessArguments command
+                    expectedUrl = "http://pulsar-proxy:80/admin/v2/" <> Text.replace "://" "/" topic <> "/stats"
+                filter (== "--request") arguments @?= ["--request"]
+                take 2 (dropWhile (/= "--request") arguments) @?= ["--request", "GET"]
+                take 1 (reverse arguments) @?= [expectedUrl]
+                assertBool "exact stats GET must not send a request body" ("--data-binary" `notElem` arguments)
+            )
+            (zip topics statsCommands)
           topicStatsPollDecision 3 (Just "{\"subscriptions\":{}}")
             @?= TopicStatsObserved
           topicStatsPollDecision 3 (Just "not-json") @?= TopicStatsRetry
@@ -5735,6 +5755,12 @@ main = do
           assertBool
             "retired mirror placeholder is absent from the Helm release plan"
             (not ("jitml-mirror" `Text.isInfixOf` rendered))
+          for_ Helm.phasedReleases $ \release -> do
+            let arguments = subprocessArguments (Helm.helmInstallSubprocess release "chart")
+                selectedValues = [path | "--values" : path : _ <- List.tails arguments]
+                overlay = ".build/conf/cluster/resources/" <> Helm.releaseName release <> ".yaml"
+                authored = maybe [] (\path -> ["chart/" <> Text.pack path]) (Helm.releaseValuesFile release)
+            selectedValues @?= authored <> [overlay]
       , testCase "local-topology: Pulsar manual PVs match chart-generated PVC names" $ do
           let renderedPVs = Text.unlines (fmap Storage.renderManualPV Storage.manualPVs)
           assertBool
@@ -6036,10 +6062,12 @@ main = do
       , testCase
           "local-topology: live phased rollout caps and mounts the two Kind nodes (Phase 42)"
           $ do
-            let rendered = fmap renderSubprocess (livePhasedRolloutSubprocesses LinuxCPU "chart")
+            let rollout = livePhasedRolloutSubprocesses LinuxCPU "chart"
+                rendered = fmap renderSubprocess rollout
                 commandText = Text.unlines rendered
-                appleCommandText =
-                  Text.unlines (fmap renderSubprocess (livePhasedRolloutSubprocesses AppleSilicon "chart"))
+                appleRollout = livePhasedRolloutSubprocesses AppleSilicon "chart"
+                projectionPlan = StatefulPV.statefulPVFreshInstallSubprocesses LinuxCPU Resources.defaultClusterResources
+                appleProjectionPlan = StatefulPV.statefulPVFreshInstallSubprocesses AppleSilicon Resources.defaultClusterResources
                 publicReadyzProbe =
                   renderSubprocess (publicReadyzSubprocessForPort 9091)
             assertBool
@@ -6077,19 +6105,11 @@ main = do
                   `Text.isInfixOf` commandText
               )
             assertBool
-              "linux-cpu live rollout binds stateful PVs to node-local storage before the platform releases"
-              ( "docker exec jitml-linux-cpu-control-plane sh -c 'set -e; mkdir -p /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/ /jitml/.data/platform/minio/pv_0/; mountpoint -q /jitml/.data/platform/minio/pv_0/ || mount --bind /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/ /jitml/.data/platform/minio/pv_0/; chmod 0777 /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/;"
-                  `Text.isInfixOf` commandText
-              )
-            -- No registered Postgres remains, so the rollout emits no
-            -- Postgres ownership fixup. Asserting its absence keeps the empty
-            -- registry honest: a reintroduced cluster must re-add the chown.
-            --
-            -- `kindPrepareStatefulPvSubprocesses` branches per substrate --
-            -- `linux-cpu` mounts, `linux-cuda` chowns -- so asserting only on
-            -- the `linux-cpu` text never reaches the arm that emits it. That
-            -- gap let a `chown -R 26:26` with no path operand through to a live
-            -- bootstrap, where it failed the run. Both arms are checked here.
+              "linux-cpu live rollout persists the complete startup bundle and initializes both nodes"
+              (not (null projectionPlan) && projectionPlan `List.isSubsequenceOf` rollout)
+            -- The node-local projection bundle is an early fresh-node step.
+            -- CUDA retains its separate Postgres ownership behavior; an empty
+            -- registry must never emit chown without a path operand.
             assertBool
               "linux-cpu live rollout emits no Postgres ownership fixup while the registry is empty"
               (not ("chown -R 26:26" `Text.isInfixOf` commandText))
@@ -6107,16 +6127,20 @@ main = do
                         )
                   )
               )
+            for_
+              ["jitml-linux-cpu-control-plane", "jitml-linux-cpu-worker"]
+              $ \node -> do
+                let initialize = StatefulPV.statefulPVInitializeSubprocess node Storage.manualPVs
+                    reload = subprocess "docker" ["exec", node, "systemctl", "daemon-reload"]
+                    startProjection = subprocess "docker" ["exec", node, "systemctl", "start", StatefulPV.statefulPVServiceName]
+                assertBool
+                  "each CPU node initializes once, reloads its bundle and starts projection before rollout"
+                  ( [initialize, reload, startProjection] `List.isSubsequenceOf` rollout
+                      && length (filter (== initialize) rollout) == 1
+                  )
             assertBool
-              "linux-cpu live rollout prepares worker-local stateful PV storage"
-              ( "docker exec jitml-linux-cpu-worker sh -c 'set -e; mkdir -p /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/"
-                  `Text.isInfixOf` commandText
-              )
-            assertBool
-              "apple-silicon live rollout binds stateful PVs to node-local storage before the platform releases"
-              ( "docker exec jitml-apple-silicon-control-plane sh -c 'set -e; mkdir -p /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/ /jitml/.data/platform/minio/pv_0/; mountpoint -q /jitml/.data/platform/minio/pv_0/ || mount --bind /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/ /jitml/.data/platform/minio/pv_0/; chmod 0777 /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/;"
-                  `Text.isInfixOf` appleCommandText
-              )
+              "apple-silicon live rollout persists the complete startup bundle and initializes both nodes"
+              (not (null appleProjectionPlan) && appleProjectionPlan `List.isSubsequenceOf` appleRollout)
             assertBool
               "live rollout can warm-load the cached registry image before Helm waits"
               ( "kind load docker-image docker.io/library/registry:2 --name jitml-linux-cpu"
@@ -6218,15 +6242,29 @@ main = do
               ( "docker exec jitml-linux-cpu-control-plane sysctl -w fs.inotify.max_user_instances=1024"
                   `Text.isInfixOf` beforeMinio
               )
-            let (beforeManualStorage, _fromManualStorage) =
-                  Text.breakOn
-                    "kubectl --kubeconfig ./.build/jitml.kubeconfig apply -f chart/templates/storageclass-jitml-manual.yaml"
-                    commandText
+            let manualStorage =
+                  subprocess
+                    "kubectl"
+                    [ "--kubeconfig"
+                    , "./.build/jitml.kubeconfig"
+                    , "apply"
+                    , "-f"
+                    , "chart/templates/storageclass-jitml-manual.yaml"
+                    ]
+                beforeManualStorage =
+                  takeWhile
+                    (/= manualStorage)
+                    rollout
+                beforeFirstInotify =
+                  takeWhile
+                    (not . Text.isInfixOf "fs.inotify.max_user_instances=" . renderSubprocess)
+                    rollout
             assertBool
-              "live rollout prepares node-local stateful PV storage before applying manual storage"
-              ( "docker exec jitml-linux-cpu-control-plane sh -c 'set -e; mkdir -p /var/local/jitml-stateful-pv/jitml/.data/platform/minio/pv_0/"
-                  `Text.isInfixOf` beforeManualStorage
-              )
+              "live rollout installs and starts persistent PV projection before manual storage manifests"
+              (manualStorage `elem` rollout && projectionPlan `List.isSubsequenceOf` beforeManualStorage)
+            assertBool
+              "live rollout installs persistent PV projection before later node calibration steps"
+              (projectionPlan `List.isSubsequenceOf` beforeFirstInotify)
             -- Sprint 4.8: the registry bucket existence probe moved from a
             -- `mc ls ... >/dev/null` chain in the rendered subprocess list to
             -- typed Haskell IO (`runMinioBucketReadinessIO`), which

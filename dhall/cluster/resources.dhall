@@ -9,6 +9,19 @@ let S = ./Schema.dhall
 in    { nodeMemoryMiB = 12288
       , nodeCpus = "4"
       , workerCount = 1
+      , jobMemoryMiB = 4096
+      , jobCpus = "2"
+      , numericalWorkload =
+        { replicas = 1
+        , cpuRequest = "1"
+        , cpuLimit = "2"
+        , memoryRequest = "2Gi"
+        , memoryLimit = "4Gi"
+        }
+      , systemReserveMiB = 1536
+      , nodeSystemMemoryMiB = 1024
+      , nodeSystemCpus = "250m"
+      , scheduleOnControlPlane = False
       , registry =
         { replicas = 1
         , cpuRequest = "100m"
@@ -67,7 +80,7 @@ in    { nodeMemoryMiB = 12288
         , cpuRequest = "250m"
         , cpuLimit = "2"
         , memoryRequest = "512Mi"
-        , memoryLimit = "3Gi"
+        , memoryLimit = "4Gi"
         }
       , tensorboard =
         { replicas = 1
@@ -75,6 +88,20 @@ in    { nodeMemoryMiB = 12288
         , cpuLimit = "250m"
         , memoryRequest = "256Mi"
         , memoryLimit = "512Mi"
+        }
+      , supporting =
+        { replicas = 1
+        , cpuRequest = "25m"
+        , cpuLimit = "250m"
+        , memoryRequest = "64Mi"
+        , memoryLimit = "512Mi"
+        }
+      , gateway =
+        { replicas = 1
+        , cpuRequest = "50m"
+        , cpuLimit = "500m"
+        , memoryRequest = "128Mi"
+        , memoryLimit = "1Gi"
         }
       }
     : S.ClusterResources

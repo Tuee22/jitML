@@ -1,0 +1,9 @@
+# Lifecycle and live GenericRL image-proof helpers share the existing mac16 job
+# slot with the CLI. Use after explicit VM startup, together with
+# compose.cluster-bounded.yaml. One serial helper receives 0.5 CPU / 512 MiB;
+# this caller receives 0.5 CPU / 3 GiB. Use the full slot after all helpers end.
+services:
+  jitml:
+    cpus: 0.5
+    mem_limit: 3g
+    memswap_limit: 3g

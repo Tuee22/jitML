@@ -6,6 +6,8 @@ module JitML.Cluster.Storage
   , manualPVsFor
   , pvLocalDataPath
   , pvNodeDataPath
+  , pvIsPostgres
+  , pvIsPostgresFor
   , renderManualPV
   , renderStorageClass
   )
@@ -14,6 +16,7 @@ where
 import Data.Text (Text)
 import Data.Text qualified as Text
 
+import JitML.Cluster.PostgresRegistry (PerconaPGCluster (..), postgresRegistry)
 import JitML.Cluster.Resources
   ( ClusterResources
   , budgetReplicas
@@ -111,6 +114,22 @@ pvLocalDataPath pv =
     <> "/pv_"
     <> Text.pack (show (pvReplica pv))
     <> "/"
+
+-- Keep ownership classification tied to the authoritative typed registry.
+-- Only genuinely new PostgreSQL leaves receive its UID/GID at initialization.
+pvIsPostgres :: ManualPV -> Bool
+pvIsPostgres = pvIsPostgresFor postgresRegistry
+
+pvIsPostgresFor :: [PerconaPGCluster] -> ManualPV -> Bool
+pvIsPostgresFor registry pv =
+  any
+    ( \cluster ->
+        pvNamespace pv == perconaNamespace cluster
+          && ( pvStatefulSet pv == perconaClusterName cluster
+                 || pvStatefulSet pv == perconaClusterName cluster <> "-repo1"
+             )
+    )
+    registry
 
 claimRefLines :: ManualPV -> [Text]
 claimRefLines pv =

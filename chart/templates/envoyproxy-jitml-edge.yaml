@@ -21,10 +21,11 @@ spec:
         container:
           resources:
             requests:
-              cpu: 50m
-              memory: 512Mi
+              cpu: "25m"
+              memory: "128Mi"
             limits:
-              memory: 1Gi
+              cpu: "500m"
+              memory: "1Gi"
         patch:
           type: StrategicMerge
           value:
@@ -42,6 +43,13 @@ spec:
                         periodSeconds: 10
                         timeoutSeconds: 10
                     - name: shutdown-manager
+                      resources:
+                        requests:
+                          cpu: "25m"
+                          memory: "64Mi"
+                        limits:
+                          cpu: "250m"
+                          memory: "512Mi"
                       livenessProbe:
                         failureThreshold: 12
                         periodSeconds: 10

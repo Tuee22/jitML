@@ -130,6 +130,8 @@ scopedLiveE2EPlanForBrowserEvidence evidencePaths ownership substrate =
                 , "host"
                 , "-v"
                 , ".:/work:ro"
+                , "--tmpfs"
+                , "/work/.build:ro"
                 , "-v"
                 , Text.pack (browserEvidenceCataloguePath evidencePaths)
                     <> ":/jitml-browser-input/catalogue.json:ro"

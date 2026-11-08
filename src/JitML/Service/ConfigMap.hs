@@ -6,16 +6,22 @@ module JitML.Service.ConfigMap
   , renderServiceDeployment
   , renderServiceRBAC
   , renderServiceValues
+  , renderClusterResourceValues
+  , renderPlatformResourceDefaults
+  , resourceLines
   )
 where
 
+import Data.Aeson (object, (.=))
+import Data.Aeson qualified as Aeson
+import Data.ByteString.Lazy qualified as LazyByteString
 import Data.Text (Text)
 import Data.Text qualified as Text
+import Data.Text.Encoding qualified as Text.Encoding
 
 import JitML.Cluster.Resources
-  ( ClusterResources
-  , budgetReplicas
-  , jitmlService
+  ( ClusterResources (..)
+  , ComponentBudget (..)
   )
 import JitML.Service.BootConfig
   ( BootConfig (..)
@@ -29,6 +35,53 @@ import JitML.Substrate
   , substrateHasClusterCompute
   , substrateRuntimeClass
   )
+
+-- | Admission defaults cover upstream helpers that omit resource fields.
+-- Explicit primary-container budgets remain unchanged by this LimitRange.
+renderPlatformResourceDefaults :: ClusterResources -> Text
+renderPlatformResourceDefaults resources =
+  Text.Encoding.decodeUtf8 (LazyByteString.toStrict (Aeson.encode manifests)) <> "\n"
+ where
+  budget = supporting resources
+  manifests =
+    object
+      [ "apiVersion" .= ("v1" :: Text)
+      , "kind" .= ("List" :: Text)
+      , "items"
+          .= [ object
+                 [ "apiVersion" .= ("v1" :: Text)
+                 , "kind" .= ("Namespace" :: Text)
+                 , "metadata" .= object ["name" .= ("platform" :: Text)]
+                 ]
+             , object
+                 [ "apiVersion" .= ("v1" :: Text)
+                 , "kind" .= ("LimitRange" :: Text)
+                 , "metadata"
+                     .= object
+                       [ "name" .= ("jitml-container-defaults" :: Text)
+                       , "namespace" .= ("platform" :: Text)
+                       ]
+                 , "spec"
+                     .= object
+                       [ "limits"
+                           .= [ object
+                                  [ "type" .= ("Container" :: Text)
+                                  , "defaultRequest"
+                                      .= object
+                                        [ "cpu" .= budgetCpuRequest budget
+                                        , "memory" .= budgetMemoryRequest budget
+                                        ]
+                                  , "default"
+                                      .= object
+                                        [ "cpu" .= budgetCpuLimit budget
+                                        , "memory" .= budgetMemoryLimit budget
+                                        ]
+                                  ]
+                              ]
+                       ]
+                 ]
+             ]
+      ]
 
 renderServiceConfigMap :: BootConfig -> LiveConfig -> Text
 renderServiceConfigMap bootConfig liveConfig =
@@ -72,7 +125,7 @@ renderServiceDeployment :: ClusterResources -> Substrate -> Text
 renderServiceDeployment resources substrate =
   renderEngineDeployment resources substrate
     <> "---\n"
-    <> renderCoordinatorDeployment substrate
+    <> renderCoordinatorDeployment resources substrate
 
 renderEngineDeployment :: ClusterResources -> Substrate -> Text
 renderEngineDeployment resources substrate =
@@ -114,7 +167,9 @@ renderEngineDeployment resources substrate =
          , "          imagePullPolicy: IfNotPresent"
          , "          command: [\"jitml\"]"
          , "          args: [\"service\", \"--config\", \"/etc/jitml/BootConfig.dhall\"]"
-         , "          readinessProbe:"
+         ]
+      <> resourceLines 10 "resources" (jitmlService resources)
+      <> [ "          readinessProbe:"
          , "            httpGet:"
          , "              path: /readyz"
          , "              port: 8080"
@@ -162,9 +217,9 @@ renderEngineDeployment resources substrate =
         , "              value: compute,utility"
         ]
 
-renderCoordinatorDeployment :: Substrate -> Text
-renderCoordinatorDeployment substrate =
-  Text.unlines
+renderCoordinatorDeployment :: ClusterResources -> Substrate -> Text
+renderCoordinatorDeployment resources substrate =
+  Text.unlines $
     [ "apiVersion: apps/v1"
     , "kind: Deployment"
     , "metadata:"
@@ -194,29 +249,31 @@ renderCoordinatorDeployment substrate =
     , "          imagePullPolicy: IfNotPresent"
     , "          command: [\"jitml\"]"
     , "          args: [\"service\", \"--config\", \"/etc/jitml/BootConfig.dhall\"]"
-    , "          readinessProbe:"
-    , "            httpGet:"
-    , "              path: /readyz"
-    , "              port: 8080"
-    , "          startupProbe:"
-    , "            httpGet:"
-    , "              path: /healthz"
-    , "              port: 8080"
-    , "            periodSeconds: 5"
-    , "            timeoutSeconds: 2"
-    , "            failureThreshold: 60"
-    , "          livenessProbe:"
-    , "            httpGet:"
-    , "              path: /healthz"
-    , "              port: 8080"
-    , "          volumeMounts:"
-    , "            - name: service-config"
-    , "              mountPath: /etc/jitml"
-    , "      volumes:"
-    , "        - name: service-config"
-    , "          configMap:"
-    , "            name: jitml-coordinator-config"
     ]
+      <> resourceLines 10 "resources" (supporting resources)
+      <> [ "          readinessProbe:"
+         , "            httpGet:"
+         , "              path: /readyz"
+         , "              port: 8080"
+         , "          startupProbe:"
+         , "            httpGet:"
+         , "              path: /healthz"
+         , "              port: 8080"
+         , "            periodSeconds: 5"
+         , "            timeoutSeconds: 2"
+         , "            failureThreshold: 60"
+         , "          livenessProbe:"
+         , "            httpGet:"
+         , "              path: /healthz"
+         , "              port: 8080"
+         , "          volumeMounts:"
+         , "            - name: service-config"
+         , "              mountPath: /etc/jitml"
+         , "      volumes:"
+         , "        - name: service-config"
+         , "          configMap:"
+         , "            name: jitml-coordinator-config"
+         ]
 
 serviceReplicaCount :: ClusterResources -> Substrate -> Int
 serviceReplicaCount _ AppleSilicon = 0
@@ -225,7 +282,7 @@ serviceReplicaCount resources LinuxCUDA = budgetReplicas (jitmlService resources
 
 renderServiceValues :: ClusterResources -> Text
 renderServiceValues resources =
-  Text.unlines
+  Text.unlines $
     [ "substrate: linux-cpu"
     , "edgePort: 9090"
     , "engineReplicas: " <> Text.pack (show (budgetReplicas (jitmlService resources)))
@@ -234,6 +291,152 @@ renderServiceValues resources =
     , "  repository: jitml"
     , "  tag: local"
     ]
+      <> resourceLines 0 "resources" (jitmlService resources)
+      <> resourceLines 0 "coordinatorResources" (supporting resources)
+      <> numericalWorkloadLines (numericalWorkload resources)
+
+-- | Runtime-only Helm overlays. Every release receives its effective profile
+-- after the authored values, so local and upstream charts share the same
+-- budgets without rewriting their image, storage, protocol, or JVM settings.
+-- JSON objects are valid YAML and preserve resource quantities as strings.
+renderClusterResourceValues :: ClusterResources -> [(FilePath, Text)]
+renderClusterResourceValues resources =
+  [ overlay "minio" $
+      object
+        [ "resources" .= componentResources (minio resources)
+        , "volumePermissions" .= resourcesFor (supporting resources)
+        , "provisioning" .= resourcesFor (supporting resources)
+        ]
+  , overlay "registry" (resourcesFor (registry resources))
+  , overlay "pulsar" $
+      object
+        [ "zookeeper" .= resourcesFor (pulsar resources)
+        , "bookkeeper" .= resourcesFor (pulsar resources)
+        , "broker" .= resourcesFor (pulsar resources)
+        , "proxy" .= resourcesFor (pulsar resources)
+        , "autorecovery" .= resourcesFor (supporting resources)
+        , "toolset" .= resourcesFor (supporting resources)
+        , -- StatefulSet init requests remain reserved after initialization.
+          -- The prepared chart redirects only those long-lived Pods; completed
+          -- initialization Job templates retain their original resource fields.
+          "statefulInit" .= resourcesFor (supporting resources)
+        ]
+  , overlay "kube-prometheus-stack" $
+      object
+        [ "grafana"
+            .= object
+              [ "resources" .= componentResources (grafana resources)
+              , "sidecar" .= resourcesFor (supporting resources)
+              ]
+        , "prometheus"
+            .= object
+              [ "prometheusSpec" .= resourcesFor (prometheus resources)
+              ]
+        , "prometheusOperator"
+            .= object
+              [ "resources" .= componentResources (supporting resources)
+              , "prometheusConfigReloader" .= resourcesFor (supporting resources)
+              , "admissionWebhooks"
+                  .= object
+                    [ "patch" .= resourcesFor (supporting resources)
+                    ]
+              ]
+        , "kube-state-metrics" .= resourcesFor (supporting resources)
+        , "crds"
+            .= object
+              [ "upgradeJob" .= resourcesFor (supporting resources)
+              ]
+        ]
+  , overlay "tensorboard" $
+      object
+        [ "resources" .= componentResources (tensorboard resources)
+        , "syncResources" .= componentResources (supporting resources)
+        ]
+  , overlay "jitml-service" $
+      object
+        [ "resources" .= componentResources (jitmlService resources)
+        , "coordinatorResources" .= componentResources (supporting resources)
+        , "numericalWorkload" .= numericalWorkloadValues (numericalWorkload resources)
+        ]
+  , overlay "jitml-demo" $
+      object $
+        [ "resources" .= componentResources (jitmlDemo resources)
+        , "numericalWorkload" .= numericalWorkloadValues (numericalWorkload resources)
+        ]
+          <> [ "nodeSelector"
+                 .= object ["node-role.kubernetes.io/control-plane" .= ("" :: Text)]
+             | scheduleOnControlPlane resources
+             ]
+  , overlay "envoy-gateway" $
+      object
+        [ "deployment"
+            .= object
+              [ "envoyGateway" .= resourcesFor (supporting resources)
+              ]
+        , "certgen"
+            .= object
+              [ "job" .= resourcesFor (supporting resources)
+              ]
+        ]
+  ]
+ where
+  overlay name value =
+    ( ".build/conf/cluster/resources/" <> name <> ".yaml"
+    , Text.Encoding.decodeUtf8 (LazyByteString.toStrict (Aeson.encode value)) <> "\n"
+    )
+  resourcesFor budget = object ["resources" .= componentResources budget]
+
+numericalWorkloadValues :: ComponentBudget -> Aeson.Value
+numericalWorkloadValues budget =
+  object
+    [ "replicas" .= budgetReplicas budget
+    , "cpuRequest" .= budgetCpuRequest budget
+    , "cpuLimit" .= budgetCpuLimit budget
+    , "memoryRequest" .= budgetMemoryRequest budget
+    , "memoryLimit" .= budgetMemoryLimit budget
+    ]
+
+numericalWorkloadLines :: ComponentBudget -> [Text]
+numericalWorkloadLines budget =
+  [ "numericalWorkload:"
+  , "  replicas: " <> Text.pack (show (budgetReplicas budget))
+  , "  cpuRequest: " <> quoted (budgetCpuRequest budget)
+  , "  cpuLimit: " <> quoted (budgetCpuLimit budget)
+  , "  memoryRequest: " <> quoted (budgetMemoryRequest budget)
+  , "  memoryLimit: " <> quoted (budgetMemoryLimit budget)
+  ]
+ where
+  quoted = Text.Encoding.decodeUtf8 . LazyByteString.toStrict . Aeson.encode
+
+componentResources :: ComponentBudget -> Aeson.Value
+componentResources budget =
+  object
+    [ "requests"
+        .= object
+          [ "cpu" .= budgetCpuRequest budget
+          , "memory" .= budgetMemoryRequest budget
+          ]
+    , "limits"
+        .= object
+          [ "cpu" .= budgetCpuLimit budget
+          , "memory" .= budgetMemoryLimit budget
+          ]
+    ]
+
+resourceLines :: Int -> Text -> ComponentBudget -> [Text]
+resourceLines width key budget =
+  fmap
+    (Text.replicate width " " <>)
+    [ key <> ":"
+    , "  requests:"
+    , "    cpu: " <> quantity (budgetCpuRequest budget)
+    , "    memory: " <> quantity (budgetMemoryRequest budget)
+    , "  limits:"
+    , "    cpu: " <> quantity (budgetCpuLimit budget)
+    , "    memory: " <> quantity (budgetMemoryLimit budget)
+    ]
+ where
+  quantity = Text.Encoding.decodeUtf8 . LazyByteString.toStrict . Aeson.encode
 
 yamlLabelBool :: Bool -> Text
 yamlLabelBool True = "\"true\""

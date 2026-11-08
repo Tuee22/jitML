@@ -81,14 +81,9 @@ trainAndPublishNativeProductRow invocation source row projection = do
                 Just stamp -> Producer.SuppliedNativeProducerSource stamp
         result <- Native.executeNativeRlPublication batch (Matrix.productProjectionRowId projection) context
         case Native.nativeRlExecutionPublication result of
-          Nothing ->
-            pure
-              ( productPublishError
-                  projection
-                  ( "native canonical child pipeline refused at "
-                      <> Text.pack (show (Native.nativeExecutionStage (Native.nativeRlExecutionReport result)))
-                  )
-              )
+          Nothing -> do
+            reason <- liftIO (Native.renderNativeChildPipelineRefusal (Native.nativeRlExecutionReport result))
+            pure (productPublishError projection reason)
           Just publication -> case Published.nativeChildPublishedArtifact publication of
             Left reason -> pure (productPublishError projection reason)
             Right actual -> case validateNativePublishedProjection projection actual of

@@ -100,11 +100,17 @@ library
         JitML.Cluster.PostgresRegistry
         JitML.Cluster.Publication
         JitML.Cluster.PulsarBootstrap
+        JitML.Cluster.PulsarChart
         JitML.Cluster.ReconcileStamp
         JitML.Coordinator.Topology
         JitML.Work.Envelope
         JitML.Cluster.Readiness
         JitML.Cluster.Resources
+        JitML.Cluster.ResourceBudget
+        JitML.Cluster.ResourceRuntime
+        JitML.Cluster.ResourceNodes
+        JitML.Cluster.ResourcePods
+        JitML.Cluster.StatefulPV
         JitML.Cluster.Storage
         JitML.Docs.Check
         JitML.Docs.Generate
@@ -558,7 +564,7 @@ executable jitml
     hs-source-dirs:   app
     default-language: GHC2024
     ghc-options:
-        -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
+        -rtsopts -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
         -funbox-strict-fields -threaded -fspecialise-aggressively
         -fexpose-all-unfoldings -with-rtsopts=-A64m -with-rtsopts=-n4m
         -with-rtsopts=-qg1 -with-rtsopts=-qb -with-rtsopts=-T
@@ -581,6 +587,11 @@ test-suite jitml-unit
         ClusterLifecycleTarget
         ClusterLifecyclePurge
         ClusterLifecyclePublication
+        ClusterResourceBudget
+        ClusterResourceRendering
+        ClusterResourceRuntime
+        ClusterResourceNodes
+        ClusterResourcePods
         PreparedTrainers
         DqnEvaluationControls
         ArsAppliedStep
@@ -620,6 +631,7 @@ test-suite jitml-unit
         ProtocolCodec
         ReconcileStamp
         RegressionStandardization
+        RegressionTrainingOrder
         ReportMeasurements
         ServedMetricVerification
         SupervisedCheckpointV2
@@ -690,8 +702,8 @@ test-suite jitml-unit
 
     default-language: GHC2024
     ghc-options:
-        -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
-        -funbox-strict-fields -fspecialise-aggressively
+        -threaded -rtsopts -Wall -Wcompat -Werror=incomplete-patterns -O2
+        -fllvm -funbox-strict-fields -fspecialise-aggressively
         -fexpose-all-unfoldings -with-rtsopts=-A64m -with-rtsopts=-n4m
         -with-rtsopts=-qg1 -with-rtsopts=-qb -with-rtsopts=-T
 
@@ -699,6 +711,7 @@ test-suite jitml-unit
         cryptohash-sha256,
         base >=4.21 && <4.22,
         aeson,
+        async,
         bytestring,
         containers,
         dhall,
@@ -707,6 +720,7 @@ test-suite jitml-unit
         filepath,
         jitml,
         mtl,
+        network,
         optparse-applicative,
         path,
         path-io,
@@ -735,8 +749,8 @@ test-suite jitml-integration
 
     default-language: GHC2024
     ghc-options:
-        -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
-        -funbox-strict-fields -fspecialise-aggressively
+        -threaded -rtsopts -Wall -Wcompat -Werror=incomplete-patterns -O2
+        -fllvm -funbox-strict-fields -fspecialise-aggressively
         -fexpose-all-unfoldings -with-rtsopts=-A64m -with-rtsopts=-n4m
         -with-rtsopts=-qg1 -with-rtsopts=-qb -with-rtsopts=-T
 
@@ -768,8 +782,8 @@ test-suite jitml-sl-canonicals
     other-modules:    TinyArchiveControls
     default-language: GHC2024
     ghc-options:
-        -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
-        -funbox-strict-fields -fspecialise-aggressively
+        -threaded -rtsopts -Wall -Wcompat -Werror=incomplete-patterns -O2
+        -fllvm -funbox-strict-fields -fspecialise-aggressively
         -fexpose-all-unfoldings -with-rtsopts=-A64m -with-rtsopts=-n4m
         -with-rtsopts=-qg1 -with-rtsopts=-qb -with-rtsopts=-T
 
@@ -798,8 +812,8 @@ test-suite jitml-rl-canonicals
 
     default-language: GHC2024
     ghc-options:
-        -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
-        -funbox-strict-fields -fspecialise-aggressively
+        -threaded -rtsopts -Wall -Wcompat -Werror=incomplete-patterns -O2
+        -fllvm -funbox-strict-fields -fspecialise-aggressively
         -fexpose-all-unfoldings -with-rtsopts=-A64m -with-rtsopts=-n4m
         -with-rtsopts=-qg1 -with-rtsopts=-qb -with-rtsopts=-T
 
@@ -824,8 +838,8 @@ test-suite jitml-hyperparameter
     hs-source-dirs:   test/hyperparameter
     default-language: GHC2024
     ghc-options:
-        -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
-        -funbox-strict-fields -fspecialise-aggressively
+        -threaded -rtsopts -Wall -Wcompat -Werror=incomplete-patterns -O2
+        -fllvm -funbox-strict-fields -fspecialise-aggressively
         -fexpose-all-unfoldings -with-rtsopts=-A64m -with-rtsopts=-n4m
         -with-rtsopts=-qg1 -with-rtsopts=-qb -with-rtsopts=-T
 
@@ -841,11 +855,14 @@ test-suite jitml-backends
     type:             exitcode-stdio-1.0
     main-is:          Main.hs
     hs-source-dirs:   test/backends test/shared
-    other-modules:    AlphaZeroArenaBackendControls
+    other-modules:
+        AlphaZeroArenaBackendControls
+        DeviceWitnessCoordinate
+
     default-language: GHC2024
     ghc-options:
-        -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
-        -funbox-strict-fields -fspecialise-aggressively
+        -threaded -rtsopts -Wall -Wcompat -Werror=incomplete-patterns -O2
+        -fllvm -funbox-strict-fields -fspecialise-aggressively
         -fexpose-all-unfoldings -with-rtsopts=-A64m -with-rtsopts=-n4m
         -with-rtsopts=-qg1 -with-rtsopts=-qb -with-rtsopts=-T
 
@@ -858,6 +875,7 @@ test-suite jitml-backends
         path,
         random,
         safe-exceptions,
+        serialise,
         tasty,
         tasty-hunit,
         temporary,
@@ -875,11 +893,12 @@ test-suite jitml-daemon-lifecycle
         GenericRlLiveControls
         GenericRlPhysicalProof
         SigtermRegression
+        StatefulPvProjection
 
     default-language:   GHC2024
     ghc-options:
-        -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
-        -funbox-strict-fields -fspecialise-aggressively
+        -threaded -rtsopts -Wall -Wcompat -Werror=incomplete-patterns -O2
+        -fllvm -funbox-strict-fields -fspecialise-aggressively
         -fexpose-all-unfoldings -with-rtsopts=-A64m -with-rtsopts=-n4m
         -with-rtsopts=-qg1 -with-rtsopts=-qb -with-rtsopts=-T
 
@@ -904,7 +923,8 @@ test-suite jitml-daemon-lifecycle
         tasty,
         tasty-hunit,
         temporary,
-        text
+        text,
+        unix
 
 test-suite jitml-e2e
     type:             exitcode-stdio-1.0
@@ -912,8 +932,8 @@ test-suite jitml-e2e
     hs-source-dirs:   test/e2e
     default-language: GHC2024
     ghc-options:
-        -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
-        -funbox-strict-fields -fspecialise-aggressively
+        -threaded -rtsopts -Wall -Wcompat -Werror=incomplete-patterns -O2
+        -fllvm -funbox-strict-fields -fspecialise-aggressively
         -fexpose-all-unfoldings -with-rtsopts=-A64m -with-rtsopts=-n4m
         -with-rtsopts=-qg1 -with-rtsopts=-qb -with-rtsopts=-T
 
@@ -1035,8 +1055,8 @@ test-suite jitml-negative-controls
 
     default-language: GHC2024
     ghc-options:
-        -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
-        -funbox-strict-fields -fspecialise-aggressively
+        -threaded -rtsopts -Wall -Wcompat -Werror=incomplete-patterns -O2
+        -fllvm -funbox-strict-fields -fspecialise-aggressively
         -fexpose-all-unfoldings -with-rtsopts=-A64m -with-rtsopts=-n4m
         -with-rtsopts=-qg1 -with-rtsopts=-qb -with-rtsopts=-T
 
@@ -1077,8 +1097,8 @@ test-suite jitml-model-convergence
 
     default-language: GHC2024
     ghc-options:
-        -Wall -Wcompat -Werror=incomplete-patterns -O2 -fllvm
-        -funbox-strict-fields -fspecialise-aggressively
+        -threaded -rtsopts -Wall -Wcompat -Werror=incomplete-patterns -O2
+        -fllvm -funbox-strict-fields -fspecialise-aggressively
         -fexpose-all-unfoldings -with-rtsopts=-A64m -with-rtsopts=-n4m
         -with-rtsopts=-qg1 -with-rtsopts=-qb -with-rtsopts=-T
 

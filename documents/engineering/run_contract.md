@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: ../../README.md, ../documentation_standards.md, README.md, haskell_code_guide.md, daemon_architecture.md, training_workloads.md, training_metrics_and_splits.md, product_completion_contract.md, checkpoint_format.md, numerical_core.md, unit_testing_policy.md, purescript_frontend.md, pulsar_ml_workflow.md, cluster_topology.md, determinism_contract.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/00-overview.md, ../../DEVELOPMENT_PLAN/system-components.md, ../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-5-jitml-service-daemon.md, ../../DEVELOPMENT_PLAN/phase-8-supervised-and-rl-framework.md, ../../DEVELOPMENT_PLAN/phase-9-rl-catalog-alphazero-and-tuning.md, ../../DEVELOPMENT_PLAN/phase-10-checkpointing-and-inference.md, ../../DEVELOPMENT_PLAN/phase-12-test-stanzas-and-cross-cluster.md, ../../DEVELOPMENT_PLAN/phase-19-product-truth-gates.md, ../../DEVELOPMENT_PLAN/phase-21-type-state-dsl-and-inference-eligibility.md, ../../DEVELOPMENT_PLAN/phase-25-real-rl-algorithms-and-environments.md, ../../DEVELOPMENT_PLAN/phase-28-per-model-integration-and-e2e.md, ../../DEVELOPMENT_PLAN/phase-29-linux-cuda-product-lane.md, ../../DEVELOPMENT_PLAN/phase-30-apple-silicon-product-lane.md, ../../DEVELOPMENT_PLAN/phase-31-no-caveat-product-aggregation.md, ../../DEVELOPMENT_PLAN/phase-32-external-truth-realness-harness.md, ../../DEVELOPMENT_PLAN/phase-33-per-model-convergence-and-inference-tests.md, ../../DEVELOPMENT_PLAN/phase-34-plan-truth-governance.md, ../../DEVELOPMENT_PLAN/phase-261-contract-driven-live-execution-integration-journal.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md
+**Referenced by**: ../../README.md, ../documentation_standards.md, README.md, haskell_code_guide.md, daemon_architecture.md, training_workloads.md, training_metrics_and_splits.md, product_completion_contract.md, checkpoint_format.md, numerical_core.md, unit_testing_policy.md, purescript_frontend.md, pulsar_ml_workflow.md, cluster_topology.md, determinism_contract.md, ../../DEVELOPMENT_PLAN/README.md, ../../DEVELOPMENT_PLAN/00-overview.md, ../../DEVELOPMENT_PLAN/system-components.md, ../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md, [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 104](../../DEVELOPMENT_PLAN/phase-104-validated-runplan-and-pure-contract-algebra.md), [Phase 229](../../DEVELOPMENT_PLAN/phase-229-phase-specific-product-evidence-payloads.md), [Phase 251](../../DEVELOPMENT_PLAN/phase-251-trainingplan-evaluationplan-compiler-and-trainer-migration.md), [Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md), [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md), [Phase 288](../../DEVELOPMENT_PLAN/phase-288-journal-derived-status-registry.md), [Phase 289](../../DEVELOPMENT_PLAN/phase-289-evidence-typed-report-measurements.md), ../../DEVELOPMENT_PLAN/phase-261-contract-driven-live-execution-integration-journal.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md
 **Generated sections**: none
 
 > **Purpose**: Define jitML's typed run-planning, workflow-protocol, evidence,
@@ -1089,9 +1089,10 @@ row's ProductRow-origin artifact or completed scenario journal. Matching a
 `PlanId` without the addressed Product composite origin is insufficient.
 
 Qualifying execution first captures the separately selected criterion review
-from fixed files under `documents/validation/criterion-reviews/`, bound to the
-original code source, lane, scope and full ordered 55-row contract set. Native
-execution compares the current contract digest before reserving its issued
+from fixed files under
+`DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/criterion-reviews/`,
+bound to the original code source, lane, scope and full ordered 55-row contract
+set. Native execution compares the current contract digest before reserving its issued
 attempt or launching training; its private certificate and retained receipt bind
 that same identity. A supervised scenario parent captures before launch and
 compares the child's explicitly supplied review identity with that original

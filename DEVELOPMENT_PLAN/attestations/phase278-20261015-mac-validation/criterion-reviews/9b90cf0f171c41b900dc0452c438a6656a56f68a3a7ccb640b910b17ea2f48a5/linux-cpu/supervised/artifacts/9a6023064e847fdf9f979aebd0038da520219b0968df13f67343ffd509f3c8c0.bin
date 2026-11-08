@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "source": {
+    "algorithm": 1,
+    "sha256": "57cf61d1cf6149f353d852e21d8c663418d40e0ecc415e30d54dbdf5ef57ae16"
+  },
+  "repository_root": "/Users/matthewnowak/jitML",
+  "source_root": "/Users/matthewnowak/jitML",
+  "source_manifest": {
+    "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/criterion-native-export-root-metadata-20261019T050327Z/source-before.json",
+    "bytes": 204920,
+    "sha256": "0b503bd6fe00ad4680313e40da3c520473c9bd8e3f2641d37e96ab7a7427b0ea"
+  },
+  "validation_manifest": {
+    "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/native-root-metadata-fix-build/result.json",
+    "bytes": 1641,
+    "sha256": "e0383bc48970c37cead09beecbcbbcbdd6eb14e7008329286a0841e6c734a9ca"
+  },
+  "executable": {
+    "path": "/Users/matthewnowak/jitML/.build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/criterion-native-export-root-metadata-20261019T050327Z/criterion-review-contract-export",
+    "bytes": 191469552,
+    "sha256": "edc9f188fdfc76de9a0ae038825e86abb5a70963fe8e07ab785cf0ddeeabacee"
+  }
+}

@@ -15,6 +15,7 @@ module JitML.Cluster.Helm
   , kindDeleteSubprocess
   , kindGetClustersSubprocess
   , phasedReleases
+  , pulsarChartPreparationRequired
   , renderHelmDependencyBuildPlan
   , renderHelmPhasedRolloutPlan
   )
@@ -25,8 +26,9 @@ import Data.Text (Text)
 import Data.Text qualified as Text
 import System.FilePath ((</>))
 
+import JitML.Cluster.PulsarChart (preparedPulsarChartPath)
 import JitML.Sub.Render (renderSubprocess)
-import JitML.Sub.Subprocess (Subprocess, subprocess)
+import JitML.Sub.Subprocess (Subprocess, subprocess, subprocessArguments, subprocessPath)
 import JitML.Substrate (Substrate, renderSubstrate, substrateClusterName, substrateEdgePort)
 
 -- | Sprint 2.9 — typed @helm dependency build@. The previous @sh -c@ short-
@@ -156,16 +158,37 @@ helmInstallSubprocessWith waitForReady extraArgs release chartPath =
     | otherwise = ["--timeout=900s"]
 
 chartReference :: HelmRelease -> FilePath -> Text
+chartReference release _
+  | releaseName release == "pulsar" && releasePackage release == Just "pulsar-3.6.0.tgz" =
+      Text.pack preparedPulsarChartPath
 chartReference release chartPath =
   case releasePackage release of
     Just package -> Text.pack chartPath <> "/charts/" <> package
     Nothing -> Text.pack chartPath <> "/local/" <> releaseChart release
 
+-- | A changed declared Pulsar dependency must not silently use an older cached
+-- correction. Refuse its command before preparing any chart or invoking Helm.
+pulsarChartPreparationRequired :: Subprocess -> Either Text Bool
+pulsarChartPreparationRequired command
+  | subprocessPath command /= "helm" || take 3 arguments /= ["upgrade", "--install", "pulsar"] =
+      Right False
+  | take 1 (drop 3 arguments) == [Text.pack preparedPulsarChartPath] = Right True
+  | otherwise =
+      Left "Pulsar rollout requires the explicitly supported prepared pulsar-3.6.0.tgz chart"
+ where
+  arguments = subprocessArguments command
+
 valuesArgs :: HelmRelease -> FilePath -> [Text]
 valuesArgs release chartPath =
-  case releaseValuesFile release of
-    Just valuesFile -> ["--values", Text.pack (chartPath </> valuesFile)]
-    Nothing -> []
+  authoredValues
+    <> [ "--values"
+       , ".build/conf/cluster/resources/" <> releaseName release <> ".yaml"
+       ]
+ where
+  authoredValues =
+    case releaseValuesFile release of
+      Just valuesFile -> ["--values", Text.pack (chartPath </> valuesFile)]
+      Nothing -> []
 
 helmPhasedRolloutPlan :: FilePath -> [Subprocess]
 helmPhasedRolloutPlan chartPath =

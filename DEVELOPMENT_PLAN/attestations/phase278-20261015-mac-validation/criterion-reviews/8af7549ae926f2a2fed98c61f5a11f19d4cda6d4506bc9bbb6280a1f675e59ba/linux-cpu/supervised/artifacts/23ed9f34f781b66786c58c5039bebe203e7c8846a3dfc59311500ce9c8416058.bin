@@ -1,0 +1,93 @@
+# Detached supervised qualification: minimum typed binding
+
+Read-only design review; no implementation, live/container/source or admission
+change. This records the corrected detached direction after discovering Store's
+existing supervised-companion prohibition.
+
+## Existing constraints
+
+- `Checkpoint/Store.hs:3305–3320` deliberately admits supervised-graph completed
+  payloads only with **no** replay/transcript pointer. Preserve this rule.
+- `Product/Publisher/Audit.hs:138–171` compares receipt inventory with the
+  manifest's snapshot-scoped companions and expects `[]` for Supervised.
+  A detached qualification must not enter `productPublishArtifacts`.
+- `Test/Report.hs:2191–2198` computes checkpoint scope from the canonical **path**.
+  It is not a digest of that directory's contents. Placing a sidecar anywhere
+  underneath that root does not authenticate its bytes or its membership.
+- `ProductScenarioRunner.hs:300–336` currently observes the successful pinned
+  subprocess and discards its stdout while returning an acknowledgement. The
+  transcript nevertheless exposes `processTranscriptStdout`; the resolver then
+  reads only the latest manifest and exact-address admits it at `:353–422`.
+- `ProductScenarioJournal.hs:173–201` has a strict row wire; `:711–739` feeds its
+  values into the opaque row authenticator. `:1450–1475` separately binds row
+  fields into whole-run HMAC material. `ProductScenarioAuthorization.hs:196–255`
+  defines the canonical row material used again by Report. Both layers matter.
+
+## Minimum coherent extension
+
+1. Persist one canonical prepublication qualification manifest plus its raw
+   content-addressed blobs. Bind cohort/child policy and transports, lane,
+   expected current producer invocation/source identity, fixed data/split/order,
+   all five observed counters/device results, initial/final graph+transform and
+   JMW1 material, and index-0 exact plan/runtime/weights tuple. Do not include a
+   future checkpoint/snapshot or source-journal SHA. Raw graph/weight artifacts
+   must likewise not contain a snapshot pointer back to the qualification.
+
+2. Introduce a separate typed `SupervisedQualificationReference` and a verified
+   admission/binding type, with private constructors and ordinary accessors.
+   Canonical keys should derive from the SHA and a fixed detached namespace,
+   never accept an unconstrained path/URL. `ProductPublishResult` may carry this
+   distinct field; non-SL results must carry no such field, and SL requires one.
+   Keep its companion receipt list empty. The raw reference alone proves no
+   execution or qualification; only full reader validation mints verified data.
+
+3. Use a strict producer-result channel from the pinned child. A small new
+   versioned qualification inventory record/line can be parsed from the actual
+   `ProcessTranscript` stdout, requiring exactly one SL record for the expected
+   row/plan/lane/invocation, exact admitted manifest SHA, detached object key and
+   qualification SHA. Reject missing/duplicate/malformed/foreign rows and
+   non-SL qualification records. Retain the parsed typed result in the transport
+   closure for the resolver. This avoids a free-form latest-sidecar file and
+   uses the already captured actual subprocess output; a path-bound file could
+   work, but needs an equivalent exact producer/invocation binding.
+
+4. After exact Store admission, require full sidecar read/hash/replay against
+   the expected canonical cohort plan and current invocation. Compare index-0
+   plan, runtime descriptor+transforms, initial/final weights, data identity and
+   actual completion/device/counters with that exact admitted checkpoint. The
+   reader recomputes all five pair metrics, N and median; booleans or a cached
+   median are never authoritative. Resolve from immutable key+SHA, not whichever
+   object a latest pointer happens to name. Missing detached data fails product
+   qualification while ordinary Store/inference admission retains its scope.
+
+5. Carry the resulting opaque qualification binding into the private executed
+   scenario completion and `CompletedProductScenarioEvidence`. Every **minting**
+   path, including journal rehydration, must require it for Supervised and reject
+   it for other kinds. An artifact-only `ProductScenarioCompletion` must not by
+   itself imply five-run qualification. Do not rely merely on adding a renderer
+   column or on a public `ProductPublishResult` record update.
+
+6. Add the separate reference to a reviewed new strict source-journal wire
+   version, both whole-run `runReceiptRowFields` and canonical
+   `productScenarioJournalEvidenceMaterial`, and the corresponding Report check.
+   A new authenticated row-material domain/version avoids ambiguity with the old
+   absent-field material. Before `journaledProductScenarioEvidence` mints a row,
+   reopen/replay the detached object and recompare the exact admitted index-0
+   tuple and the authenticated reference. Version the lane row/reference channel
+   too; historical singleton rows cannot assert the new qualification. Preserve
+   original bytes and unrelated plan/report semantics.
+
+The resulting dependency graph is acyclic: raw initial/final/data blobs → raw
+cohort manifest; independently, final checkpoint snapshot; then the producer
+result/report and authenticated source/lane journal bind **both** addresses.
+The checkpoint keeps no new companion pointer and the raw cohort does not hash
+the future journal/checkpoint. Authentication of the detached SHA must be
+explicit at the final report boundary; a self-consistent hash is insufficient.
+
+Required adversaries include missing/foreign/reordered/duplicate child data,
+same bytes under a foreign scope/invocation, producer stdout for another manifest,
+unchanged checkpoint with substituted qualification pointer, a different index-0
+weight/transform tuple, forged raw Passed JSON, missing replay blobs, old wire or
+old policy, and direct artifact-only report minting. Each needs its own typed
+failure boundary. No Store companion relaxation or historical record relabeling
+is justified by this design.

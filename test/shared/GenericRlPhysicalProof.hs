@@ -17,6 +17,11 @@ module GenericRlPhysicalProof
   , validateCliPath
   , validateCliMagic
   , validateImageDescriptor
+  , imageProofHelperMemoryBytes
+  , imageProofHelperNanoCpus
+  , imageProofHelperName
+  , imageProofHelperCreateArguments
+  , validateImageProofHelper
   , validateImageExecutable
   , validateImageSource
   , validateResolvedExecutable
@@ -200,6 +205,107 @@ validateImageDescriptor target config = at Image $ do
   require
     "image PATH contains a relative or empty executable lookup component"
     (all (Text.isPrefixOf "/") (Text.splitOn ":" path))
+
+imageProofHelperMemoryBytes, imageProofHelperNanoCpus :: Integer
+imageProofHelperMemoryBytes = 536870912
+imageProofHelperNanoCpus = 500000000
+
+-- A fixed name per caller is also Docker's atomic exclusion boundary: another
+-- proof cannot create a second sibling before the first has been removed.
+imageProofHelperName :: Text -> Text
+imageProofHelperName owner =
+  "jm-generic-rl-image-proof-" <> Text.take 24 (sha256Hex (Encoding.encodeUtf8 owner))
+
+imageProofHelperCreateArguments :: Text -> Text -> Text -> Source.SourceStamp -> [Text]
+imageProofHelperCreateArguments architecture target owner stamp =
+  [ "create"
+  , "--pull=never"
+  , "--platform=linux/" <> architecture
+  , "--name=" <> imageProofHelperName owner
+  , "--label=jitml.proof.role=generic-rl-image-capability"
+  , "--label=jitml.proof.owner=" <> owner
+  , "--label=jitml.proof.source=" <> Source.stampSha256 stamp
+  , "--user=0:0"
+  , "--cpus=0.5"
+  , "--memory=" <> Text.pack (show imageProofHelperMemoryBytes)
+  , "--memory-swap=" <> Text.pack (show imageProofHelperMemoryBytes)
+  , "--pids-limit=64"
+  , "--network=none"
+  , "--cgroupns=private"
+  , "--read-only"
+  , "--cap-drop=ALL"
+  , "--security-opt=no-new-privileges"
+  , "--restart=no"
+  , "--tmpfs=/tmp:rw,nosuid,nodev,size=67108864"
+  , "--entrypoint=/bin/sh"
+  , target
+  , "-c"
+  , "command -v jitml"
+  ]
+
+-- Refine actual Docker observations before start, independently of the create
+-- arguments. Parsed observations alone do not authenticate their producer.
+validateImageProofHelper
+  :: Text -> Text -> Source.SourceStamp -> Aeson.Value -> Either ProofFailure ()
+validateImageProofHelper target owner stamp observed = at Image $ do
+  text observed "Name" >>= (=== ("/" <> imageProofHelperName owner))
+  config <- field observed "Config"
+  text config "Image" >>= (=== target)
+  text config "User" >>= (=== "0:0")
+  entrypoint <- field config "Entrypoint" >>= as
+  (entrypoint :: [Text]) === ["/bin/sh"]
+  command <- field config "Cmd" >>= as
+  (command :: [Text]) === ["-c", "command -v jitml"]
+  labels <- field config "Labels"
+  text labels "jitml.proof.role" >>= (=== "generic-rl-image-capability")
+  text labels "jitml.proof.owner" >>= (=== owner)
+  text labels "jitml.proof.source" >>= (=== Source.stampSha256 stamp)
+  caps <- field observed "HostConfig"
+  let integer key expected = do
+        actual <- field caps key >>= as
+        (actual :: Integer) === expected
+      boolean value key expected = do
+        actual <- field value key >>= as
+        (actual :: Bool) === expected
+  integer "NanoCpus" imageProofHelperNanoCpus
+  integer "Memory" imageProofHelperMemoryBytes
+  integer "MemorySwap" imageProofHelperMemoryBytes
+  integer "PidsLimit" 64
+  boolean caps "ReadonlyRootfs" True
+  boolean caps "Privileged" False
+  text caps "NetworkMode" >>= (=== "none")
+  text caps "CgroupnsMode" >>= (=== "private")
+  pidMode <- text caps "PidMode"
+  require "image proof helper must have a private PID namespace" (pidMode `elem` ["", "private"])
+  require
+    "image proof helper must not add capabilities"
+    (optional caps "CapAdd" `elem` [Just Aeson.Null, Just (Aeson.Array mempty)])
+  dropped <- field caps "CapDrop" >>= as
+  (dropped :: [Text]) === ["ALL"]
+  security <- field caps "SecurityOpt" >>= as
+  require
+    "image proof helper requires no-new-privileges"
+    ((security :: [Text]) == ["no-new-privileges"] || security == ["no-new-privileges=true"])
+  field caps "RestartPolicy" >>= (`text` "Name") >>= (=== "no")
+  tmpfs <- field caps "Tmpfs"
+  tmpfs === Aeson.object ["/tmp" Aeson..= ("rw,nosuid,nodev,size=67108864" :: Text)]
+  mounts <- field observed "Mounts" >>= as
+  require "image proof helper must not mount host data" (length (mounts :: [Aeson.Value]) <= 1)
+  traverse_
+    ( \mount -> do
+        text mount "Type" >>= (=== "tmpfs")
+        text mount "Destination" >>= (=== "/tmp")
+        boolean mount "RW" True
+    )
+    mounts
+  state <- field observed "State"
+  text state "Status" >>= (=== "created")
+  text state "Error" >>= (=== "")
+  pid <- field state "Pid" >>= as
+  (pid :: Integer) === 0
+  traverse_ (\key -> boolean state key False) ["Running", "Paused", "Restarting", "Dead", "OOMKilled"]
+  started <- text state "StartedAt"
+  require "image proof helper was already started" ("0001-" `Text.isPrefixOf` started)
 
 validateImageExecutable :: Text -> BS.ByteString -> Either ProofFailure ()
 validateImageExecutable expected bytes = at Image (sha256Hex bytes === expected)

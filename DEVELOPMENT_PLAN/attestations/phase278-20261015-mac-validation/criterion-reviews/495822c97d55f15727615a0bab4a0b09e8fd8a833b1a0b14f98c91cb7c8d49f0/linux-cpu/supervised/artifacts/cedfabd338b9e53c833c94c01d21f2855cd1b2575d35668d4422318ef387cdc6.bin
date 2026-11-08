@@ -1,0 +1,471 @@
+{
+  "format": "jitml-ppo-retention-current-source-scope-capsule-v1",
+  "authority": "Root mechanical assembly DATA only; independent authored judgments preserved exactly. No execution or qualification authority.",
+  "source": {
+    "algorithm": 1,
+    "sha256": "495822c97d55f15727615a0bab4a0b09e8fd8a833b1a0b14f98c91cb7c8d49f0",
+    "files": 617
+  },
+  "lane": "linux-cpu",
+  "scope": "supervised",
+  "independent_judgments": [
+    {
+      "path": ".build/phase278-ppo-retention-review-a/reviewer-a/current4958-addendum.json",
+      "bytes": 30352,
+      "sha256": "7c770b7e3985d47d283e8f2e420b0dd93e0b541cb6c8e676d5b47da3a1896c0e"
+    },
+    {
+      "path": ".build/phase278-ppo-retention-review-a/reviewer-b/current4958-addendum.json",
+      "bytes": 22194,
+      "sha256": "6c86f777b3e7a9c126c0109c441e60b546dc9b0bec6ce0c021ecd04ef631cb92"
+    }
+  ],
+  "independent_scope_decisions_as_authored": [
+    {
+      "reviewer": "resource_criterion_review_a",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY"
+    },
+    {
+      "reviewer": "independent reviewer B",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY"
+    }
+  ],
+  "scientific_rows": [
+    {
+      "contract_sha256": "2b0f0c9427a2b82db3bec2d4e9be83d78c6cef29710b1b806543e8f338666d89",
+      "plan_id": "8d0e685d27f8718a09aca8d9cde10246d8b46b300107a21c780a567482c1c3d2",
+      "row_id": "mnist-shallow-mlp"
+    },
+    {
+      "contract_sha256": "0da5bb7256b5ecd738abdc81c0384d7403525c0a58efcc2e9f1f3dd2b7fc468d",
+      "plan_id": "7d6c88b9b487aceff26c06d1524ed2ed43acd17e6f8087941ff22dd39228bce0",
+      "row_id": "mnist-deep-mlp"
+    },
+    {
+      "contract_sha256": "c2e2393f77655c574ce79fadbd2701e94ca9063673bdbc365f0d4ea35f8683f6",
+      "plan_id": "cd822dc8fb4f572bd3afd7eb59db68cb8d855c845dcd790ed3752b2201b532d2",
+      "row_id": "mnist-lenet"
+    },
+    {
+      "contract_sha256": "7ddf1b2330614ad06aa785b7f853eef3cd42b3bcbd03d1b70e6b62d914484712",
+      "plan_id": "d9c4e4436dc9428d80a5460f51bc1f0edbf0720e8c0c615610aa138d9e0f9aad",
+      "row_id": "fashion-mnist-mlp"
+    },
+    {
+      "contract_sha256": "8afd7429805deec69ceb715b3e6f2dfb37b1161c5d7e6a9d419bcbe0f029c232",
+      "plan_id": "642dcb131084debf6bccbdd8672317a05944cfc60e132cd7008e91f082e2d011",
+      "row_id": "fashion-mnist-resnet"
+    },
+    {
+      "contract_sha256": "e62fd1e34a8a68f8c5b4d03a74230a007f6b97a0d2d2711e6fc13cdc7ed21be3",
+      "plan_id": "65c19dd44a4aca73e7edc5f3e02b8024384405f510b1eaf16b7db551dbbb7bf3",
+      "row_id": "cifar10-resnet20"
+    },
+    {
+      "contract_sha256": "4b84439cd31efbde505121d6743a17ed003a57a1be868bd8b59dbc5e68629372",
+      "plan_id": "89c824f4e59f96e5ab6f6f34f087be13cca712663149775ecf98a313666f1648",
+      "row_id": "cifar10-resnet56"
+    },
+    {
+      "contract_sha256": "3806772a5b8cf0976ab378bb16f0b42993d8a5b60530eb2fc8b6e4c7984779b5",
+      "plan_id": "13d288a249d79d2f92974df7d0b81d9a446b2be84201a9c0e38b325bc2638e7d",
+      "row_id": "cifar100-wide-resnet"
+    },
+    {
+      "contract_sha256": "db708282e304e2d8d20dfa662d13792a7c2ce762fbb6bf56e435ab45ce8dfe82",
+      "plan_id": "1528574480a5d949aab8e19a29dbe8d94f5161241a3559c07ac298b78fef2268",
+      "row_id": "cifar10-vit"
+    },
+    {
+      "contract_sha256": "a1683cceb3306f925a2797fc1fa5dc7ba809a0c7c89a09cc705996014cb5e226",
+      "plan_id": "1bf17525109200326669ce753b27f664ab44094195d7615892813e8a28929468",
+      "row_id": "tiny-imagenet-resnet50"
+    },
+    {
+      "contract_sha256": "13c8781db2d45a7f2dc1afec9d0b7bbc0cdc82d2c04ecf880188f90073f29f94",
+      "plan_id": "3bdc28adc596427a05779634500773b93913ce18d35819b86f66bb04995d72d2",
+      "row_id": "california-housing-mlp"
+    }
+  ],
+  "scientific_row_count": 11,
+  "complete_ordered55_contracts": [
+    {
+      "contract_sha256": "2b0f0c9427a2b82db3bec2d4e9be83d78c6cef29710b1b806543e8f338666d89",
+      "plan_id": "8d0e685d27f8718a09aca8d9cde10246d8b46b300107a21c780a567482c1c3d2",
+      "row_id": "mnist-shallow-mlp"
+    },
+    {
+      "contract_sha256": "0da5bb7256b5ecd738abdc81c0384d7403525c0a58efcc2e9f1f3dd2b7fc468d",
+      "plan_id": "7d6c88b9b487aceff26c06d1524ed2ed43acd17e6f8087941ff22dd39228bce0",
+      "row_id": "mnist-deep-mlp"
+    },
+    {
+      "contract_sha256": "c2e2393f77655c574ce79fadbd2701e94ca9063673bdbc365f0d4ea35f8683f6",
+      "plan_id": "cd822dc8fb4f572bd3afd7eb59db68cb8d855c845dcd790ed3752b2201b532d2",
+      "row_id": "mnist-lenet"
+    },
+    {
+      "contract_sha256": "7ddf1b2330614ad06aa785b7f853eef3cd42b3bcbd03d1b70e6b62d914484712",
+      "plan_id": "d9c4e4436dc9428d80a5460f51bc1f0edbf0720e8c0c615610aa138d9e0f9aad",
+      "row_id": "fashion-mnist-mlp"
+    },
+    {
+      "contract_sha256": "8afd7429805deec69ceb715b3e6f2dfb37b1161c5d7e6a9d419bcbe0f029c232",
+      "plan_id": "642dcb131084debf6bccbdd8672317a05944cfc60e132cd7008e91f082e2d011",
+      "row_id": "fashion-mnist-resnet"
+    },
+    {
+      "contract_sha256": "e62fd1e34a8a68f8c5b4d03a74230a007f6b97a0d2d2711e6fc13cdc7ed21be3",
+      "plan_id": "65c19dd44a4aca73e7edc5f3e02b8024384405f510b1eaf16b7db551dbbb7bf3",
+      "row_id": "cifar10-resnet20"
+    },
+    {
+      "contract_sha256": "4b84439cd31efbde505121d6743a17ed003a57a1be868bd8b59dbc5e68629372",
+      "plan_id": "89c824f4e59f96e5ab6f6f34f087be13cca712663149775ecf98a313666f1648",
+      "row_id": "cifar10-resnet56"
+    },
+    {
+      "contract_sha256": "3806772a5b8cf0976ab378bb16f0b42993d8a5b60530eb2fc8b6e4c7984779b5",
+      "plan_id": "13d288a249d79d2f92974df7d0b81d9a446b2be84201a9c0e38b325bc2638e7d",
+      "row_id": "cifar100-wide-resnet"
+    },
+    {
+      "contract_sha256": "db708282e304e2d8d20dfa662d13792a7c2ce762fbb6bf56e435ab45ce8dfe82",
+      "plan_id": "1528574480a5d949aab8e19a29dbe8d94f5161241a3559c07ac298b78fef2268",
+      "row_id": "cifar10-vit"
+    },
+    {
+      "contract_sha256": "a1683cceb3306f925a2797fc1fa5dc7ba809a0c7c89a09cc705996014cb5e226",
+      "plan_id": "1bf17525109200326669ce753b27f664ab44094195d7615892813e8a28929468",
+      "row_id": "tiny-imagenet-resnet50"
+    },
+    {
+      "contract_sha256": "13c8781db2d45a7f2dc1afec9d0b7bbc0cdc82d2c04ecf880188f90073f29f94",
+      "plan_id": "3bdc28adc596427a05779634500773b93913ce18d35819b86f66bb04995d72d2",
+      "row_id": "california-housing-mlp"
+    },
+    {
+      "contract_sha256": "97d97b5a9115dc44c57543d7fd8552ead3ffd4407e2c7b5cfaaacf26ff29179e",
+      "plan_id": "4738f6852ded47b1d60c0f25934bace5cb7bfe14a71726815912ae88ca5482fd",
+      "row_id": "PPO/cartpole"
+    },
+    {
+      "contract_sha256": "4f128168a4ba25e1f647b995df7b503e59681da84868543cd76e07152cf7fe18",
+      "plan_id": "b560836fd2dbe374e8e7aaa898b51bdb2096ac93e30feb690bcac1d12f97bbbd",
+      "row_id": "PPO/mountain-car"
+    },
+    {
+      "contract_sha256": "a8290e19575cf6ffe5b3acb668c2a54a9e6762f7ea7fc255170129b917382678",
+      "plan_id": "1d2b533d9eb63b3223d1b65d11252fc8e450d617cf26c5bac7d228e5ee9e2ece",
+      "row_id": "PPO/acrobot"
+    },
+    {
+      "contract_sha256": "9cf6d8de8ae265ec9051352b0ee431b137e82cc2a82b902e7ef9c770f2d4defa",
+      "plan_id": "30e6fef48517b3aad55bd78fc9a2d11a91fea9baf3df122bbb4e778e0daa7045",
+      "row_id": "PPO/lunar-lander"
+    },
+    {
+      "contract_sha256": "cb42a67176df531e55104b7020518f4711c83b9f312755b5d7468d22042e2889",
+      "plan_id": "3242bd966467db4950d9af908ca334071e692e8a13f57edacdea0d7a53f83573",
+      "row_id": "PPO/key-door-grid"
+    },
+    {
+      "contract_sha256": "c8f003ba579ee3ef22734824e601f6b9967e662c21cf8223a714a5a75516e524",
+      "plan_id": "875597507848f0ff7aeb8860f1e8dc0e87cd9d78f42cc7cfe1998b369873d4e7",
+      "row_id": "PPO/gridworld-deterministic"
+    },
+    {
+      "contract_sha256": "52d29a3ace1c218f7757e07452f58d627fa76b1aa70145f6f1cff415e617115e",
+      "plan_id": "2c9d43cc1b30281c86d0aa42a47795a0bd5e238d1f4658373271e298a8036d79",
+      "row_id": "A2C/cartpole"
+    },
+    {
+      "contract_sha256": "cca1477d56c18c29098afc210c721dd3994a967f55060b9dc8dc214d2a04fc16",
+      "plan_id": "0f50baac23160462ad65a037188c5c5fda1e11dd8a657449e4ac0a3ad35105f2",
+      "row_id": "A2C/mountain-car"
+    },
+    {
+      "contract_sha256": "e900dc2c10d59c03ffd856deb1ce897cfd270ffc8d37940350c83881917f3463",
+      "plan_id": "e5c20d18ea819396f59413f1feb3e4d06bcf9959260935db2cd0765d44b71c88",
+      "row_id": "A2C/lunar-lander"
+    },
+    {
+      "contract_sha256": "5d6a2cae120623af83b4cee41d5ae3617beb5061a93bd4aa20509c4854c00b1d",
+      "plan_id": "edb6c13c3d2c175799714c2dcc14ae7f7e16392fbf25b83d95f961ab10c9b238",
+      "row_id": "A2C/key-door-grid"
+    },
+    {
+      "contract_sha256": "aa761aaf510c4061e633a5ae14b2e3d164a748c5ab1158400364574b6a0f7c50",
+      "plan_id": "140b0d1e6a970b0261e92119288a28cb288c7ebc99ff9aa7ac0452235b885d7e",
+      "row_id": "TRPO/cartpole"
+    },
+    {
+      "contract_sha256": "e54b3975118ebb3f40f8188d0af4f0fb24d9c61a435370bd7175f5480af86f0a",
+      "plan_id": "ea932ce8e676404c6845b4fe8fc3ef4ae851c51bc1ef1c2baa0fdcc8e8b26d6b",
+      "row_id": "TRPO/mountain-car"
+    },
+    {
+      "contract_sha256": "67111fb370e4d4f57683f10c7bf74720ae0961eda9ba1b6f894b7630dbd8b844",
+      "plan_id": "70462e574e19aa04a90e982d063d5801908cc358bc838f93c53da9d84e8e1dde",
+      "row_id": "TRPO/lunar-lander"
+    },
+    {
+      "contract_sha256": "5ee6cd27bc5e589825a0d8df932fcd593bd83a6be41e8a56387214c1a2cb466f",
+      "plan_id": "dba414857f7ffead6ee377c5e5dc55c195177f980ef5af672ab3e9a88a8b0778",
+      "row_id": "TRPO/key-door-grid"
+    },
+    {
+      "contract_sha256": "8044640163f2109f5ac0329c3dc9d8c7d031a70f0fe2dbbbb98bb1b278c9e694",
+      "plan_id": "723a2917e4935001acce8940208c4a712912c46d0a6d33c82a8dfb0ba0690330",
+      "row_id": "MaskablePPO/cartpole"
+    },
+    {
+      "contract_sha256": "a0b22bfd24e3d2deb160e2c2b5c41556aa26385bee6040e4cf22e81339f327bb",
+      "plan_id": "85ca26d47128af901af2a5a540e49a2396f3801ba272c04b53df012d3d45673a",
+      "row_id": "MaskablePPO/mountain-car"
+    },
+    {
+      "contract_sha256": "874ac25d604204279d8a47178e850f1af1094eb016b543f29387874636e30024",
+      "plan_id": "83773d586135b97df31b958d1b563c89805f6a09069d69b8e6e65fb5ac7b648b",
+      "row_id": "MaskablePPO/lunar-lander"
+    },
+    {
+      "contract_sha256": "29e08ac7ecb31016c12a3ac7eeee603a669fe4e980552119906a0042c6ff7965",
+      "plan_id": "95c3fde209b95c84e0983bc8a1ab15004cc4d074566c1fa568d171d173fffd6e",
+      "row_id": "MaskablePPO/key-door-grid"
+    },
+    {
+      "contract_sha256": "aa9216ccecf0b2255caaa28de69bfc723472d384fdec838cf8479e8abeeb3420",
+      "plan_id": "e3638fbb0afa548dffcf772950aa6fc028b52bbfac49330eee1b014ad2a980fb",
+      "row_id": "RecurrentPPO/cartpole"
+    },
+    {
+      "contract_sha256": "5864085e1a780b79181c48aa92f5939252ced2be83cc461ea314e06c296e800e",
+      "plan_id": "2e22c5d7db78eed527c09923c196a92bdd96fe5f9b305fff80740661775c1426",
+      "row_id": "RecurrentPPO/mountain-car"
+    },
+    {
+      "contract_sha256": "269319914eeb69624848db421d91d04d69d4331c3787d2890b4dfc9c592441a6",
+      "plan_id": "10124c9bdd7281ae5a3a3d1f1660b11dc64b05f26268e32a89cd2249aa03bf98",
+      "row_id": "RecurrentPPO/lunar-lander"
+    },
+    {
+      "contract_sha256": "9b98e80190bc4a2e2089cf6d399e2cb419f6b7090453d5c049e5bb447993b6ec",
+      "plan_id": "8db33b19f18c5d97cccaac3911f08b9e63166c44708cffc3a90c253d3c49dfa6",
+      "row_id": "RecurrentPPO/key-door-grid"
+    },
+    {
+      "contract_sha256": "fc7fbcf1c0bd5760b97a09fef18926c600b65284e5fb3ec79d0e21a7ec69d0a4",
+      "plan_id": "777e2c2422e4b2bc83fae3d8a3d3e79dba629340019c761ce9816d41c7b2346c",
+      "row_id": "DQN/cartpole"
+    },
+    {
+      "contract_sha256": "c8174517988359bd1c168eee6ecff627e47bc13edc841cacd0c701cce239bff0",
+      "plan_id": "6e45a778521cfaad1bbb4d2976dad8af8e97d6ddb3590ee24906fd07a9625e52",
+      "row_id": "DQN/mountain-car"
+    },
+    {
+      "contract_sha256": "87636ad94509940be447668573843aaa842ca5e2a7c319e24d39eb961fd38413",
+      "plan_id": "b51a3c6dd97466d68bd725cde8a58958003b07c55c089aadf49720615e9ae462",
+      "row_id": "DQN/key-door-grid"
+    },
+    {
+      "contract_sha256": "dfbf05098a3bafe59db3edb0bdcb5b9f050f4d914f15f8dca2be65701bed9e87",
+      "plan_id": "1af5b34cdd01a834ffdfc4b90ae61ecd56fe03111a6057e069a09732af0e0805",
+      "row_id": "QR-DQN/cartpole"
+    },
+    {
+      "contract_sha256": "88d7837cc0093aeff423cd5ca6822099fbac0e72c64bf32d1f472984cd85b54b",
+      "plan_id": "ad3db1ff9b71ec818060329a6d1a928c5e691f33cec5aac36d25fea3e482234c",
+      "row_id": "QR-DQN/mountain-car"
+    },
+    {
+      "contract_sha256": "e069a66f417d76d435b5936df13a40e315f32b1e5e141aeea593734d15c916ee",
+      "plan_id": "6d460c05503090a87700a3abc41c2d2b8a44cb385dab76aeb320ca81de615527",
+      "row_id": "QR-DQN/key-door-grid"
+    },
+    {
+      "contract_sha256": "0b00b3c053324c6ac8b479c6b16c23f2b1ecd76de0a288d86fe937c27ab9d331",
+      "plan_id": "49e0f1119a93110f6404f54e7f17c487e753dc992cd21ce23f38d2484fc8b0f0",
+      "row_id": "DDPG/lunar-lander"
+    },
+    {
+      "contract_sha256": "2c0f908bea64b6d0e0125fd111af2091464969d98c3752b7ca90ebfdf7b83891",
+      "plan_id": "7c467a8800795771440733dad69aa8fd34316003aa305947059a0e30539c38ec",
+      "row_id": "TD3/lunar-lander"
+    },
+    {
+      "contract_sha256": "40cff79b1217c09a76e538032be07f39e4e4f94e1e6a79db7a535277af56e83b",
+      "plan_id": "8f2a49e644952b49350b70ff937b525b9d116ad2309ebe8bd82981a18a011539",
+      "row_id": "SAC/lunar-lander"
+    },
+    {
+      "contract_sha256": "56d560406d4c7bec19aaf04553d73baabb64845df3d5e4af75f9cb2f0b4ed3bf",
+      "plan_id": "17ed88f8efadb3b8373a9ba8f51478f27a3d8971215f09ff8c452b32f39f68f7",
+      "row_id": "SAC/pendulum"
+    },
+    {
+      "contract_sha256": "513d4c45828931678963a242845ab472e599b78af53fc5b86b164a9e5a2b4bee",
+      "plan_id": "1e371e4cb09bfa6826436b334c600c4eee38b1e1d62b40bce0df0672c91ca2dd",
+      "row_id": "CrossQ/lunar-lander"
+    },
+    {
+      "contract_sha256": "87146d3a0b052d7c9d2437b04b832fd6b9c54ed305fbb80229b9de4dcd491cdb",
+      "plan_id": "61459512d7eac5f5946784503562b04afc7a09eb59c7d6fb2f3504affe195caa",
+      "row_id": "TQC/lunar-lander"
+    },
+    {
+      "contract_sha256": "5faa96ac72468ace693b46ae7d116e4e4e346bdd0f54be2459f316f204642660",
+      "plan_id": "1b8b6067991cd505dc839a72a8eb2c2d799fb36904e7ed6efdbce8e54338cfa6",
+      "row_id": "ARS/cartpole"
+    },
+    {
+      "contract_sha256": "e88021faa066f89157c20e3469d06527ad1722fe62a93b88bbd97a3d2eacd1b0",
+      "plan_id": "8a90a9ce4a6c465c0cde3841c1eb918a0126560bbd678a681c73fee8f9545d7b",
+      "row_id": "ARS/mountain-car"
+    },
+    {
+      "contract_sha256": "3d6346099397821a831c2e67ffa6d4218675ed415b7bed52f1f4a240f9aecd4b",
+      "plan_id": "346e16e06fd0632e205947b52e939b058de11f60330ec36bbfb057afdac78a3e",
+      "row_id": "ARS/lunar-lander"
+    },
+    {
+      "contract_sha256": "86eea7bf5de174cd91e44d64cfa126db35245edc6eba0881831d7973068c1b43",
+      "plan_id": "9e5e47efba8415453cb19fb8a1f1d3de78ff22c03977e57120bde0fac6ccb831",
+      "row_id": "ARS/key-door-grid"
+    },
+    {
+      "contract_sha256": "4240a5a23de857edb9c533c4f16e79789935b38fc0b63568f8043c52b88f1283",
+      "plan_id": "61ff4a52cb963afea5a44719466753c16bb5754a5245404f35046e2f829a7548",
+      "row_id": "HER/goal-reaching"
+    },
+    {
+      "contract_sha256": "954af02d8734e5cb1df7a7b09eb85b9786cb2b491dce4269165b58fa9c760bd0",
+      "plan_id": "c2c5caf762d9b1d322d87b12ce1406a74f44d40d04b054f635814c6906338ea9",
+      "row_id": "connect4"
+    },
+    {
+      "contract_sha256": "0191af33569290e301e02810c5bc2f7cdaa60366c85a0b49f733c50d89bceec4",
+      "plan_id": "e12682a93ff704f59576536fe1aa981ffdf828967b1dd0e35f7536cdc1d93c73",
+      "row_id": "othello"
+    },
+    {
+      "contract_sha256": "83ed06d07890d8ed0bc9c530279b1aab60258864c66c4bf102f8d8f6107d968b",
+      "plan_id": "a44cbeba8a9cb086b88beb07f8dfd3121a94830ff37e10a19eda9d81d3c30de4",
+      "row_id": "hex"
+    },
+    {
+      "contract_sha256": "2a09242488a3d87c73d2a9a1bd22f118bda90bc4898cd4d28ec2b289512eb073",
+      "plan_id": "75437658421a71735e90f06f0ad925544be1b9d0ebe9059ba3fbabf0b2f2ca55",
+      "row_id": "gomoku"
+    },
+    {
+      "contract_sha256": "db3d651c28a80efa52b4465b23fcc10f8a0b3d5adcbb829dcd1ef7724bb4a4db",
+      "plan_id": "4150d67ddfa20cda8b76351328560973fa713b98773cf08bb2456c2bfec56384",
+      "row_id": "hyperparameter-tuning"
+    }
+  ],
+  "complete_ordered55_contract_set_sha256": "8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7",
+  "preserved_scientific_limits": {
+    "claim": "Prospective finite observed-learning criterion applicability only. The full exact A/B judgments retain the scientific reasoning and qualifications.",
+    "all_five_joint_served0": "Every original index0..4 run is complete and retained. At least3 same original models jointly meet their entire initial/reference learning predicate. Full-five statistics and independent predetermined index0 learning/quality/budget/physical eligibility remain; no substitution, pooling, cherry-picking, retry-to-score or budget extension.",
+    "unchanged_recipes_bars": "All source-owned recipes, budgets, seeds, data/split/evaluation, numeric operations, family bars and exclusions remain exact. Historical/outcome-calibrated floors keep their provenance and establish no published-model convergence.",
+    "current_classification_reference": {
+      "alpha_denominator": 5000,
+      "examples": 1000,
+      "critical_uniform_correct_by_classes": {
+        "10": 136,
+        "100": 24,
+        "200": 16
+      },
+      "majority": "Actual held-out maximum class count+1 also applies."
+    },
+    "probability": "Only the explicitly prospectively allocated all-five iid uniform-per-example-null calculation is supported. No unconditional/adaptive/mixed-null/random-network/regression/native-RL or population guarantee is supplied; all attempts remain retained.",
+    "regression": "Exact binary64-rational SSE_final<SSE_initial and SSE_final<SST, plus unchanged standardized-RMSE floor/ceiling checks.",
+    "native": "Strict own effective-initial gain always remains; all current finite reference families and paired cases are mandatory. Reference equality only when both actual reference and final attain the independently proved exact optimum: supported KeyDoor RETURN proof, HER20success/zero distance, arena1 from all nine outcomes. Other RETURN ties remain refused. SAC effective initialization and ARS actual aggregate-step/host provenance remain binding.",
+    "tuning_context_only": {
+      "row_id": "hyperparameter-tuning",
+      "seed": 1729,
+      "trials": 128,
+      "scientific_endorsement": false,
+      "note": "Original explicitly absent source provenance is not invented; full55 context/admission obligations remain."
+    },
+    "no_claims": [
+      "Training or qualification",
+      "Ready or runtime restoration",
+      "Hardware lane validation",
+      "Full55 workflow memory/time fit",
+      "Store/lane admission, registration or journal acceptance",
+      "Full standing-test pass",
+      "Published-model parity or population generalization",
+      "Phase closure"
+    ]
+  },
+  "actual_current_export": {
+    "path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-fix-a/export-work/export.stdout",
+    "bytes": 21726,
+    "sha256": "3b0ce293d746708ec4a5fe902eb23d23d0be002df081c31c6e25a8a01b3f0726"
+  },
+  "scientific_invariance": "Both complete ordered55 contract vectors exactly match retained92 and, transitively, actualdc00 export. Original seeds/cohorts/recipes/work/initial/final/eval counts/bars/strict comparisons/served0/reference restrictions unchanged. Prospective applicability only, not current qualification.",
+  "actual_current_receipts": {
+    "compile": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-fix-a/compile-work/payload-result.json",
+      "bytes": 3576,
+      "sha256": "7f8126b753e23c3c0a3f5d82b64779b6d43b32d3f01ae904c28c243a66d070a6"
+    },
+    "style": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-currentdc00-convergence-diagnosis-a/retention-style-b/result.json",
+      "bytes": 28786,
+      "sha256": "a8c114ff90f24f8ba753f4f368ed7fed355ba14973e3bfcbffab3726e4d10094"
+    },
+    "scoped_on_policy12": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-fix-a/regression-work/result.json",
+      "bytes": 911,
+      "sha256": "87dcccc6aa52ede83c95c9d2e94756d8f5d111d1b8a2dc1e2ad789061278a766"
+    },
+    "export110": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-fix-a/export-work/result.json",
+      "bytes": 1257,
+      "sha256": "54ebe78f0c6f2e3351051d11b587f83c8fe5abb8a9039eef4edd19cd9fe3ba92"
+    },
+    "components4": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-fix-a/components-work/payload-result.json",
+      "bytes": 5127,
+      "sha256": "71713f363edbbe44278a73ad28297ec5468e1460eb055b405f9bd303ce9a1dbf"
+    },
+    "old_library_retention": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-currentdc00-convergence-diagnosis-a/old-retention-work/result.json",
+      "bytes": 1961,
+      "sha256": "ba89106e87e83b37b979a76caba25f681bf70b413ffbfbb8b375181981d3d4bc"
+    },
+    "old_library_regression_negative_control": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-currentdc00-convergence-diagnosis-a/old-regression-work/result.json",
+      "bytes": 864,
+      "sha256": "6046fae5cff54dbfaf53deeb9cebae936486753680f1948826509227ecd5bb71"
+    },
+    "paired_device_retention": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-fix-a/paired-retention-work/result.json",
+      "bytes": 1952,
+      "sha256": "63f436c297bb764ff4ce53757e2ded03116b9870f9e0e0f02c664adbc9a6bfd7"
+    },
+    "scalar_output_parity": {
+      "path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-fix-a/scalar-parity-result.json",
+      "bytes": 1528,
+      "sha256": "97482416da611f857dd7c70210d86b055c1bebbcb9ddeb97e0002754180c30e3"
+    }
+  },
+  "source_delta": {
+    "path": "/Users/matthewnowak/jitML/.build/phase278-ppo-retention-review-a/delta-from-dc00.diff",
+    "bytes": 5174,
+    "sha256": "996c0342374b75acf449ff28d5047508b75634967b970072acaf0cdf98f0f702"
+  },
+  "source_and_artifact_scope": "4958 exact617 raw source, only2 changed/615 exact. Container formatting+HLint0; libraryCLI compile0/132.9347s; scoped on-policy12of12 including weak-root release; old library negative fixture fails exactretentionassertion as expected. Paired same device-seam fixture complete output13650bytes/e8327540 identical, old liveheap1210792to12754208 vs new59392to65256 and no prior roots retained. Scalar complete output13649bytes/cb66093a identical. Both are deliberate bounded synthetic fixtures, not product cohorts or real-substrate execution witnesses. Four test executables rebuilt0/219.4245s without application rewrite/largeunitMain.",
+  "physical_request_fit_scope": "Current resource configuration is unchanged. Historicaldc00 request-fit/physical scopes remain historical; new4958 full-size/parent/node/time fit and convergence remain unproven.",
+  "explicit_execution_limitations": [
+    "No new image, standing gate, real-lane hardware witness, current daemon75, full55, scalar heap proof, product convergence/qualification/Store admission/served0 or phase closure. Both original nodes remainStopped; VM4CPU16Gi/node1.5CPU5Gi/lifecycle0.5CPU3Gi+serial512Mi/cachedchecks1CPU3Gi and common5s deadline/reserves unchanged.",
+    "Only completed-iteration bookkeeping demand changed; paired synthetic output/heap controls are not full-size memory or real-lane proof.",
+    "No current canonical image supplied by this capsule.",
+    "NativeMetal needs its own supervised host CPU/heap/pressure budget.",
+    "Full-roster fresh admission and actual memory/time/convergence remain required."
+  ]
+}

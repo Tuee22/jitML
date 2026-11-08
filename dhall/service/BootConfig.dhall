@@ -8,4 +8,11 @@
 , imageRegistry : Text
 , httpListener : Optional { host : Text, port : Natural }
 , webappPulsarWsUrl : Optional Text
+, numericalWorkload :
+    { replicas : Natural
+    , cpuRequest : Text
+    , cpuLimit : Text
+    , memoryRequest : Text
+    , memoryLimit : Text
+    }
 }

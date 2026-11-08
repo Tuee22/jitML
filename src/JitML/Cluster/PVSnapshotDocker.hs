@@ -8,12 +8,17 @@
 -- host FD verifier. No module initializer runs Docker.
 module JitML.Cluster.PVSnapshotDocker
   ( DockerSnapshotConfig (..)
+  , SnapshotSourceMode (..)
   , SnapshotPrograms (..)
   , defaultSnapshotPrograms
   , discoverOwnedKindNodes
   , discoverCanonicalKindClusters
   , discoverSnapshotRequest
   , dockerSnapshotBackend
+  , validateSnapshotHelperResources
+  , validateColdSnapshotNode
+  , snapshotHelperMemoryBytes
+  , snapshotHelperNanoCpus
   ) where
 
 import Control.Exception
@@ -29,13 +34,15 @@ import Control.Exception
 import Control.Monad (filterM, forM, forM_, unless, void, when, (>=>))
 import Crypto.Hash.SHA256 qualified as SHA256
 import Data.Aeson
-  ( FromJSON
+  ( FromJSON (..)
   , Result (..)
   , Value (..)
   , eitherDecodeStrict'
   , encode
   , fromJSON
   , object
+  , withObject
+  , (.:)
   , (.=)
   )
 import Data.Aeson.Key qualified as Key
@@ -45,6 +52,7 @@ import Data.ByteString.Lazy qualified as LBS
 import Data.IORef
 import Data.List (sort)
 import Data.Map.Strict qualified as Map
+import Data.Maybe (isNothing)
 import Data.Text (Text)
 import Data.Text qualified as T
 import Data.Text.Encoding qualified as TE
@@ -67,6 +75,14 @@ import JitML.Sub.Stream (defaultSubprocessEnv, runStreaming)
 import JitML.Sub.Subprocess (Subprocess (..), subprocess, subprocessWithStdin)
 import JitML.Substrate (renderSubstrate)
 
+-- Cold preservation is an explicit recovery operation. The caller must bind the
+-- selected daemon/VM and prove that its containerd task namespaces are empty;
+-- Docker's saved Running counter alone is not that physical runtime proof.
+-- The hook is required and is invoked only between serial helper tasks.
+data SnapshotSourceMode
+  = LiveQuiesced
+  | ColdStopped [NodeIdentity] (IO ())
+
 data DockerSnapshotConfig = DockerSnapshotConfig
   { workspaceRoot :: FilePath
   , topology :: KindConfig
@@ -74,6 +90,7 @@ data DockerSnapshotConfig = DockerSnapshotConfig
   , helperImageID :: Text
   , generationToken :: Text
   , programs :: SnapshotPrograms
+  , sourceMode :: SnapshotSourceMode
   , -- Exact typed prefix from the existing CLI's kubeconfig/tool interpreter.
     -- This permits host or image-owned kubectl without requiring a host install.
     kubectlCommand :: [Text] -> Subprocess
@@ -239,6 +256,45 @@ checkConfig config = do
   require
     (sha (archiveIOProgram (programs config)) == snapshotArchiveSHA256)
     "archive I/O resource changed"
+  case sourceMode config of
+    LiveQuiesced -> pure ()
+    ColdStopped expected _ -> do
+      either abort pure $
+        validateRequest
+          (SnapshotRequest (lane config) (kindConfigName (topology config)) expected (roots config))
+      require
+        ( fmap (\node -> kindConfigName (topology config) <> "-" <> nodeRole node) expected
+            == kindConfigNodeContainerNames (topology config)
+            && all (validContainerID . nodeContainerId) expected
+        )
+        "cold source requires the exact ordered canonical node CIDs"
+
+validContainerID :: Text -> Bool
+validContainerID cid = T.length cid == 64 && T.all (`elem` ("0123456789abcdef" :: String)) cid
+
+data ColdSnapshotNode = ColdSnapshotNode Text Bool Bool Bool Integer
+
+instance FromJSON ColdSnapshotNode where
+  parseJSON = withObject "cold snapshot node inspect" $ \value -> do
+    state <- value .: "State"
+    ColdSnapshotNode
+      <$> value .: "Id"
+      <*> state .: "Running"
+      <*> state .: "Paused"
+      <*> state .: "Restarting"
+      <*> state .: "Pid"
+
+-- | A stopped source is identified by a full immutable CID and physical state,
+-- rather than by a Docker summary counter or a stale Kubernetes Ready value.
+validateColdSnapshotNode :: Text -> Value -> Either String ()
+validateColdSnapshotNode expected observed = do
+  ColdSnapshotNode cid running paused restarting pid <- case fromJSON observed of
+    Error message -> Left ("invalid cold snapshot node inspection: " <> message)
+    Success value -> Right value
+  unless (validContainerID expected && cid == expected) (Left "cold source node CID differs")
+  unless
+    (not running && not paused && not restarting && pid == 0)
+    (Left "cold source node is not physically stopped")
 
 checkDiscoveryConfig :: FilePath -> KindConfig -> IO ()
 checkDiscoveryConfig root kindConfig = do
@@ -263,7 +319,7 @@ inspectOne config = inspectUsing (docker config)
 -- running nodes/API/CRI before it may claim quiescence.
 discoverOwnedKindNodes :: FilePath -> KindConfig -> (Value -> IO ()) -> IO [NodeIdentity]
 discoverOwnedKindNodes root kindConfig record =
-  fmap (fmap liveIdentity) (discoverUsing root kindConfig False True record)
+  fmap (fmap liveIdentity) (discoverUsing root kindConfig AnyNodeState True record)
 
 -- Shared-.data purge can refuse any other extant jitML lane, including stopped
 -- nodes. Unknown jitml-* labels fail closed, rather than disappear from scope.
@@ -289,10 +345,41 @@ discoverCanonicalKindClusters record = do
   pure names
 
 discover :: DockerSnapshotConfig -> IO [LiveNode]
-discover config = discoverUsing (workspaceRoot config) (topology config) True False (recordSnapshotEvent config)
+discover config =
+  discoverUsing
+    (workspaceRoot config)
+    (topology config)
+    RunningNode
+    False
+    (recordSnapshotEvent config)
 
-discoverUsing :: FilePath -> KindConfig -> Bool -> Bool -> (Value -> IO ()) -> IO [LiveNode]
-discoverUsing root kindConfig requireRunning allowAbsent record = do
+data NodeStateRequirement = AnyNodeState | RunningNode | StoppedNode
+  deriving (Eq)
+
+discoverSource :: DockerSnapshotConfig -> IO [LiveNode]
+discoverSource config = case sourceMode config of
+  LiveQuiesced -> discover config
+  ColdStopped expected proveRuntime -> do
+    nodes <-
+      discoverUsing
+        (workspaceRoot config)
+        (topology config)
+        StoppedNode
+        False
+        (recordSnapshotEvent config)
+    require
+      (fmap liveIdentity nodes == expected)
+      "cold source node CIDs differ from the explicit recovery set"
+    active <- docker config ["ps", "--no-trunc", "--format", "{{.ID}}"]
+    require
+      (T.null (T.strip active))
+      "cold snapshot requires no active Docker containers between helpers"
+    proveRuntime
+    pure nodes
+
+discoverUsing
+  :: FilePath -> KindConfig -> NodeStateRequirement -> Bool -> (Value -> IO ()) -> IO [LiveNode]
+discoverUsing root kindConfig stateRequirement allowAbsent record = do
   checkDiscoveryConfig root kindConfig
   let runDocker = commandRecording record . subprocess "docker"
   identifiers <-
@@ -312,6 +399,8 @@ discoverUsing root kindConfig requireRunning allowAbsent record = do
     name <- T.dropWhile (== '/') <$> field "Name" value
     labels <- at ["Config", "Labels"] value >>= as :: IO (Map.Map Text Text)
     running <- at ["State", "Running"] value >>= as
+    when (stateRequirement == StoppedNode) $
+      either abort pure (validateColdSnapshotNode cid value)
     mounts <- field "Mounts" value :: IO [Value]
     let canonical = kindConfigNodeContainerNames kindConfig
         role = T.drop (T.length (kindConfigName kindConfig) + 1) name
@@ -319,7 +408,7 @@ discoverUsing root kindConfig requireRunning allowAbsent record = do
     require
       ( actualID == cid
           && name `elem` canonical
-          && (not requireRunning || running)
+          && (stateRequirement /= RunningNode || running)
           && Map.lookup "io.x-k8s.kind.cluster" labels == Just (kindConfigName kindConfig)
           && Map.lookup "io.x-k8s.kind.role" labels == Just kindRole
       )
@@ -351,7 +440,9 @@ discoverUsing root kindConfig requireRunning allowAbsent record = do
       ipv4 <- field "IPAddress" network
       ipv6 <- field "GlobalIPv6Address" network
       pure (filter (not . T.null) [ipv4, ipv6])
-    require (not requireRunning || not (null addresses)) "Kind node has no observable network address"
+    require
+      (stateRequirement /= RunningNode || not (null addresses))
+      "Kind node has no observable network address"
     pure (name, LiveNode (NodeIdentity role cid) volume addresses)
   require (not (null observed) || allowAbsent) "Kind cluster is absent"
   if null observed
@@ -378,7 +469,7 @@ concatForM (value : values) action =
 discoverSnapshotRequest :: DockerSnapshotConfig -> IO SnapshotRequest
 discoverSnapshotRequest config = do
   checkConfig config
-  nodes <- discover config
+  nodes <- discoverSource config
   let request =
         SnapshotRequest
           (lane config)
@@ -396,7 +487,7 @@ requestNodes config request = do
         && registeredRoots request == roots config
     )
     "request differs from closed canonical registry"
-  nodes <- discover config
+  nodes <- discoverSource config
   require (fmap liveIdentity nodes == snapshotNodes request) "node CIDs changed"
   pure nodes
 
@@ -694,6 +785,89 @@ withPaused config active request action = mask $ \restore -> do
       , "replicas" .= ownerReplicas owner
       ]
 
+assertColdIdle :: DockerSnapshotConfig -> IO ()
+assertColdIdle config = case sourceMode config of
+  LiveQuiesced -> pure ()
+  ColdStopped _ _ -> void (discoverSource config)
+
+-- Already stopped source nodes require no scale-down or compensation. In
+-- particular this bracket never calls kubectl, docker exec or docker start on
+-- a source node. Its caller still supplies the real exact-node delete callback.
+withStoppedSources
+  :: DockerSnapshotConfig -> IORef (Maybe [LiveNode]) -> SnapshotRequest -> IO a -> IO a
+withStoppedSources config active request action = mask $ \restore -> do
+  existing <- readIORef active
+  require (isNothing existing) "nested cold snapshot lifecycle"
+  nodes <- restore (requestNodes config request)
+  audit config "captured-cold-stopped-sources" (object ["nodes" .= fmap liveIdentity nodes])
+  writeIORef active (Just nodes)
+  result <- try $ restore $ do
+    value <- action
+    remaining <-
+      docker
+        config
+        [ "ps"
+        , "--all"
+        , "--no-trunc"
+        , "--filter"
+        , "label=io.x-k8s.kind.cluster=" <> snapshotCluster request
+        , "--format"
+        , "{{.ID}}"
+        ]
+    require (T.null (T.strip remaining)) "cold delete callback returned while old Kind nodes remain"
+    -- The nodes are now deliberately absent, so discovery is no longer the
+    -- applicable postcondition. Check actual daemon/task idleness instead.
+    running <- docker config ["ps", "--no-trunc", "--format", "{{.ID}}"]
+    require (T.null (T.strip running)) "active Docker container after cold preservation"
+    case sourceMode config of
+      ColdStopped _ proveRuntime -> proveRuntime
+      LiveQuiesced -> abort "cold bracket requires ColdStopped mode"
+    pure value
+  writeIORef active Nothing
+  case result of
+    Right value -> pure value
+    Left (first :: SomeException) -> do
+      noted <-
+        try
+          ( audit
+              config
+              "cold-preservation-failed-no-source-resume"
+              (object ["reason" .= displayException first])
+          )
+      throwIO (either (preferFailure first) (const first) (noted :: Either SomeException ()))
+
+-- Source /var volumes must remain read-only even if a daemon changes the
+-- requested create settings. Scratch volumes and the new archive generation
+-- are separate writable targets and are not source-node volumes.
+assertColdHelperMounts :: DockerSnapshotConfig -> [Text] -> Value -> IO ()
+assertColdHelperMounts config requested helperInfo = case sourceMode config of
+  LiveQuiesced -> pure ()
+  ColdStopped _ _ -> do
+    sources <- discoverSource config
+    mounts <- field "Mounts" helperInfo :: IO [Value]
+    actual <- concatForM mounts $ \mount -> do
+      kind <- field "Type" mount
+      if kind == ("volume" :: Text)
+        then do
+          name <- field "Name" mount
+          if name `elem` fmap liveVarVolume sources
+            then do
+              rw <- field "RW" mount
+              target <- field "Destination" mount
+              require (not rw) "cold helper has a writable source /var volume"
+              pure [(name, target)]
+            else pure []
+        else pure []
+    let expected =
+          [ (volume, target)
+          | mount <- requested
+          , ["type=volume", source, destination, "readonly"] <- [T.splitOn "," mount]
+          , Just volume <- [T.stripPrefix "source=" source]
+          , volume `elem` fmap liveVarVolume sources
+          , Just target <- [T.stripPrefix "target=" destination]
+          ]
+    require (sort actual == sort expected) "cold helper source volume/mount identity differs"
+
 volumeMount :: Text -> Text -> Bool -> Text
 volumeMount volume target readonly =
   "type=volume,source="
@@ -710,11 +884,58 @@ bindMount source target readonly =
     <> target
     <> if readonly then ",readonly" else ""
 
+-- Serial archive bytes are streamed, but the reviewed Python programs retain
+-- per-file manifest/member metadata. These immutable limits are a failure
+-- boundary, not evidence that every possible PV fits in the helper's heap.
+snapshotHelperMemoryBytes, snapshotHelperNanoCpus, snapshotHelperPids :: Integer
+snapshotHelperMemoryBytes = 536870912
+snapshotHelperNanoCpus = 500000000
+snapshotHelperPids = 64
+
+snapshotHelperTmpfsOptions :: Text
+snapshotHelperTmpfsOptions = "rw,nosuid,nodev,size=67108864"
+
+data SnapshotHelperResources
+  = SnapshotHelperResources Integer Integer Integer Integer (Map.Map Text Text)
+
+instance FromJSON SnapshotHelperResources where
+  parseJSON = withObject "snapshot helper inspect" $ \value -> do
+    host <- value .: "HostConfig"
+    SnapshotHelperResources
+      <$> host .: "Memory"
+      <*> host .: "MemorySwap"
+      <*> host .: "NanoCpus"
+      <*> host .: "PidsLimit"
+      <*> host .: "Tmpfs"
+
+-- | Verify actual Docker HostConfig before an inert helper can start. Missing,
+-- unlimited, malformed or changed limits refuse; tmpfs option order alone is
+-- irrelevant. This is a Docker configuration proof, not a whole-VM envelope or
+-- a claim that the admitted workload will avoid OOM.
+validateSnapshotHelperResources :: Value -> Either String ()
+validateSnapshotHelperResources observed = do
+  SnapshotHelperResources memory swap cpu pids tmpfs <- case fromJSON observed of
+    Error message -> Left ("invalid snapshot helper resource inspection: " <> message)
+    Success value -> Right value
+  check (memory == snapshotHelperMemoryBytes) "snapshot helper Memory differs from its fixed budget"
+  check (swap == memory) "snapshot helper MemorySwap must equal Memory to disable swap"
+  check (cpu == snapshotHelperNanoCpus) "snapshot helper NanoCpus differs from its fixed budget"
+  check (pids == snapshotHelperPids) "snapshot helper PidsLimit differs from its fixed budget"
+  check
+    ( Map.keys tmpfs == ["/tmp"]
+        && fmap (sort . T.splitOn ",") (Map.lookup "/tmp" tmpfs)
+          == Just (sort (T.splitOn "," snapshotHelperTmpfsOptions))
+    )
+    "snapshot helper Tmpfs must contain only the bounded 64-MiB /tmp mount"
+ where
+  check condition message = unless condition (Left message)
+
 -- A created helper is inert until its exact CID is captured. On failure/cancel
 -- terminate ONLY that CID after verifying owner labels+immutable image. Failed
 -- create can retain an inert labelled container, never an unowned tar writer.
 helper :: DockerSnapshotConfig -> IORef Int -> [Text] -> Text -> [Text] -> IO Text
 helper config serial mounts program args = mask $ \restore -> do
+  restore (assertColdIdle config)
   index <- atomicModifyIORef' serial (\n -> (n + 1, n))
   let name = "jitml-pv-" <> generationToken config <> "-" <> T.pack (show index)
       owner = generationToken config
@@ -731,8 +952,16 @@ helper config serial mounts program args = mask $ \restore -> do
               , "--network"
               , "none"
               , "--read-only"
+              , "--cpus"
+              , "0.5"
+              , "--memory"
+              , T.pack (show snapshotHelperMemoryBytes)
+              , "--memory-swap"
+              , T.pack (show snapshotHelperMemoryBytes)
+              , "--pids-limit"
+              , T.pack (show snapshotHelperPids)
               , "--tmpfs"
-              , "/tmp:rw,nosuid,nodev"
+              , "/tmp:" <> snapshotHelperTmpfsOptions
               , "--label"
               , "jitml.pv-snapshot.operation=" <> owner
               , "--label"
@@ -747,15 +976,32 @@ helper config serial mounts program args = mask $ \restore -> do
     (T.length cid == 64 && T.all (`elem` ("0123456789abcdef" :: String)) cid)
     "helper create returned invalid CID"
   observed <- inspectOne config cid
+  createdCID <- field "Id" observed
   actualImage <- field "Image" observed
-  require (actualImage == helperImageID config) "helper image changed"
+  createdLabels <- at ["Config", "Labels"] observed >>= as :: IO (Map.Map Text Text)
+  createdRunning <- at ["State", "Running"] observed >>= as
+  createdPaused <- at ["State", "Paused"] observed >>= as
+  createdRestarting <- at ["State", "Restarting"] observed >>= as
+  createdPid <- at ["State", "Pid"] observed >>= as :: IO Integer
+  require
+    ( createdCID == cid
+        && actualImage == helperImageID config
+        && Map.lookup "jitml.pv-snapshot.operation" createdLabels == Just owner
+        && Map.lookup "jitml.pv-snapshot.workspace" createdLabels == Just (T.pack (workspaceRoot config))
+    )
+    "created helper ownership changed"
+  require
+    (not createdRunning && not createdPaused && not createdRestarting && createdPid == 0)
+    "created snapshot helper is not inert"
+  either abort pure (validateSnapshotHelperResources observed)
+  restore (assertColdHelperMounts config mounts observed)
   attempted <-
     try
       ( restore
           (command config (subprocessWithStdin "docker" ["start", "--attach", "--interactive", cid] program))
       )
   case attempted of
-    Right output -> pure output
+    Right output -> restore (assertColdIdle config) >> pure output
     Left (first :: SomeException) -> do
       pending <- newIORef first
       cleanup <- try $ do
@@ -774,6 +1020,8 @@ helper config serial mounts program args = mask $ \restore -> do
         when running $
           void (docker config ["kill", "--signal=KILL", cid]) >> void (docker config ["wait", cid])
       rememberFailure pending (cleanup :: Either SomeException ())
+      idle <- try (restore (assertColdIdle config))
+      rememberFailure pending (idle :: Either SomeException ())
       noted <-
         try
           ( audit
@@ -918,9 +1166,15 @@ dockerSnapshotBackend config = do
   checkConfig config
   serial <- newIORef 0
   active <- newIORef Nothing
+  coldActive <- newIORef Nothing
   fresh <- newIORef Map.empty
-  let paused request =
-        readIORef active >>= maybe (abort "not inside quiesced lifecycle") (assertNoWriters config request)
+  let paused request = case sourceMode config of
+        LiveQuiesced ->
+          readIORef active >>= maybe (abort "not inside quiesced lifecycle") (assertNoWriters config request)
+        ColdStopped _ _ -> do
+          original <- readIORef coldActive >>= maybe (abort "not inside cold lifecycle") pure
+          now <- requestNodes config request
+          require (now == original) "cold source node/volume identity changed"
       capture request node = do
         paused request
         requireOwnedGeneration config
@@ -963,6 +1217,9 @@ dockerSnapshotBackend config = do
           require (expected == observed) "source changed before selection/delete"
           checkArchive config serial (savedArchive node) (savedDigest node)
       requireFresh request = do
+        case sourceMode config of
+          LiveQuiesced -> pure ()
+          ColdStopped _ _ -> abort "fresh restore requires a separate LiveQuiesced backend"
         nodes <- requestNodes config request
         forM_ nodes $ \node -> do
           assertNoPVOverlays config request node
@@ -993,7 +1250,9 @@ dockerSnapshotBackend config = do
         manifest config serial (liveVarVolume actual) "/nodevar/local/jitml-stateful-pv"
   pure
     SnapshotBackend
-      { withQuiesced = withPaused config active
+      { withQuiesced = case sourceMode config of
+          LiveQuiesced -> withPaused config active
+          ColdStopped _ _ -> withStoppedSources config coldActive
       , captureAndScratchRestore = capture
       , revalidateSourceNodes = revalidate
       , requireFreshEmptyRoots = requireFresh

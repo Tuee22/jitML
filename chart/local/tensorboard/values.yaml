@@ -2,6 +2,22 @@ image:
   repository: python
   tag: 3.11-slim
 
+resources:
+  requests:
+    cpu: 50m
+    memory: 256Mi
+  limits:
+    cpu: 250m
+    memory: 512Mi
+
+syncResources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    cpu: 100m
+    memory: 128Mi
+
 tensorboard:
   version: 2.16.2
   setuptoolsVersion: 69.5.1

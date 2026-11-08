@@ -2,7 +2,7 @@
 
 **Status**: Authoritative source
 **Supersedes**: N/A
-**Referenced by**: README.md, ../documentation_standards.md, ../../DEVELOPMENT_PLAN/phase-0-planning-documentation.md, ../../DEVELOPMENT_PLAN/phase-1-haskell-cli-surface.md, ../../DEVELOPMENT_PLAN/phase-6-numerical-core.md, ../../DEVELOPMENT_PLAN/phase-23-general-differentiable-layer-engine.md, training_workloads.md, training_metrics_and_splits.md, run_contract.md
+**Referenced by**: README.md, ../documentation_standards.md, [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 72](../../DEVELOPMENT_PLAN/phase-72-layer-catalog.md), [Phase 75](../../DEVELOPMENT_PLAN/phase-75-optimizers-and-schedulers.md), [Phase 76](../../DEVELOPMENT_PLAN/phase-76-loss-functions.md), [Phase 233](../../DEVELOPMENT_PLAN/phase-233-typed-layer-ir-reverse-mode-autodiff.md), [Phase 241](../../DEVELOPMENT_PLAN/phase-241-onednn-device-training-kernels-for-correct-operators.md), training_workloads.md, training_metrics_and_splits.md, run_contract.md
 **Generated sections**: numerics.layers, numerics.activations, numerics.spectral, numerics.optimizers, numerics.schedulers, numerics.losses
 
 > **Purpose**: Project-specific numerical-core catalog for jitML — the current
@@ -244,10 +244,17 @@ dense + norm device sub-kernels) run on their real packed parameter layouts.
 `deviceLayerGradient` dispatches on the node's `LayerOp` to the matching kernel,
 and each device kernel is validated against the pure `backwardLayerGraph` oracle
 within float32 tolerance in the backends lane; on this lane the pure gradient is
-the oracle only, never a runtime fallback. That property holds for `linux-cpu`,
-which is the only substrate with a layer-graph device path today.
+the oracle only, never a runtime fallback on `linux-cpu`. `LayerGraphDevice`
+also implements separate Metal and CUDA routes. Each route's validation belongs
+to its real substrate lane; its implementation alone supplies no hardware pass.
 
 Each supervised row binds to a literal graph on this surface.
+Generic regression's `reg-ord1` training policy permutes whole standardized
+examples once per epoch before the existing batcher; it preserves the gradient
+implementation, Adam update rules and work budget, retaining Adam state between
+batches. Standardizer fitting and held-out evaluation keep their original order.
+The exact seed derivation and recipe
+identity live in [Determinism Contract](determinism_contract.md#the-contract).
 The ResNet family (small ResNet, ResNet-20, ResNet-56, WideResNet-28-10, and the
 ResNet-50 bottleneck) is a literal mixer-ResNet layer graph — real `Conv2D` with a
 two-conv strided stem, `BatchNorm`/`GroupNorm`, `LayerNorm`, residual

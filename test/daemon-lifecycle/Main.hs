@@ -46,12 +46,15 @@ import Proto.Jitml.Inference_Fields ()
 import GenericArsLiveControls qualified
 import GenericRlLiveControls qualified
 import SigtermRegression qualified
+import StatefulPvProjection qualified
 
 import JitML.AppError.AppError (AppError (..))
 import JitML.Checkpoint.Format qualified as Checkpoint
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Checkpoint.WeightCodec qualified as WeightCodec
 import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
+import JitML.Cluster.Resources qualified as NumericalResources
+
 import JitML.Coordinator.Topology
   ( ProtocolRoute (..)
   , decodeTopicPayload
@@ -590,7 +593,13 @@ main =
                   let router = emptyHandlerRouter 16
                   (routerAfterStop, outcome, disposition) <-
                     evalStateT
-                      (consumerStep router command Runtime.daemonWorkloadDispatcherForwardingInference)
+                      ( consumerStep
+                          router
+                          command
+                          ( Runtime.daemonWorkloadDispatcherForwardingInference
+                              (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
+                          )
+                      )
                       (SyntheticClientState clientLogRef)
                   eventId <- expectDaemonCommandEventId command
                   assertBool "successful Stop is entered into dedup" (routerAfterStop /= router)
@@ -625,14 +634,20 @@ main =
                 linuxStart = syntheticRlStart "linux-rl" LinuxCPU
                 appleRl = Rl.RlStart appleStart
                 linuxRl = Rl.RlStart linuxStart
-            case planWorkloadPlacement BootConfig.Cluster (RlLaunch appleStart) of
+            case planWorkloadPlacement
+              (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
+              BootConfig.Cluster
+              (RlLaunch appleStart) of
               Left err -> assertFailure (show err)
               Right (WorkloadClusterJob _) -> assertFailure "Apple Metal launch was placed in cluster"
               Right (WorkloadHostCommand spec) -> do
                 hostCommandSpecTopicName spec
                   @?= "persistent://public/default/rl.host-command.apple-silicon"
                 hostCommandSpecPayload spec @?= Rl.renderRlCommand appleRl
-            case planWorkloadPlacement BootConfig.Cluster (RlLaunch linuxStart) of
+            case planWorkloadPlacement
+              (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
+              BootConfig.Cluster
+              (RlLaunch linuxStart) of
               Left err -> assertFailure (show err)
               Right (WorkloadHostCommand _) -> assertFailure "Linux CPU launch was placed on the host"
               Right (WorkloadClusterJob spec) -> do
@@ -642,7 +657,12 @@ main =
                   ("kind: Job" `Text.isInfixOf` clusterJobManifest spec)
             appleResult <-
               evalStateT
-                (dispatchRlCommand BootConfig.Cluster AppleSilicon appleRl)
+                ( dispatchRlCommand
+                    (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
+                    BootConfig.Cluster
+                    AppleSilicon
+                    appleRl
+                )
                 (SyntheticClientState publishRef)
             assertWorkloadOutcomesSucceeded appleResult
             appleLog <- readIORef publishRef
@@ -651,7 +671,12 @@ main =
             linuxRef <- newIORef []
             linuxResult <-
               evalStateT
-                (dispatchRlCommand BootConfig.Cluster LinuxCPU linuxRl)
+                ( dispatchRlCommand
+                    (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
+                    BootConfig.Cluster
+                    LinuxCPU
+                    linuxRl
+                )
                 (SyntheticClientState linuxRef)
             assertWorkloadOutcomesSucceeded linuxResult
             linuxLog <- readIORef linuxRef
@@ -1354,24 +1379,31 @@ main =
               evalStateT
                 ( sequence
                     [ Runtime.daemonWorkloadDispatcher
+                        (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
                         trainingStartCommand
                         trainingStartEventId
                     , Runtime.daemonWorkloadDispatcher
+                        (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
                         trainingStopCommand
                         trainingStopEventId
                     , Runtime.daemonWorkloadDispatcher
+                        (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
                         rlStartCommand
                         rlStartEventId
                     , Runtime.daemonWorkloadDispatcher
+                        (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
                         rlStopCommand
                         rlStopEventId
                     , Runtime.daemonWorkloadDispatcher
+                        (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
                         tuneStartCommand
                         tuneStartEventId
                     , Runtime.daemonWorkloadDispatcher
+                        (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
                         tuneStopCommand
                         tuneStopEventId
                     , Runtime.daemonWorkloadDispatcher
+                        (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
                         inferenceCommand
                         inferenceEventId
                     ]
@@ -1422,7 +1454,11 @@ main =
                   eventId <- expectDaemonCommandEventId command
                   result <-
                     evalStateT
-                      (Runtime.daemonWorkloadDispatcher command eventId)
+                      ( Runtime.daemonWorkloadDispatcher
+                          (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
+                          command
+                          eventId
+                      )
                       (SyntheticClientState clientLogRef)
                   result @?= Left expectedFailure
                   readIORef clientLogRef
@@ -1445,6 +1481,7 @@ main =
             let trainingCuda =
                   either (error . show) id $
                     renderTrainingJob
+                      (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
                       ( preparedStartTraining
                           Training.StartTraining
                             { Training.stExperimentHash = "cuda-train"
@@ -1462,10 +1499,12 @@ main =
                 rlCuda =
                   either (error . show) id $
                     renderRlJob
+                      (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
                       (Rl.StartRLRun "cuda-rl" "ppo" "cartpole" LinuxCUDA 7 128 4)
                 tuneCuda =
                   either (error . show) id $
                     renderTuneJob
+                      (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
                       ( preparedStartSweep
                           Tune.StartSweep
                             { Tune.ssExperimentHash = "cuda-tune"
@@ -1486,6 +1525,7 @@ main =
                 trainingCpu =
                   either (error . show) id $
                     renderTrainingJob
+                      (NumericalResources.numericalWorkload NumericalResources.defaultClusterResources)
                       ( preparedStartTraining
                           Training.StartTraining
                             { Training.stExperimentHash = "cpu-train"
@@ -1970,6 +2010,7 @@ main =
             dedupCacheKnown older (trainingCache shrunk) @?= False
             dedupCacheKnown newer (trainingCache expired) @?= False
         ]
+          <> [StatefulPvProjection.tests]
           <> GenericRlLiveControls.genericRlLiveTestCases
           <> GenericArsLiveControls.genericArsLiveTestCases
       )

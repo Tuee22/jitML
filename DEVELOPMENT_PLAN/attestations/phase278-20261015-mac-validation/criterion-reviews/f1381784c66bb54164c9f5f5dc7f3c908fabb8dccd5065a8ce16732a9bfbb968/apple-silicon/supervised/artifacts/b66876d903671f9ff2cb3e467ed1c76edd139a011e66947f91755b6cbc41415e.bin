@@ -1,0 +1,85 @@
+{
+  "source": {
+    "algorithm": 1,
+    "sha256": "57cf61d1cf6149f353d852e21d8c663418d40e0ecc415e30d54dbdf5ef57ae16"
+  },
+  "method": "New direct integer combinatorial mass summation, independent of production recurrence and prior result JSON. Every first-passing boundary and predecessor is recomputed.",
+  "classification": [
+    {
+      "semantic_classes": 10,
+      "examples": 1000,
+      "first_passing_count": 136,
+      "predecessor_count": 135,
+      "critical_tail_at_most1_over5000": true,
+      "predecessor_tail_exceeds1_over5000": true,
+      "tails_decimal_summary": {
+        "critical": "0.00016934524422584081406461185",
+        "predecessor": "0.00024394550714750527800715271"
+      },
+      "exact_integer_hashes": {
+        "denominator": "4d20ea8840f0be06124aa54cac837707b5259196832785a09391d1f15fda98f9",
+        "critical_tail_numerator": "4e2e6e178eba4da3414dc2eb87d1460b43182ccbad8027ed2fcd29d2aabfce04",
+        "predecessor_tail_numerator": "152899a69aee8c96814c7b5d71bb002c5dc49566548cff4d1f58c1cc3d745e02"
+      }
+    },
+    {
+      "semantic_classes": 100,
+      "examples": 1000,
+      "first_passing_count": 24,
+      "predecessor_count": 23,
+      "critical_tail_at_most1_over5000": true,
+      "predecessor_tail_exceeds1_over5000": true,
+      "tails_decimal_summary": {
+        "critical": "0.00010908385071228081988880522",
+        "predecessor": "0.00027215634817293405831902483"
+      },
+      "exact_integer_hashes": {
+        "denominator": "a5135b5e08004b75aacd14c4511d71c7f6512f2a2aaae52a87bf5d118df7bbe9",
+        "critical_tail_numerator": "5ce12caec01f102e1603caefd48a67a3b93d460e9144bcd8cc7e3f3e51afeead",
+        "predecessor_tail_numerator": "5c99e445199ad77aa1ca60e0ee600421bafd5c1a1736c3117e57715de18c8e43"
+      }
+    },
+    {
+      "semantic_classes": 200,
+      "examples": 1000,
+      "first_passing_count": 16,
+      "predecessor_count": 15,
+      "critical_tail_at_most1_over5000": true,
+      "predecessor_tail_exceeds1_over5000": true,
+      "tails_decimal_summary": {
+        "critical": "0.000065155820320042737213129073",
+        "predecessor": "0.00021580336348481794123458579"
+      },
+      "exact_integer_hashes": {
+        "denominator": "a50cd6d43b95b066ab6f3ae9326a00f8f323bcde8bd21a8a4bd4a61f1c4a180e",
+        "critical_tail_numerator": "3e51e0784b8bffabe855efa7034bc0beb2a295de59ad5d5119e03e6a15fc65c3",
+        "predecessor_tail_numerator": "9d5c7691e02ad8ccfb306a2824b939daf7e1641d5b85dee364e066dba98b619d"
+      }
+    }
+  ],
+  "majority_control": "max(actual held-out majority frequency+1,uniform critical count) rejects every constant classifier. The held-out data histogram must be supplied by authentic data; this review invents none.",
+  "probability_reasoning": "Under ALL FIVE individually uniform iid-per-example final-guess nulls independent of fixed labels, each joint event is a subset of its binomial-tail event. E[N]<=5/5000;3*1{N>=3}<=N (all32 patterns checked) implies P(N>=3)<=1/3000. At most30 such all-five-null cohorts have union bound0.01. Dependence across seeds/cohorts is allowed. Served0/floor restrictions only reduce the passing event.",
+  "scope_exclusions": [
+    "mixed nulls",
+    "arbitrary random networks",
+    "nonuniform feature-independent predictors",
+    "population generalization",
+    "regression confidence",
+    "adaptive selected retries",
+    "new attempt families without disclosed error accounting"
+  ],
+  "regression_reasoning": "Exact rationals of finite binary64 targets/predictions compute SST around exact target mean and final/initial SSE. Positive finite training-fitted scale cancels from strict SSE_final<SST and SSE_final<SSE_initial. Equality is failure; empty/misaligned/nonfinite inputs and nonpositive variance fail. This is descriptive held-out skill/improvement, not probability confidence.",
+  "recomputed_exact_regression_example": {
+    "targets": [
+      1,
+      3
+    ],
+    "SST": "2",
+    "initial_SSE": "10",
+    "constant_SSE": "2",
+    "improved_SSE": "1/2",
+    "constant_SSE_equal_SST_fails_signal": true,
+    "unchanged_final_initial_SSE_fails_improvement": true
+  },
+  "actual_predictions_or_training_claim": false
+}

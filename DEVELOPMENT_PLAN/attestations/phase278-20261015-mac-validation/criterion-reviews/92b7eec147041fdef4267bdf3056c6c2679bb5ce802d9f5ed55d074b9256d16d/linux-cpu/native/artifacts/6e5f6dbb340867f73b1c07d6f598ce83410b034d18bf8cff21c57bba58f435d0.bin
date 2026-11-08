@@ -1,0 +1,111 @@
+{
+  "format": "jitml-independent-source92-four-scope-finite-criterion-addendum-v1",
+  "reviewer": "independent reviewer B",
+  "agent": "/root/resource_criterion_review_b",
+  "source": "92b7eec147041fdef4267bdf3056c6c2679bb5ce802d9f5ed55d074b9256d16d",
+  "source_algorithm": 1,
+  "source_files": 617,
+  "previous_source": "225a927abb1458d1c76e8db134a783987023e0fbda4b9cc860d4abfeada9ec32",
+  "decision": "ACCEPT_FOUR_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_SCOPES_ONLY",
+  "image": null,
+  "criterion_applicability_blockers": [],
+  "source_assessment": {
+    "independently_recomputed_source_digest": true,
+    "changed_files": ["src/JitML/Cluster/PulsarChart.hs", "src/JitML/Service/ConfigMap.hs", "test/unit/ClusterResourceRendering.hs"],
+    "unchanged_225_source_rows": 614,
+    "exact_three_file_delta_reversed_to_225_raw_pins": true,
+    "assessment": "The authenticated pinned Pulsar archive preparation redirects exactly six equal31-byte references in four StatefulSet templates to the existing typed supporting budget. All other TAR bytes, headers and padding are preserved. The two initialization Jobs retain their whole desired objects in actual offline install and upgrade rendering, avoiding the immutable-Job change in the superseded global-init variant. Existing JVM correction, commands, deadlines, storage, selectors, outer caps and numerical Job250m/1Gi requests with1CPU/1536Mi limits remain unchanged. The lower pure TAR helper is a bounded rewriter under the authenticated preparation path, not an arbitrary-TAR authentication API. The final test-only partial-function removal changes no application source or scientific predicate.",
+    "contract_invariance": "I independently compared the actual source92 export, all four subjects and my source225 bindings: both complete ordered55 vectors, scientific row sets and preserved scientific limits are exact. No contract subset substitutes for either full lane vector.",
+    "linux_cpu_full55_sha256": "8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7",
+    "apple_silicon_full55_sha256": "a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c"
+  },
+  "reviews": [
+    {
+      "lane": "linux-cpu",
+      "scope": "supervised",
+      "source": "92b7eec147041fdef4267bdf3056c6c2679bb5ce802d9f5ed55d074b9256d16d",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+      "reasoning": "These exact11 supervised scientific rows retain their recipes, seeds, complete original cohorts, actual training/evaluation budgets, held-out comparisons, historical quality bars and served0 obligations. The three-file correction changes infrastructure scheduling and its tests, not scientific training or scoring. My current assessment retains strict authentic own-initial gain and the additional finite classification/regression signal predicates, with all qualifications below. Linux CPU execution, completed cohorts, actual resource fit and served0 eligibility remain unproved by this packet.",
+      "scientific_row_count": 11,
+      "subject": {"path":"/Users/matthewnowak/jitML/.build/phase278-pulsar-stateful-criterion-review-a/linux-cpu-supervised-subject.json","bytes":21132,"sha256":"bf78fbeff3f74373f6767ef134e5ef151ff5d32e0afedfdff1d3eb2154083625"},
+      "subject_binding": {"complete_ordered_contract_count":55,"complete_ordered_contract_set_sha256":"8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7"},
+      "blockers_to_criterion_applicability": []
+    },
+    {
+      "lane": "linux-cpu",
+      "scope": "native",
+      "source": "92b7eec147041fdef4267bdf3056c6c2679bb5ce802d9f5ed55d074b9256d16d",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+      "reasoning": "These exact43 native scientific rows (38 RETURN,1 HER,4 AlphaZero) retain effective initialization, canonical five-original seeds, actual work/evaluation budgets, paired cases, complete reference families, exact comparisons, quality bars and exclusions. Infrastructure request normalization does not relax any predicate. Strict own-initial gain, same-member joint success and the narrowly proved optimal-reference tie exceptions remain mandatory. Actual oneDNN execution, aggregate resource fit, complete cohorts and served0 physical provenance/replay remain open.",
+      "scientific_row_count": 43,
+      "subject": {"path":"/Users/matthewnowak/jitML/.build/phase278-pulsar-stateful-criterion-review-a/linux-cpu-native-subject.json","bytes":28374,"sha256":"c1d3384954d5c2b6e90c6b29f3af9a3cbd53c18f60e15a609123d13e6c159561"},
+      "subject_binding": {"complete_ordered_contract_count":55,"complete_ordered_contract_set_sha256":"8f0878ee18a438e2b1c1b5c5418e1975ada199985ee58418a5cdda4ba9bc0da7"},
+      "blockers_to_criterion_applicability": []
+    },
+    {
+      "lane": "apple-silicon",
+      "scope": "supervised",
+      "source": "92b7eec147041fdef4267bdf3056c6c2679bb5ce802d9f5ed55d074b9256d16d",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+      "reasoning": "This is a separate assessment of the exact11 Apple supervised rows and their complete55-context binding. Scientific source, recipes, budgets, seeds, held-out predicates, historical bars and cohort/served0 conditions remain exact. The correction supplies no Metal execution or quality evidence. Native Metal processes remain outside Docker/Kubernetes limits and require their own actual host CPU/heap/memory-pressure supervision and real device provenance before qualification.",
+      "scientific_row_count": 11,
+      "subject": {"path":"/Users/matthewnowak/jitML/.build/phase278-pulsar-stateful-criterion-review-a/apple-silicon-supervised-subject.json","bytes":21136,"sha256":"4a0ae16f316d269542cbbd3d9770b594aa6cb23b1ceface401d7e5f547486bdc"},
+      "subject_binding": {"complete_ordered_contract_count":55,"complete_ordered_contract_set_sha256":"a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c"},
+      "blockers_to_criterion_applicability": []
+    },
+    {
+      "lane": "apple-silicon",
+      "scope": "native",
+      "source": "92b7eec147041fdef4267bdf3056c6c2679bb5ce802d9f5ed55d074b9256d16d",
+      "decision": "ACCEPT_PROSPECTIVE_FINITE_CRITERION_APPLICABILITY_ONLY",
+      "reasoning": "This is a separate assessment of the exact43 Apple native rows. All effective-initial, paired-case, full-reference, strict comparison, optimal-tie, budget, original-cohort and served0 requirements remain exact. No CPU-lane result or decoded Apple substrate name establishes Metal execution. Actual hardware or honest host provenance where prescribed, native host resource supervision, complete cohort evidence and physical replay/admission remain required.",
+      "scientific_row_count": 43,
+      "subject": {"path":"/Users/matthewnowak/jitML/.build/phase278-pulsar-stateful-criterion-review-a/apple-silicon-native-subject.json","bytes":28378,"sha256":"c93090d828d41a82c48c0c54de1a25ae68cc35d1ee57688bf0734941d76b169d"},
+      "subject_binding": {"complete_ordered_contract_count":55,"complete_ordered_contract_set_sha256":"a77adea4a0ca26eb50bcd1907a3189a36c5af0f4a5aa5d1646ba762fb1edfc2c"},
+      "blockers_to_criterion_applicability": []
+    }
+  ],
+  "scientific_limits": {
+    "original_cohorts": "Every original ordered index0..4 outcome is complete and retained with canonical seeds and unchanged actual work. At least3 SAME original models jointly meet the entire own-initial/reference learning predicate. Whole-five statistics retain finite failures; missing/incomplete/nonfinite/substituted/wrong-budget members cannot produce a successful completed cohort. Original predetermined index0 separately meets learning, unchanged quality, budget, device/provenance and physical serving/replay/admission conditions.",
+    "classification": "Final exact held-out correct count strictly exceeds authentic own-initial count and meets max(actual held-out majority count+1, exact uniform-binomial critical count). For1000 cases, critical counts remain136/24/16 for10/100/200 classes at alpha1/5000. This is a finite comparator, not rejection of every trivial predictor or arbitrary random network.",
+    "conditional_probability": "Only prospectively allocated all-five-null cohorts with iid uniform-per-example guesses within each member support the retained calculation: joint success is contained in a tail event<=1/5000; Markov gives P(atleast3)<=1/3000 without seed independence; at most30 allocated cohorts give union bound<=0.01. No automatic bound for adaptive/repeated/score-selected attempts, mixed nulls, correlated or nonuniform guesses, arbitrary random networks, regression, native RL or populations. Remaining multiplicity/attempt-ledger completeness is not audited here.",
+    "regression": "Finite positive scale, finite predictions/targets and positive held-out variance remain. Exact binary64-rational SSE_final<SSE_initial and SSE_final<SST establish finite paired improvement and positive empirical held-out R-squared against the best constant on those exact targets. Original standardized-RMSE arithmetic/ceilings, whole-five medians and served0 requirements remain; no population confidence is supplied.",
+    "historical_bars": "Exact historical/outcome-adaptive target/slack values and arithmetic retain their provenance. LeNet0.30, CIFAR1000.04 and Tiny0.008 chosen after observed0.012 are not upgraded to independently justified published-model convergence by the new guards. Tiny12/1000 still fails the additional16-correct uniform control; the actual majority bound can be stronger. Existing regression/native quality bars, legal metrics and arena0.5 exclusion/tolerance remain unchanged; literature-labelled targets do not establish research/SB3-recipe parity.",
+    "RETURN": "All38 rows retain complete prescribed controllers once in canonical order and complete paired initial/final episodes. Joint success strictly improves exact median over its own EFFECTIVE initialization and beats every reference. Required constant actions, full legal masked-preference permutations and continuous zero/lower/upper endpoints remain. Reference equality is allowed only when BOTH actual reference and final equal the independently recomputed exact maximum of the complete current KeyDoor full-state/time simulator DP. Other RETURN ties and forged/historical maxima grant nothing; own-initial gain is never waived.",
+    "HER": "The6-bit/horizon6/20-case scope retains all46656 goal-blind sequences, actual replay, exact extrema and attaining IDs. Both strict success-count gain and strict exact mean-distance improvement over own initial state plus both reference predicates remain. Reference ties only when both actual reference/final achieve20 successes and zero distance; weaker ties fail.",
+    "arena": "All4 games retain the exact tape/all9 addressed outcomes, authentic learned initial/final models and plain-legal-uniform plus neutral-legal-MCTS references. Exact rational WDL score strictly improves over own initialization and beats each reference, except both actual reference/final at structural maximum1. Complete9-case counts justify that finite bound. Quality/legal metrics and exclusions remain independent.",
+    "provenance": "SAC effective/warm initialization cannot be replaced by an easier cold baseline. ARS actual aggregate-step lineage and honest host provenance remain required. Native served candidates need actual original child execution witnesses or prescribed actual ARS host references; names/hashes do not establish physical/provider provenance.",
+    "no_adaptive_relaxation": "No pooling/splicing, best-seed substitution, score-selected retries/restarts, cherry-picking, budget extension, altered recipe/bar, tolerance borrowed for strict learning comparisons or retrospective failure conversion. Every attempt/outcome remains retained.",
+    "tuning_context_only": "The55th hyperparameter-tuning row remains context/admission only, seed1729/trials128, not one of54 scientifically endorsed training rows. Its explicitly absent original source provenance is not invented."
+  },
+  "evidence": {
+    "request": {"path":"/Users/matthewnowak/jitML/.build/phase278-pulsar-stateful-criterion-review-a/review-request-final.json","bytes":6920,"sha256":"5fb16cbad76518a99d83e24d46f9db703c5b4368da8b066b980cbc8f5e866099"},
+    "source_freeze": {"path":"/Users/matthewnowak/jitML/.build/phase278-pulsar-stateful-init-fix-a/candidate-source-b.json","bytes":112240,"sha256":"3449de07537ac4356ee509de0f9d75d80aa1603a7166fc2b153e723e7a39948f"},
+    "exact_delta": {"path":"/Users/matthewnowak/jitML/.build/phase278-pulsar-stateful-criterion-review-a/delta-from-225.diff","bytes":11888,"sha256":"bfecca1ac7f3aed02d78793e7ed338fd22378018af806d3b4f19dacba21f9cd3"},
+    "own_detailed225_scientific_background": {"path":"/Users/matthewnowak/jitML/.build/phase278-generic-rl-helper-criterion-review-a/reviewer-b/helper-criterion-addendum-b-final.json","bytes":39629,"sha256":"ad797de1b859f01f919e702d6824313c595bbbdd819fbf4c8343592702de4525"},
+    "source92_cache_revalidation": {"path":"/Users/matthewnowak/jitML/.build/phase278-pulsar-stateful-init-fix-a/app-revalidation-work/payload-result.json","bytes":3793,"sha256":"900a2e0114282d486f2cfab4075086a5dcfe3da5c11368c54b6037ffdf4f4631"},
+    "scoped70": {"path":"/Users/matthewnowak/jitML/.build/phase278-pulsar-stateful-init-fix-a/scoped-work-b/payload-result.json","bytes":2234,"sha256":"e139d5b4bfa848cafc3e7804c9f898044d3f0e146736a1b8a4bfa9fef74447a2"},
+    "real_offline_install_upgrade_Helm": {"path":"/Users/matthewnowak/jitML/.build/phase278-pulsar-stateful-init-fix-a/helm-work/payload-result.json","bytes":8104,"sha256":"a6adac3b98ebe1b205bd1450a2c5a6e384f06f139ed108660cb8bd0cfeefd9b5"},
+    "actual110_export": {"path":"/Users/matthewnowak/jitML/.build/phase278-pulsar-stateful-init-fix-a/export-work/export.stdout","bytes":21726,"sha256":"e628d7b27f50f2587b62a4f369f6eb413664d0310c5d713cad7bcb72ed1576ee"},
+    "contract_invariance": {"path":"/Users/matthewnowak/jitML/.build/phase278-pulsar-stateful-init-fix-a/export-work/result.json","bytes":1257,"sha256":"24375cc9000e9aca6efc2b3475a43e1ecf7c0b2718ac529fdfaf9c61babbbaba"},
+    "four_components": {"path":"/Users/matthewnowak/jitML/.build/phase278-pulsar-stateful-init-fix-a/components-work/payload-result.json","bytes":5127,"sha256":"55114eb12c3361a94a7f8844f1663737d1f661dd1b7f9dec8c1b57b852b5da45"}
+  },
+  "evidence_scope": "I verified the source92 digest, three exact reverse deltas/614 unchanged rows, four subjects and both full55 vectors, and the actual structured receipt joins. Application compilation really occurred at source48; source92 changes only the test fixture relative to48 and its actual Cabal no-op0 validates unchanged application hashes/fileframes without relabelling the old compiler invocation. Fresh source92 scoped70 passes, helper SourceDigest92 and install/upgrade Helm proof pass, and four current test components compile with CLI/library bytes/fileframes unchanged. These are software/equality results, not scientific or hardware qualification. The225m/576Mi saving and projected1250m/3634Mi request sum are mathematical scheduling feasibility only, not actual memory/time/peak fit.",
+  "preserved_history": [
+    "Source225 focused placement remains literal1/704.7821s/PendingUnschedulable; owner0/guardian0/postcheck0 and no forced cleanup/OOM do not convert it into success.",
+    "The BDD global-init variant was engineering-only, never deployed and superseded. Its results are not relabelled as the final narrower source.",
+    "Source48 scopedA failed a compiler warning before tests. The final test-only fix92 and fresh70/70 pass remain a separate successor result.",
+    "Earlier Helm harness A/B/C failures remain literal; source92 actual install/upgrade proof is separate.",
+    "SourceJ original daemon1/two OOMKilled137 and four original after-rolesNotRun, source490 bootstrap1/readbackNotRun, and prior incomplete calibration attempts remain historical failures/NotRun scopes. Recovery, metadata retention and later isolated calibration do not retrospectively complete them."
+  ],
+  "limits": [
+    "These are four independent prospective finite-criterion decisions for exact source92. My225 judgment is scientific background, not a current-source execution or inherited overall verdict.",
+    "Current source92 image build/adoption and exact baked source/CLI/public-input proof remain open. Hardware lanes, standing gates, retained rollout/original-data readback and live node/client/helper/VM/host fit require their own actual evidence.",
+    "Future focused diagnostics require current exact source/image/caller/helper/context bindings, fresh reserves and strict start-based observer leases, bounded CPU/heap/no-swap caps, complete terminal joins and explicit named-VM management. Filtered cases cannot become daemon75/full55 passes.",
+    "Apple native/Metal work requires separate actual host CPU/heap/memory-pressure supervision; VM/container caps do not constrain it.",
+    "Parsing/hashes bind content but do not authenticate a reviewer, producer or physical execution. This review grants no runtime launch or canonical publication authority."
+  ],
+  "nonclaims": ["Current-source92 image or runtime pass","Scientific/quality/convergence pass","Full55 cohort or served0 eligibility","Live scheduling/memory/time/peak fit","CUDA or Metal hardware validation","Full standing-suite pass","Store/lane/registration/journal admission","Published-model parity or population generalization","Unconditional/adaptive probability guarantee","Retrospective success of failed/NotRun work","Reviewer or producer authentication from JSON/hash","Phase closure"],
+  "independence": {"peer_current_review_read":false,"new_agents_or_delegation":false,"runtime_tests_VM_training_or_source_edits_performed_by_reviewer":false,"host_private_body_reads_or_hashes":false},
+  "runtime_or_canonical_publication_authority": false
+}

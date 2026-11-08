@@ -45,6 +45,76 @@ test/criterion data, structured validation records, and registered generated
 source in their canonical homes. Do not create new dated raw-receipt trees under
 `DEVELOPMENT_PLAN/attestations/`; see the [plan standards](DEVELOPMENT_PLAN/development_plan_standards.md#n-evidence-derived-product-status-and-thin-closure-narrative).
 
+## Explicit local VM management
+
+Manage every VM explicitly. Do not enable VM startup at boot/login, start a VM
+implicitly from a test/build command, or use the default/generic Colima instance
+for normal work. On this Mac, the named `jitml` Colima profile is configured for
+**4 CPUs / 16 GiB RAM / 288 GiB disk**, with Kubernetes, mount inotify and automatic
+Docker-context activation disabled. Start and stop it as separate operator steps:
+
+- `colima --profile jitml start`
+- `colima --profile jitml stop`
+
+Select the context and job limits explicitly:
+`docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml ...`.
+Use this **2 CPU / 6 GiB RAM** runtime-container limit for builds and tests while
+the cluster is stopped. Reduce CPU further when host headroom requires it; the
+retained incremental test compilation uses **1 CPU / 6 GiB / no swap**, one Cabal
+job and a **3-GiB GHC heap**. Scoped cached-artifact and plan-guard checks use
+**1 CPU / 3 GiB / no swap** and a **1-GiB compiler heap**, reusing compiled
+modules. The full unfiltered negative-control suite is a full test job: with the cluster
+stopped, use **1 CPU / 6 GiB / no swap** and a **3-GiB RTS heap**. Cabal still
+starts GHC for an ephemeral test target with a current cache; the 1-GiB compiler
+heap fails before the suite runs. Dry-run readiness alone does not establish
+that smaller heap is sufficient. Keep the smaller budget for scoped artifact
+and plan checks, and do not carry the 6-GiB slot into cluster-running work.
+Compiler scratch belongs in a bounded disk directory,
+not the small `/tmp` RAM filesystem. Start only after measuring host CPU headroom,
+memory pressure and swap, and stop the owned workload if those reserves fail.
+These container limits do not cap a separate image builder or resize Kind nodes;
+the VM supplies the outer limit.
+For normal training with the cluster running, append
+`-f compose.cluster-bounded.yaml` to select the Mac profile and its
+**1 CPU / 4 GiB RAM** client slot. For bootstrap, `jitml cluster down`, snapshot
+restoration, and live GenericRL validation, append
+**`-f compose.lifecycle-bounded.yaml` last**:
+the caller receives **0.5 CPU / 3 GiB RAM**, with no swap, while one serial
+snapshot or image-proof helper receives **0.5 CPU / 512 MiB RAM**, no swap, **64 PIDs** and a
+**64 MiB `/tmp` tmpfs**. Actual helper limits are verified before start, and
+caller plus helper must fit within the existing client slot. Return to the
+normal training limit only after all snapshot and image-proof helpers have ended.
+
+Cache the canonical `jitml:local` image explicitly before lifecycle operations;
+reuse its verified cached copy, or build/load it while the cluster is stopped.
+Lifecycle commands fail if the image is absent and do not build it implicitly.
+Bootstrap's separate application-image stage rebuilds by default. On this Mac,
+verify the cached image matches the intended source, then pass
+`-e JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1` to Compose `run` for bootstrap so that
+stage reuses the prebuilt image while the cluster is running.
+Before full cluster/integration work, fit the cluster and training budgets
+together within the VM and monitor memory pressure. Full-stack operation and
+restored application-data readback still require their own validation.
+Run one resource-heavy build, training or test job at a time.
+Prepare operators and analyse results with the VM stopped. After terminal work,
+finish closing queries promptly and stop the VM; do not leave it idle during
+analysis. Resource guards must retain the failed observation when available,
+distinguish an incomplete reader from a failed reserve, and record their stop
+result. A last passing sample is not the failed sample. Use task-specific finite
+windows; a short maintenance timer must not replace scientific-run deadlines.
+Image archives belong in bounded, ignored host-backed storage, with host free
+space checked separately from packed-content and unpacked-node allocations.
+The existing two-node 12-GiB-per-node configuration must not be started unchanged
+inside this 16-GiB VM. Stop the VM when its authorized task is finished.
+
+The generic `default` VM and its automatic startup entries are retired. Keep its
+retained offline Docker data disk and private OS/settings recovery copy until
+images, node volumes and host-backed state have verified retention/migration.
+Do not purge recovery data or recreate/start `default` as an automatic fallback. Apple Metal execution still
+runs on the Mac host and does not require this VM. VM/container limits do not
+constrain native Metal processes; long host runs require their own supervised
+CPU/heap and host-memory-pressure budget.
+
 ## Code-quality execution
 
 Linting and `jitml check-code` are container-only workflows. Lack of host-level

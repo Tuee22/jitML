@@ -1,0 +1,60 @@
+{
+  "parent_manifest": {
+    "path": ".build/phase278-mac-validation/native-phase278-native43-actual110-independent-review/MANIFEST.json",
+    "bytes": 1107,
+    "sha256": "fdabce0a73346c82d28e4793980a24ca777c4563647ec7a30af2590f9fb64126"
+  },
+  "scope": "Semantic arithmetic precision only; no changed verdict, full55 triples, native rules, budget or source",
+  "actual_rule_note": "The retained original_quality_expressions record the existing strict passesAlphaZeroArena helper text. The actual native cohort/served quality criteria use Budget CriterionAtLeastExcluding: value >= binary64(0.45-0.05) AND abs(value-0.5)>1e-12, plus legal>=1. Exact complete canonical nine-game scores are fromRational(k/18), k=0..18; none equals that threshold, so >= and > agree on every attainable validated score and on their five-member median. No comparison is weakened or replaced by this review. Initial-gain and reference comparisons remain strict except the stated proved-endpoint reference tie.",
+  "independent_finite_support_scalar_check": "all19 possible exact canonical WDL score numerators have binary64(k/18) unequal to binary64(0.45-0.05); no Tasty/GHC/Haskell/runtime executed",
+  "operations": [
+    {
+      "path": "linux-cpu-native-review.json",
+      "before": {
+        "path": ".build/phase278-mac-validation/native-phase278-native43-actual110-independent-review/linux-cpu-native-review.json",
+        "bytes": 143203,
+        "sha256": "01366e2786d4ef0ec4ec3d32696c44ef7ab40cd96438b03c7437a9892a69204f"
+      },
+      "after": {
+        "path": ".build/phase278-mac-validation/native-phase278-native43-arena-quality-clarification-followup/linux-cpu-native-review.json",
+        "bytes": 146290,
+        "sha256": "dea09dd31708a381ff8944a647d28bdf04ec8dbb5b89c29282562ac9720e936d"
+      },
+      "delta": "append one exact Budget provider pin; add four actual arena reducer precision notes and provider count; all original keys/values/subtrees otherwise unchanged"
+    },
+    {
+      "path": "apple-silicon-native-review.json",
+      "before": {
+        "path": ".build/phase278-mac-validation/native-phase278-native43-actual110-independent-review/apple-silicon-native-review.json",
+        "bytes": 143296,
+        "sha256": "4479d1b3631926b564915f27832d567961e2908003364b19d62ada87c46b75c8"
+      },
+      "after": {
+        "path": ".build/phase278-mac-validation/native-phase278-native43-arena-quality-clarification-followup/apple-silicon-native-review.json",
+        "bytes": 146383,
+        "sha256": "b7dc48028d891afd343d0c700773888bdb188878c59ec47ae393407226784924"
+      },
+      "delta": "append one exact Budget provider pin; add four actual arena reducer precision notes and provider count; all original keys/values/subtrees otherwise unchanged"
+    }
+  ],
+  "whole_JSON_forward_inverse_verified": true,
+  "selected_two_real_native_artifacts": [
+    {
+      "path": ".build/phase278-mac-validation/native-phase278-native43-arena-quality-clarification-followup/linux-cpu-native-review.json",
+      "bytes": 146290,
+      "sha256": "dea09dd31708a381ff8944a647d28bdf04ec8dbb5b89c29282562ac9720e936d"
+    },
+    {
+      "path": ".build/phase278-mac-validation/native-phase278-native43-arena-quality-clarification-followup/apple-silicon-native-review.json",
+      "bytes": 146383,
+      "sha256": "b7dc48028d891afd343d0c700773888bdb188878c59ec47ae393407226784924"
+    }
+  ],
+  "Budget_provider": {
+    "role": "exact generic convergence rule used by native arena quality medians",
+    "code_path": "src/JitML/Training/Budget.hs",
+    "path": ".build/phase278-mac-validation/native-host-bound-projects/20261017T081411.530857Z-resolution586-statusquote-hostcache/project/src/JitML/Training/Budget.hs",
+    "bytes": 43248,
+    "sha256": "b3f41cf02faeb0ee7805da360fe55d43afc6c80ff70e1d2f96e6096f121dd5e3"
+  }
+}

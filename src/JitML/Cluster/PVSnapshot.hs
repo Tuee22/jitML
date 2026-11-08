@@ -201,11 +201,13 @@ data SnapshotStore = SnapshotStore
   , clearSelection :: IO ()
   }
 
--- withQuiesced must pause all actual writers of the CLOSED registry, wait for
--- their pods/processes to exit, retain original replicas, and hold that state
--- across the callback. Its failure compensation attempts every original owner,
--- preserving first async exception. It must not automatically resume writers
--- after successful deletion; on failure it may resume only unchanged old CIDs.
+-- withQuiesced must hold a no-writer boundary for the CLOSED registry across
+-- the callback. The live adapter pauses writers, waits for their processes,
+-- retains replicas and compensates every unchanged original owner on failure,
+-- preserving the first async exception. An explicit cold adapter instead proves
+-- already-stopped sources and runtime tasks throughout; it never starts sources
+-- or claims live controller evidence. Neither automatically resumes writers
+-- after successful deletion.
 -- No method accepts shell text. The interpreter uses typed Subprocess /
 -- typed-process file handles; binary tar never travels through Text capture.
 data SnapshotBackend = SnapshotBackend

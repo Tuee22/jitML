@@ -1,0 +1,10 @@
+# Use after explicit startup of the 4-CPU/16-GiB jitml Colima profile.
+# This is the client reservation in dhall/cluster/mac16.dhall; sibling Kind
+# nodes are independently capped by that typed profile.
+services:
+  jitml:
+    cpus: 1.0
+    mem_limit: 4g
+    memswap_limit: 4g
+    environment:
+      JITML_CLUSTER_RESOURCES: dhall/cluster/mac16.dhall

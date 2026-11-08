@@ -15,6 +15,14 @@ let ClusterResources : Type =
       { nodeMemoryMiB : Natural
       , nodeCpus : Text
       , workerCount : Natural
+      , jobMemoryMiB : Natural
+      , jobCpus : Text
+      , systemReserveMiB : Natural
+      , nodeSystemMemoryMiB : Natural
+      , nodeSystemCpus : Text
+      -- True permits ordinary control-plane Pods and pins the non-compute
+      -- webapp there, preserving request headroom on the compute worker.
+      , scheduleOnControlPlane : Bool
       , registry : ComponentBudget
       , minio : ComponentBudget
       , pulsar : ComponentBudget
@@ -24,6 +32,9 @@ let ClusterResources : Type =
       , jitmlService : ComponentBudget
       , jitmlDemo : ComponentBudget
       , tensorboard : ComponentBudget
+      , supporting : ComponentBudget
+      , gateway : ComponentBudget
+      , numericalWorkload : ComponentBudget
       }
 
 in  { ComponentBudget = ComponentBudget, ClusterResources = ClusterResources }

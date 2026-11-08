@@ -66,6 +66,7 @@ import JitML.AppError.AppError (AppError (..))
 import JitML.Checkpoint.Format (CheckpointManifest)
 import JitML.Checkpoint.Store qualified as CheckpointStore
 import JitML.Cluster.PulsarBootstrap qualified as PulsarBootstrap
+import JitML.Cluster.Resources (ComponentBudget)
 import JitML.Coordinator.Topology
   ( ProtocolRoute (InferenceHostCommandRoute, InferenceRequestRoute)
   , Topic
@@ -993,17 +994,18 @@ daemonConsumerBatch runtime budget dispatch =
 
 daemonWorkloadDispatcher
   :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => DaemonCommand
+  => ComponentBudget
+  -> DaemonCommand
   -> EventId
   -> m (Either ServiceError ())
-daemonWorkloadDispatcher command _eventId =
+daemonWorkloadDispatcher resources command _eventId =
   case command of
     TrainingDaemonCommand substrate training ->
-      workloadOutcomesToUnit <$> Workload.dispatchTrainingCommand Cluster substrate training
+      workloadOutcomesToUnit <$> Workload.dispatchTrainingCommand resources Cluster substrate training
     TuneDaemonCommand substrate tune ->
-      workloadOutcomesToUnit <$> Workload.dispatchTuneCommand Cluster substrate tune
+      workloadOutcomesToUnit <$> Workload.dispatchTuneCommand resources Cluster substrate tune
     RlDaemonCommand substrate rl ->
-      workloadOutcomesToUnit <$> Workload.dispatchRlCommand Cluster substrate rl
+      workloadOutcomesToUnit <$> Workload.dispatchRlCommand resources Cluster substrate rl
     InferenceDaemonCommand substrate inference ->
       dispatchTypedInference substrate inference Workload.dispatchInferenceCommandForTopic
 
@@ -1074,16 +1076,17 @@ daemonWorkloadDispatcherWithWeightedInference runInference command _eventId =
 -- Metal-backed work.
 daemonWorkloadDispatcherForwardingInference
   :: (HasImageRegistry m, HasKubectl m, HasMinIO m, HasPulsar m)
-  => DaemonCommand
+  => ComponentBudget
+  -> DaemonCommand
   -> EventId
   -> m (Either ServiceError ())
-daemonWorkloadDispatcherForwardingInference command eventId =
+daemonWorkloadDispatcherForwardingInference resources command eventId =
   case command of
     InferenceDaemonCommand substrate inference ->
       case topicFor InferenceHostCommandRoute substrate of
         Left err -> pure (Left (SETransient (Text.pack (show err))))
         Right topic -> void <$> pulsarPublish topic inference
-    _ -> daemonWorkloadDispatcher command eventId
+    _ -> daemonWorkloadDispatcher resources command eventId
 
 -- | Sprint 14.4 — host-native Apple daemon dispatch. The host daemon is the
 -- Engine for `apple-silicon`: it consumes the cluster-forwarded inference command

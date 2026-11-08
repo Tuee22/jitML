@@ -1,0 +1,1628 @@
+{
+  "scope": "Freshly hashed physical115 scientific/provider rows; every one of67 unique inputs equals the independently reviewed Source15c bytes",
+  "source": {
+    "algorithm": 1,
+    "sha256": "57cf61d1cf6149f353d852e21d8c663418d40e0ecc415e30d54dbdf5ef57ae16"
+  },
+  "provider_rows": 115,
+  "unique_files": 67,
+  "changed_provider_paths": [],
+  "all115_rows_and67_unique_files_literal_unchanged": true,
+  "previous_provider_input": {
+    "path": ".build/phase278-mac-validation/resume-runtime-recovery-20261019T023812.865403Z/current15c-apple-supervised-independent-review-20261019T043927Z/current-provider-joins.json",
+    "bytes": 58369,
+    "sha256": "7205dcd7dc04bd8b4945681aed637ea9a78879a0d3838562557dcd9224a57f8c"
+  },
+  "providers": [
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/Matrix.hs",
+        "bytes": 88600,
+        "sha256": "eb8af4c00c4b96eee037843f0af9c323305afcd239cd9b3ff2704def8e3d3607"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/Matrix.hs",
+        "bytes": 88600,
+        "sha256": "eb8af4c00c4b96eee037843f0af9c323305afcd239cd9b3ff2704def8e3d3607"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Test/Report.hs",
+        "bytes": 149570,
+        "sha256": "11da1096e5f21ac9060cf80043d0f2ed4661766dafc9d0a3261526f94b730675"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Test/Report.hs",
+        "bytes": 149570,
+        "sha256": "11da1096e5f21ac9060cf80043d0f2ed4661766dafc9d0a3261526f94b730675"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Test/RegisteredLaneEvidence.hs",
+        "bytes": 8554,
+        "sha256": "3c7b24be74b3544d5cf599e23a8d0057d7d3968db494cab01d68fb7976536328"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Test/RegisteredLaneEvidence.hs",
+        "bytes": 8554,
+        "sha256": "3c7b24be74b3544d5cf599e23a8d0057d7d3968db494cab01d68fb7976536328"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/LaneRegistrationData.hs",
+        "bytes": 17302,
+        "sha256": "a2b8f87d824fd3ec14947152ed1c74a0ea276aa6bae71b05c01227334f587857"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/LaneRegistrationData.hs",
+        "bytes": 17302,
+        "sha256": "a2b8f87d824fd3ec14947152ed1c74a0ea276aa6bae71b05c01227334f587857"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/SL/Canonicals.hs",
+        "bytes": 5193,
+        "sha256": "e61bf672f0076c08a337f673c879d6aa7f97e9053ea6260af502efba175d77f3"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/SL/Canonicals.hs",
+        "bytes": 5193,
+        "sha256": "e61bf672f0076c08a337f673c879d6aa7f97e9053ea6260af502efba175d77f3"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/SL/ConvergenceThresholds.hs",
+        "bytes": 6222,
+        "sha256": "f0c61dccac013c190cee680d04f575cb3a6819a9a22954893902f640bba81cb8"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/SL/ConvergenceThresholds.hs",
+        "bytes": 6222,
+        "sha256": "f0c61dccac013c190cee680d04f575cb3a6819a9a22954893902f640bba81cb8"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/Convergence.hs",
+        "bytes": 5489,
+        "sha256": "d8b581628ffaf04693d2afa1d8b109b0c9685f114ff797740fa8a1627737786e"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/Convergence.hs",
+        "bytes": 5489,
+        "sha256": "d8b581628ffaf04693d2afa1d8b109b0c9685f114ff797740fa8a1627737786e"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/LearningSignal.hs",
+        "bytes": 7023,
+        "sha256": "f21727b739073aa3d0bc2118ee3b7818690cff57ec30bea01bb35df6ad5b2f31"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/LearningSignal.hs",
+        "bytes": 7023,
+        "sha256": "f21727b739073aa3d0bc2118ee3b7818690cff57ec30bea01bb35df6ad5b2f31"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/SupervisedQualificationPolicy.hs",
+        "bytes": 14275,
+        "sha256": "50e89bd9078bfe25055bcf5e1be6ccf7e36c0ca1b69488eedf2904e944b70c9d"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/SupervisedQualificationPolicy.hs",
+        "bytes": 14275,
+        "sha256": "50e89bd9078bfe25055bcf5e1be6ccf7e36c0ca1b69488eedf2904e944b70c9d"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/SupervisedCohortPlan.hs",
+        "bytes": 4209,
+        "sha256": "c952f30a32a8ce8e1ef8ff255e2cfd85ee98fb11a07a87f33c30f38031b55a5c"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/SupervisedCohortPlan.hs",
+        "bytes": 4209,
+        "sha256": "c952f30a32a8ce8e1ef8ff255e2cfd85ee98fb11a07a87f33c30f38031b55a5c"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/SupervisedQualification.hs",
+        "bytes": 28933,
+        "sha256": "02d0318386a2fa9aa3890d16b1f67f9463ce8f9ba0e041d72242a505947ad095"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/SupervisedQualification.hs",
+        "bytes": 28933,
+        "sha256": "02d0318386a2fa9aa3890d16b1f67f9463ce8f9ba0e041d72242a505947ad095"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/SupervisedQualificationReceipt.hs",
+        "bytes": 29201,
+        "sha256": "acc0c28c639e810904aa5bfa0823c98f27cc570eb215b8e32a6fd388d214fe23"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/SupervisedQualificationReceipt.hs",
+        "bytes": 29201,
+        "sha256": "acc0c28c639e810904aa5bfa0823c98f27cc570eb215b8e32a6fd388d214fe23"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Plan/Workload.hs",
+        "bytes": 40894,
+        "sha256": "d6c5c8919073890cc7183f3cbb52daf34e7fc81ac4d224c01c9af954f4947e92"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Plan/Workload.hs",
+        "bytes": 40894,
+        "sha256": "d6c5c8919073890cc7183f3cbb52daf34e7fc81ac4d224c01c9af954f4947e92"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/RL/ConvergenceThresholds.hs",
+        "bytes": 15245,
+        "sha256": "5275585e1cfa6caff46fea1e9180f6af9b018d6971bad2bd5c9b86c20be24e1c"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/ConvergenceThresholds.hs",
+        "bytes": 15245,
+        "sha256": "5275585e1cfa6caff46fea1e9180f6af9b018d6971bad2bd5c9b86c20be24e1c"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/RL/ProductBudget.hs",
+        "bytes": 27938,
+        "sha256": "cccab13cb97f7f90d2aaf11f83731bceae18ba33697ec5efb5bc763609659a3c"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/ProductBudget.hs",
+        "bytes": 27938,
+        "sha256": "cccab13cb97f7f90d2aaf11f83731bceae18ba33697ec5efb5bc763609659a3c"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeRlCohortPlan.hs",
+        "bytes": 36360,
+        "sha256": "95b39c4123e31642ec98dcf3721b1e652444565d6df879dfd0e3d7e55d36362a"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeRlCohortPlan.hs",
+        "bytes": 36360,
+        "sha256": "95b39c4123e31642ec98dcf3721b1e652444565d6df879dfd0e3d7e55d36362a"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Plan/NativeSingletonPlan.hs",
+        "bytes": 15091,
+        "sha256": "aab52bb2a7c2bfbe92f8b99debc84cd5809689dd404fc4e55619f70cc41a1567"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Plan/NativeSingletonPlan.hs",
+        "bytes": 15091,
+        "sha256": "aab52bb2a7c2bfbe92f8b99debc84cd5809689dd404fc4e55619f70cc41a1567"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeReturnLearningPolicy.hs",
+        "bytes": 15540,
+        "sha256": "f028b706b40387d29e3e43257d750e2b243dc6f70632ab1e4fba633714258274"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeReturnLearningPolicy.hs",
+        "bytes": 15540,
+        "sha256": "f028b706b40387d29e3e43257d750e2b243dc6f70632ab1e4fba633714258274"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/RL/NativeReturnReferences.hs",
+        "bytes": 18535,
+        "sha256": "59e53e6704d4c1e45bce96a863e7a9823dbffa1188c25fa97f03bfdee56ad36e"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/NativeReturnReferences.hs",
+        "bytes": 18535,
+        "sha256": "59e53e6704d4c1e45bce96a863e7a9823dbffa1188c25fa97f03bfdee56ad36e"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/RL/NativeReturnCeiling.hs",
+        "bytes": 9774,
+        "sha256": "8e2784c126881767d74d40d3de3dcea6663232a8433f0c86e4a3be6b32fda5d6"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/NativeReturnCeiling.hs",
+        "bytes": 9774,
+        "sha256": "8e2784c126881767d74d40d3de3dcea6663232a8433f0c86e4a3be6b32fda5d6"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeHerLearningPolicy.hs",
+        "bytes": 31241,
+        "sha256": "6f0c617b901bc2318a13b5a07efef4dd900f509bf57a693f360984fe28ba67df"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeHerLearningPolicy.hs",
+        "bytes": 31241,
+        "sha256": "6f0c617b901bc2318a13b5a07efef4dd900f509bf57a693f360984fe28ba67df"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/RL/NativeHerReferences.hs",
+        "bytes": 14869,
+        "sha256": "8772d3d1a9571459ad3edaa6e733772c47511cba53e59456b456291a4ae37de6"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/NativeHerReferences.hs",
+        "bytes": 14869,
+        "sha256": "8772d3d1a9571459ad3edaa6e733772c47511cba53e59456b456291a4ae37de6"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/RL/NativeHerEvaluation.hs",
+        "bytes": 16274,
+        "sha256": "a418734948e58f6a5e7262de8e200a35e20c8851724b38589fe61c43973d9ab2"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/NativeHerEvaluation.hs",
+        "bytes": 16274,
+        "sha256": "a418734948e58f6a5e7262de8e200a35e20c8851724b38589fe61c43973d9ab2"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeArenaLearningPolicy.hs",
+        "bytes": 28996,
+        "sha256": "af62169d3656d559deeaaed8d2c281a8a192cf9c6f781ee1610c3fc905eccb0d"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeArenaLearningPolicy.hs",
+        "bytes": 28996,
+        "sha256": "af62169d3656d559deeaaed8d2c281a8a192cf9c6f781ee1610c3fc905eccb0d"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/RL/AlphaZero/NativeArenaReferences.hs",
+        "bytes": 21421,
+        "sha256": "eb2d2158dd812fba91dcfbaeb6fd2df6ec44f2dc13658bea6abd8f3a0fcee492"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/AlphaZero/NativeArenaReferences.hs",
+        "bytes": 21421,
+        "sha256": "eb2d2158dd812fba91dcfbaeb6fd2df6ec44f2dc13658bea6abd8f3a0fcee492"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/RL/AlphaZero/ArenaTape.hs",
+        "bytes": 13107,
+        "sha256": "5d10beffee6d0425860f4f42cee1a73e59a6983cae54ea82030154bf452cd3db"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/AlphaZero/ArenaTape.hs",
+        "bytes": 13107,
+        "sha256": "5d10beffee6d0425860f4f42cee1a73e59a6983cae54ea82030154bf452cd3db"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeReferenceCalibration.hs",
+        "bytes": 14129,
+        "sha256": "60daa4773f1799eff81725c719602e3c08df139fca67a456f3b074ad5c7f9358"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeReferenceCalibration.hs",
+        "bytes": 14129,
+        "sha256": "60daa4773f1799eff81725c719602e3c08df139fca67a456f3b074ad5c7f9358"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Checkpoint/NativeReferences/Body.hs",
+        "bytes": 24110,
+        "sha256": "b352604c76c405a0dcff0a8e47e960e4acb427b205067ea89fb38f8338cd128c"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Checkpoint/NativeReferences/Body.hs",
+        "bytes": 24110,
+        "sha256": "b352604c76c405a0dcff0a8e47e960e4acb427b205067ea89fb38f8338cd128c"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeRlProducer.hs",
+        "bytes": 78389,
+        "sha256": "c2a4be679394153c57fd2025d3233366547435fd95b93a5c82e817f5702b0742"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeRlProducer.hs",
+        "bytes": 78389,
+        "sha256": "c2a4be679394153c57fd2025d3233366547435fd95b93a5c82e817f5702b0742"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeRlAssessment.hs",
+        "bytes": 23989,
+        "sha256": "5f920685385fcebf0e2d731ca5f1ea844fc2e2cde8bd14a79ef2eabed95d42a2"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeRlAssessment.hs",
+        "bytes": 23989,
+        "sha256": "5f920685385fcebf0e2d731ca5f1ea844fc2e2cde8bd14a79ef2eabed95d42a2"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeRlServingCandidate.hs",
+        "bytes": 17019,
+        "sha256": "b287d726e83248a25a6c69bf6d4464eb5f83cf838a0859280fc7c9b64269a2f0"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeRlServingCandidate.hs",
+        "bytes": 17019,
+        "sha256": "b287d726e83248a25a6c69bf6d4464eb5f83cf838a0859280fc7c9b64269a2f0"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeRlCompletedServing.hs",
+        "bytes": 15690,
+        "sha256": "0133840ce8ce5884bcb628326787b7ef9b0b8be4a5a04e52e1ff3dd8fe2a6f79"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeRlCompletedServing.hs",
+        "bytes": 15690,
+        "sha256": "0133840ce8ce5884bcb628326787b7ef9b0b8be4a5a04e52e1ff3dd8fe2a6f79"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeRlStoreLoadedReplay.hs",
+        "bytes": 31431,
+        "sha256": "65edd5bbb1fa382624d881842bdd7059bac65bc8aa6040ec4075610d15483882"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeRlStoreLoadedReplay.hs",
+        "bytes": 31431,
+        "sha256": "65edd5bbb1fa382624d881842bdd7059bac65bc8aa6040ec4075610d15483882"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeParentCompletionData.hs",
+        "bytes": 20599,
+        "sha256": "82d1fc58fabcbb00c2d5485e37f16a5f2d1eec0f929a45303a1fa5db17244552"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeParentCompletionData.hs",
+        "bytes": 20599,
+        "sha256": "82d1fc58fabcbb00c2d5485e37f16a5f2d1eec0f929a45303a1fa5db17244552"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeParentEvaluationReplay.hs",
+        "bytes": 32907,
+        "sha256": "7e9553c437999d046bfee0d5f4d80df3791854e840e349e20f7779b78b1286d5"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeParentEvaluationReplay.hs",
+        "bytes": 32907,
+        "sha256": "7e9553c437999d046bfee0d5f4d80df3791854e840e349e20f7779b78b1286d5"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Checkpoint/NativeParentPolicyData.hs",
+        "bytes": 44107,
+        "sha256": "b3bab219bee8c9890e8a8a8731802bbaf225967c3ac3da4109ee763e0dfc8128"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Checkpoint/NativeParentPolicyData.hs",
+        "bytes": 44107,
+        "sha256": "b3bab219bee8c9890e8a8a8731802bbaf225967c3ac3da4109ee763e0dfc8128"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Checkpoint/NativeParentPolicyData/Neural.hs",
+        "bytes": 4833,
+        "sha256": "9b2ead1842b5627b6a859ba67ec6a2b18f49eb3cd4f099f5013c685014ac1892"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Checkpoint/NativeParentPolicyData/Neural.hs",
+        "bytes": 4833,
+        "sha256": "9b2ead1842b5627b6a859ba67ec6a2b18f49eb3cd4f099f5013c685014ac1892"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Checkpoint/NativeParentPolicyData/Ars.hs",
+        "bytes": 5444,
+        "sha256": "004799bf9b15c93a3f52f9e0a196b83e8f958fecd20bfcd110e1937f27fef49c"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Checkpoint/NativeParentPolicyData/Ars.hs",
+        "bytes": 5444,
+        "sha256": "004799bf9b15c93a3f52f9e0a196b83e8f958fecd20bfcd110e1937f27fef49c"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/CriterionReviewData.hs",
+        "bytes": 16933,
+        "sha256": "a3adda9f708de936aaaa2425ed03ced94ff055667ea7b3a257263a2074cc7735"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/CriterionReviewData.hs",
+        "bytes": 16933,
+        "sha256": "a3adda9f708de936aaaa2425ed03ced94ff055667ea7b3a257263a2074cc7735"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/CriterionReview.hs",
+        "bytes": 7566,
+        "sha256": "aae45be4ec713e11a2f3f835ba0330c1a6676574f2a8e730ba6e8fdbc400dac9"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/CriterionReview.hs",
+        "bytes": 7566,
+        "sha256": "aae45be4ec713e11a2f3f835ba0330c1a6676574f2a8e730ba6e8fdbc400dac9"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeParentExecution.hs",
+        "bytes": 43816,
+        "sha256": "ebdfd1475177ebfd3be469a10b6549fa312735089c3d50a444f4bac4aec12635"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeParentExecution.hs",
+        "bytes": 43816,
+        "sha256": "ebdfd1475177ebfd3be469a10b6549fa312735089c3d50a444f4bac4aec12635"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Test/ProductScenarioRunner.hs",
+        "bytes": 34366,
+        "sha256": "600cc041c1d78576dbd9e85b0487aa99303d7b8bde61142d0ba5f5b66f9541fd"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Test/ProductScenarioRunner.hs",
+        "bytes": 34366,
+        "sha256": "600cc041c1d78576dbd9e85b0487aa99303d7b8bde61142d0ba5f5b66f9541fd"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Test/NativeScenarioReceiptData.hs",
+        "bytes": 20477,
+        "sha256": "55e9498007400b53fbed2e53178615b35196d92d0381b5c523fddfb79e3b6b1f"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Test/NativeScenarioReceiptData.hs",
+        "bytes": 20477,
+        "sha256": "55e9498007400b53fbed2e53178615b35196d92d0381b5c523fddfb79e3b6b1f"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Test/NativeScenarioRetention.hs",
+        "bytes": 32429,
+        "sha256": "af747eb3cac5602804eab8c84155288253ea002bd33962e60bcb937ca48052cc"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Test/NativeScenarioRetention.hs",
+        "bytes": 32429,
+        "sha256": "af747eb3cac5602804eab8c84155288253ea002bd33962e60bcb937ca48052cc"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Test/NativeLaneBundle/Read.hs",
+        "bytes": 17771,
+        "sha256": "95383f681bc9f67396c61e1264c7f10905458c6dbd5f087d4f1c2ffa32e13b4c"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Test/NativeLaneBundle/Read.hs",
+        "bytes": 17771,
+        "sha256": "95383f681bc9f67396c61e1264c7f10905458c6dbd5f087d4f1c2ffa32e13b4c"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Test/ProductLaneJournal.hs",
+        "bytes": 51300,
+        "sha256": "4f5a9c979c60aa24f38261e224cf6b24b357b2a73a8a46dd262074613ab0de1d"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Test/ProductLaneJournal.hs",
+        "bytes": 51300,
+        "sha256": "4f5a9c979c60aa24f38261e224cf6b24b357b2a73a8a46dd262074613ab0de1d"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Tune/Catalog.hs",
+        "bytes": 111518,
+        "sha256": "393c131495676c74bd97f4364447c1a52ab560d394daa70dff7c42de8be10702"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Tune/Catalog.hs",
+        "bytes": 111518,
+        "sha256": "393c131495676c74bd97f4364447c1a52ab560d394daa70dff7c42de8be10702"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/Publisher/Supervised.hs",
+        "bytes": 35577,
+        "sha256": "e1be6fbfebf994bff31dd256799a6c28b09e22ccaba8ae52aae0d863633432c2"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/Publisher/Supervised.hs",
+        "bytes": 35577,
+        "sha256": "e1be6fbfebf994bff31dd256799a6c28b09e22ccaba8ae52aae0d863633432c2"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/Publisher/Runtime.hs",
+        "bytes": 7154,
+        "sha256": "fefb0117b0f66f66fd4b60067f2c0b6df71bdc6d40996c09003858ae41a785e4"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/Publisher/Runtime.hs",
+        "bytes": 7154,
+        "sha256": "fefb0117b0f66f66fd4b60067f2c0b6df71bdc6d40996c09003858ae41a785e4"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/SL/InitialComparison.hs",
+        "bytes": 7946,
+        "sha256": "567d40bea7979568376cfef63a0ac844fa0b3a6e6cd17a5776dc46604d60d995"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/SL/InitialComparison.hs",
+        "bytes": 7946,
+        "sha256": "567d40bea7979568376cfef63a0ac844fa0b3a6e6cd17a5776dc46604d60d995"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/SL/TrainingExecution.hs",
+        "bytes": 66323,
+        "sha256": "04415f43cc29f23e99a47602da3b14e254ca28d3d0a8a6a0d73e265cc6dde5aa"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/SL/TrainingExecution.hs",
+        "bytes": 66323,
+        "sha256": "04415f43cc29f23e99a47602da3b14e254ca28d3d0a8a6a0d73e265cc6dde5aa"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/SL/Architecture.hs",
+        "bytes": 95569,
+        "sha256": "9f1cfc942771f2d4ec74025714354a645abe5d5518bfaa4e7c6ea973e873df12"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/SL/Architecture.hs",
+        "bytes": 95569,
+        "sha256": "9f1cfc942771f2d4ec74025714354a645abe5d5518bfaa4e7c6ea973e873df12"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/SL/RuntimeArtifact.hs",
+        "bytes": 31922,
+        "sha256": "d7c7bdb359dada5eab200974e742ba7835f4b51180cb68aa07719619a04005c8"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/SL/RuntimeArtifact.hs",
+        "bytes": 31922,
+        "sha256": "d7c7bdb359dada5eab200974e742ba7835f4b51180cb68aa07719619a04005c8"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/App.hs",
+        "bytes": 122363,
+        "sha256": "fcb2571aa8a14a733b994c1f898f127006379568846d70eab25fca4406f98c1c"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/App.hs",
+        "bytes": 122363,
+        "sha256": "fcb2571aa8a14a733b994c1f898f127006379568846d70eab25fca4406f98c1c"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "supervised",
+      "source15c_pin": {
+        "path": "src/JitML/Product/SourceDigest.hs",
+        "bytes": 9135,
+        "sha256": "75915ad59b270f3b28e53bb258fbf547dae89db1a25159113affb0135b1bc8be"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/SourceDigest.hs",
+        "bytes": 9135,
+        "sha256": "75915ad59b270f3b28e53bb258fbf547dae89db1a25159113affb0135b1bc8be"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/Matrix.hs",
+        "bytes": 88600,
+        "sha256": "eb8af4c00c4b96eee037843f0af9c323305afcd239cd9b3ff2704def8e3d3607"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/Matrix.hs",
+        "bytes": 88600,
+        "sha256": "eb8af4c00c4b96eee037843f0af9c323305afcd239cd9b3ff2704def8e3d3607"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Test/Report.hs",
+        "bytes": 149570,
+        "sha256": "11da1096e5f21ac9060cf80043d0f2ed4661766dafc9d0a3261526f94b730675"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Test/Report.hs",
+        "bytes": 149570,
+        "sha256": "11da1096e5f21ac9060cf80043d0f2ed4661766dafc9d0a3261526f94b730675"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Test/RegisteredLaneEvidence.hs",
+        "bytes": 8554,
+        "sha256": "3c7b24be74b3544d5cf599e23a8d0057d7d3968db494cab01d68fb7976536328"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Test/RegisteredLaneEvidence.hs",
+        "bytes": 8554,
+        "sha256": "3c7b24be74b3544d5cf599e23a8d0057d7d3968db494cab01d68fb7976536328"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/LaneRegistrationData.hs",
+        "bytes": 17302,
+        "sha256": "a2b8f87d824fd3ec14947152ed1c74a0ea276aa6bae71b05c01227334f587857"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/LaneRegistrationData.hs",
+        "bytes": 17302,
+        "sha256": "a2b8f87d824fd3ec14947152ed1c74a0ea276aa6bae71b05c01227334f587857"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/SL/Canonicals.hs",
+        "bytes": 5193,
+        "sha256": "e61bf672f0076c08a337f673c879d6aa7f97e9053ea6260af502efba175d77f3"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/SL/Canonicals.hs",
+        "bytes": 5193,
+        "sha256": "e61bf672f0076c08a337f673c879d6aa7f97e9053ea6260af502efba175d77f3"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/SL/ConvergenceThresholds.hs",
+        "bytes": 6222,
+        "sha256": "f0c61dccac013c190cee680d04f575cb3a6819a9a22954893902f640bba81cb8"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/SL/ConvergenceThresholds.hs",
+        "bytes": 6222,
+        "sha256": "f0c61dccac013c190cee680d04f575cb3a6819a9a22954893902f640bba81cb8"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/Convergence.hs",
+        "bytes": 5489,
+        "sha256": "d8b581628ffaf04693d2afa1d8b109b0c9685f114ff797740fa8a1627737786e"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/Convergence.hs",
+        "bytes": 5489,
+        "sha256": "d8b581628ffaf04693d2afa1d8b109b0c9685f114ff797740fa8a1627737786e"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/LearningSignal.hs",
+        "bytes": 7023,
+        "sha256": "f21727b739073aa3d0bc2118ee3b7818690cff57ec30bea01bb35df6ad5b2f31"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/LearningSignal.hs",
+        "bytes": 7023,
+        "sha256": "f21727b739073aa3d0bc2118ee3b7818690cff57ec30bea01bb35df6ad5b2f31"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/SupervisedQualificationPolicy.hs",
+        "bytes": 14275,
+        "sha256": "50e89bd9078bfe25055bcf5e1be6ccf7e36c0ca1b69488eedf2904e944b70c9d"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/SupervisedQualificationPolicy.hs",
+        "bytes": 14275,
+        "sha256": "50e89bd9078bfe25055bcf5e1be6ccf7e36c0ca1b69488eedf2904e944b70c9d"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/SupervisedCohortPlan.hs",
+        "bytes": 4209,
+        "sha256": "c952f30a32a8ce8e1ef8ff255e2cfd85ee98fb11a07a87f33c30f38031b55a5c"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/SupervisedCohortPlan.hs",
+        "bytes": 4209,
+        "sha256": "c952f30a32a8ce8e1ef8ff255e2cfd85ee98fb11a07a87f33c30f38031b55a5c"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/SupervisedQualification.hs",
+        "bytes": 28933,
+        "sha256": "02d0318386a2fa9aa3890d16b1f67f9463ce8f9ba0e041d72242a505947ad095"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/SupervisedQualification.hs",
+        "bytes": 28933,
+        "sha256": "02d0318386a2fa9aa3890d16b1f67f9463ce8f9ba0e041d72242a505947ad095"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/SupervisedQualificationReceipt.hs",
+        "bytes": 29201,
+        "sha256": "acc0c28c639e810904aa5bfa0823c98f27cc570eb215b8e32a6fd388d214fe23"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/SupervisedQualificationReceipt.hs",
+        "bytes": 29201,
+        "sha256": "acc0c28c639e810904aa5bfa0823c98f27cc570eb215b8e32a6fd388d214fe23"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Plan/Workload.hs",
+        "bytes": 40894,
+        "sha256": "d6c5c8919073890cc7183f3cbb52daf34e7fc81ac4d224c01c9af954f4947e92"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Plan/Workload.hs",
+        "bytes": 40894,
+        "sha256": "d6c5c8919073890cc7183f3cbb52daf34e7fc81ac4d224c01c9af954f4947e92"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/RL/ConvergenceThresholds.hs",
+        "bytes": 15245,
+        "sha256": "5275585e1cfa6caff46fea1e9180f6af9b018d6971bad2bd5c9b86c20be24e1c"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/ConvergenceThresholds.hs",
+        "bytes": 15245,
+        "sha256": "5275585e1cfa6caff46fea1e9180f6af9b018d6971bad2bd5c9b86c20be24e1c"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/RL/ProductBudget.hs",
+        "bytes": 27938,
+        "sha256": "cccab13cb97f7f90d2aaf11f83731bceae18ba33697ec5efb5bc763609659a3c"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/ProductBudget.hs",
+        "bytes": 27938,
+        "sha256": "cccab13cb97f7f90d2aaf11f83731bceae18ba33697ec5efb5bc763609659a3c"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeRlCohortPlan.hs",
+        "bytes": 36360,
+        "sha256": "95b39c4123e31642ec98dcf3721b1e652444565d6df879dfd0e3d7e55d36362a"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeRlCohortPlan.hs",
+        "bytes": 36360,
+        "sha256": "95b39c4123e31642ec98dcf3721b1e652444565d6df879dfd0e3d7e55d36362a"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Plan/NativeSingletonPlan.hs",
+        "bytes": 15091,
+        "sha256": "aab52bb2a7c2bfbe92f8b99debc84cd5809689dd404fc4e55619f70cc41a1567"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Plan/NativeSingletonPlan.hs",
+        "bytes": 15091,
+        "sha256": "aab52bb2a7c2bfbe92f8b99debc84cd5809689dd404fc4e55619f70cc41a1567"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeReturnLearningPolicy.hs",
+        "bytes": 15540,
+        "sha256": "f028b706b40387d29e3e43257d750e2b243dc6f70632ab1e4fba633714258274"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeReturnLearningPolicy.hs",
+        "bytes": 15540,
+        "sha256": "f028b706b40387d29e3e43257d750e2b243dc6f70632ab1e4fba633714258274"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/RL/NativeReturnReferences.hs",
+        "bytes": 18535,
+        "sha256": "59e53e6704d4c1e45bce96a863e7a9823dbffa1188c25fa97f03bfdee56ad36e"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/NativeReturnReferences.hs",
+        "bytes": 18535,
+        "sha256": "59e53e6704d4c1e45bce96a863e7a9823dbffa1188c25fa97f03bfdee56ad36e"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/RL/NativeReturnCeiling.hs",
+        "bytes": 9774,
+        "sha256": "8e2784c126881767d74d40d3de3dcea6663232a8433f0c86e4a3be6b32fda5d6"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/NativeReturnCeiling.hs",
+        "bytes": 9774,
+        "sha256": "8e2784c126881767d74d40d3de3dcea6663232a8433f0c86e4a3be6b32fda5d6"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeHerLearningPolicy.hs",
+        "bytes": 31241,
+        "sha256": "6f0c617b901bc2318a13b5a07efef4dd900f509bf57a693f360984fe28ba67df"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeHerLearningPolicy.hs",
+        "bytes": 31241,
+        "sha256": "6f0c617b901bc2318a13b5a07efef4dd900f509bf57a693f360984fe28ba67df"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/RL/NativeHerReferences.hs",
+        "bytes": 14869,
+        "sha256": "8772d3d1a9571459ad3edaa6e733772c47511cba53e59456b456291a4ae37de6"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/NativeHerReferences.hs",
+        "bytes": 14869,
+        "sha256": "8772d3d1a9571459ad3edaa6e733772c47511cba53e59456b456291a4ae37de6"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/RL/NativeHerEvaluation.hs",
+        "bytes": 16274,
+        "sha256": "a418734948e58f6a5e7262de8e200a35e20c8851724b38589fe61c43973d9ab2"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/NativeHerEvaluation.hs",
+        "bytes": 16274,
+        "sha256": "a418734948e58f6a5e7262de8e200a35e20c8851724b38589fe61c43973d9ab2"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeArenaLearningPolicy.hs",
+        "bytes": 28996,
+        "sha256": "af62169d3656d559deeaaed8d2c281a8a192cf9c6f781ee1610c3fc905eccb0d"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeArenaLearningPolicy.hs",
+        "bytes": 28996,
+        "sha256": "af62169d3656d559deeaaed8d2c281a8a192cf9c6f781ee1610c3fc905eccb0d"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/RL/AlphaZero/NativeArenaReferences.hs",
+        "bytes": 21421,
+        "sha256": "eb2d2158dd812fba91dcfbaeb6fd2df6ec44f2dc13658bea6abd8f3a0fcee492"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/AlphaZero/NativeArenaReferences.hs",
+        "bytes": 21421,
+        "sha256": "eb2d2158dd812fba91dcfbaeb6fd2df6ec44f2dc13658bea6abd8f3a0fcee492"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/RL/AlphaZero/ArenaTape.hs",
+        "bytes": 13107,
+        "sha256": "5d10beffee6d0425860f4f42cee1a73e59a6983cae54ea82030154bf452cd3db"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/AlphaZero/ArenaTape.hs",
+        "bytes": 13107,
+        "sha256": "5d10beffee6d0425860f4f42cee1a73e59a6983cae54ea82030154bf452cd3db"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeReferenceCalibration.hs",
+        "bytes": 14129,
+        "sha256": "60daa4773f1799eff81725c719602e3c08df139fca67a456f3b074ad5c7f9358"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeReferenceCalibration.hs",
+        "bytes": 14129,
+        "sha256": "60daa4773f1799eff81725c719602e3c08df139fca67a456f3b074ad5c7f9358"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Checkpoint/NativeReferences/Body.hs",
+        "bytes": 24110,
+        "sha256": "b352604c76c405a0dcff0a8e47e960e4acb427b205067ea89fb38f8338cd128c"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Checkpoint/NativeReferences/Body.hs",
+        "bytes": 24110,
+        "sha256": "b352604c76c405a0dcff0a8e47e960e4acb427b205067ea89fb38f8338cd128c"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeRlProducer.hs",
+        "bytes": 78389,
+        "sha256": "c2a4be679394153c57fd2025d3233366547435fd95b93a5c82e817f5702b0742"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeRlProducer.hs",
+        "bytes": 78389,
+        "sha256": "c2a4be679394153c57fd2025d3233366547435fd95b93a5c82e817f5702b0742"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeRlAssessment.hs",
+        "bytes": 23989,
+        "sha256": "5f920685385fcebf0e2d731ca5f1ea844fc2e2cde8bd14a79ef2eabed95d42a2"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeRlAssessment.hs",
+        "bytes": 23989,
+        "sha256": "5f920685385fcebf0e2d731ca5f1ea844fc2e2cde8bd14a79ef2eabed95d42a2"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeRlServingCandidate.hs",
+        "bytes": 17019,
+        "sha256": "b287d726e83248a25a6c69bf6d4464eb5f83cf838a0859280fc7c9b64269a2f0"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeRlServingCandidate.hs",
+        "bytes": 17019,
+        "sha256": "b287d726e83248a25a6c69bf6d4464eb5f83cf838a0859280fc7c9b64269a2f0"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeRlCompletedServing.hs",
+        "bytes": 15690,
+        "sha256": "0133840ce8ce5884bcb628326787b7ef9b0b8be4a5a04e52e1ff3dd8fe2a6f79"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeRlCompletedServing.hs",
+        "bytes": 15690,
+        "sha256": "0133840ce8ce5884bcb628326787b7ef9b0b8be4a5a04e52e1ff3dd8fe2a6f79"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeRlStoreLoadedReplay.hs",
+        "bytes": 31431,
+        "sha256": "65edd5bbb1fa382624d881842bdd7059bac65bc8aa6040ec4075610d15483882"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeRlStoreLoadedReplay.hs",
+        "bytes": 31431,
+        "sha256": "65edd5bbb1fa382624d881842bdd7059bac65bc8aa6040ec4075610d15483882"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeParentCompletionData.hs",
+        "bytes": 20599,
+        "sha256": "82d1fc58fabcbb00c2d5485e37f16a5f2d1eec0f929a45303a1fa5db17244552"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeParentCompletionData.hs",
+        "bytes": 20599,
+        "sha256": "82d1fc58fabcbb00c2d5485e37f16a5f2d1eec0f929a45303a1fa5db17244552"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeParentEvaluationReplay.hs",
+        "bytes": 32907,
+        "sha256": "7e9553c437999d046bfee0d5f4d80df3791854e840e349e20f7779b78b1286d5"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeParentEvaluationReplay.hs",
+        "bytes": 32907,
+        "sha256": "7e9553c437999d046bfee0d5f4d80df3791854e840e349e20f7779b78b1286d5"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Checkpoint/NativeParentPolicyData.hs",
+        "bytes": 44107,
+        "sha256": "b3bab219bee8c9890e8a8a8731802bbaf225967c3ac3da4109ee763e0dfc8128"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Checkpoint/NativeParentPolicyData.hs",
+        "bytes": 44107,
+        "sha256": "b3bab219bee8c9890e8a8a8731802bbaf225967c3ac3da4109ee763e0dfc8128"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Checkpoint/NativeParentPolicyData/Neural.hs",
+        "bytes": 4833,
+        "sha256": "9b2ead1842b5627b6a859ba67ec6a2b18f49eb3cd4f099f5013c685014ac1892"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Checkpoint/NativeParentPolicyData/Neural.hs",
+        "bytes": 4833,
+        "sha256": "9b2ead1842b5627b6a859ba67ec6a2b18f49eb3cd4f099f5013c685014ac1892"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Checkpoint/NativeParentPolicyData/Ars.hs",
+        "bytes": 5444,
+        "sha256": "004799bf9b15c93a3f52f9e0a196b83e8f958fecd20bfcd110e1937f27fef49c"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Checkpoint/NativeParentPolicyData/Ars.hs",
+        "bytes": 5444,
+        "sha256": "004799bf9b15c93a3f52f9e0a196b83e8f958fecd20bfcd110e1937f27fef49c"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/CriterionReviewData.hs",
+        "bytes": 16933,
+        "sha256": "a3adda9f708de936aaaa2425ed03ced94ff055667ea7b3a257263a2074cc7735"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/CriterionReviewData.hs",
+        "bytes": 16933,
+        "sha256": "a3adda9f708de936aaaa2425ed03ced94ff055667ea7b3a257263a2074cc7735"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/CriterionReview.hs",
+        "bytes": 7566,
+        "sha256": "aae45be4ec713e11a2f3f835ba0330c1a6676574f2a8e730ba6e8fdbc400dac9"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/CriterionReview.hs",
+        "bytes": 7566,
+        "sha256": "aae45be4ec713e11a2f3f835ba0330c1a6676574f2a8e730ba6e8fdbc400dac9"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativeParentExecution.hs",
+        "bytes": 43816,
+        "sha256": "ebdfd1475177ebfd3be469a10b6549fa312735089c3d50a444f4bac4aec12635"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativeParentExecution.hs",
+        "bytes": 43816,
+        "sha256": "ebdfd1475177ebfd3be469a10b6549fa312735089c3d50a444f4bac4aec12635"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Test/ProductScenarioRunner.hs",
+        "bytes": 34366,
+        "sha256": "600cc041c1d78576dbd9e85b0487aa99303d7b8bde61142d0ba5f5b66f9541fd"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Test/ProductScenarioRunner.hs",
+        "bytes": 34366,
+        "sha256": "600cc041c1d78576dbd9e85b0487aa99303d7b8bde61142d0ba5f5b66f9541fd"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Test/NativeScenarioReceiptData.hs",
+        "bytes": 20477,
+        "sha256": "55e9498007400b53fbed2e53178615b35196d92d0381b5c523fddfb79e3b6b1f"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Test/NativeScenarioReceiptData.hs",
+        "bytes": 20477,
+        "sha256": "55e9498007400b53fbed2e53178615b35196d92d0381b5c523fddfb79e3b6b1f"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Test/NativeScenarioRetention.hs",
+        "bytes": 32429,
+        "sha256": "af747eb3cac5602804eab8c84155288253ea002bd33962e60bcb937ca48052cc"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Test/NativeScenarioRetention.hs",
+        "bytes": 32429,
+        "sha256": "af747eb3cac5602804eab8c84155288253ea002bd33962e60bcb937ca48052cc"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Test/NativeLaneBundle/Read.hs",
+        "bytes": 17771,
+        "sha256": "95383f681bc9f67396c61e1264c7f10905458c6dbd5f087d4f1c2ffa32e13b4c"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Test/NativeLaneBundle/Read.hs",
+        "bytes": 17771,
+        "sha256": "95383f681bc9f67396c61e1264c7f10905458c6dbd5f087d4f1c2ffa32e13b4c"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Test/ProductLaneJournal.hs",
+        "bytes": 51300,
+        "sha256": "4f5a9c979c60aa24f38261e224cf6b24b357b2a73a8a46dd262074613ab0de1d"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Test/ProductLaneJournal.hs",
+        "bytes": 51300,
+        "sha256": "4f5a9c979c60aa24f38261e224cf6b24b357b2a73a8a46dd262074613ab0de1d"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Tune/Catalog.hs",
+        "bytes": 111518,
+        "sha256": "393c131495676c74bd97f4364447c1a52ab560d394daa70dff7c42de8be10702"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Tune/Catalog.hs",
+        "bytes": 111518,
+        "sha256": "393c131495676c74bd97f4364447c1a52ab560d394daa70dff7c42de8be10702"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/SourceDigest.hs",
+        "bytes": 9135,
+        "sha256": "75915ad59b270f3b28e53bb258fbf547dae89db1a25159113affb0135b1bc8be"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/SourceDigest.hs",
+        "bytes": 9135,
+        "sha256": "75915ad59b270f3b28e53bb258fbf547dae89db1a25159113affb0135b1bc8be"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/RL/Simulator.hs",
+        "bytes": 46852,
+        "sha256": "59839a7659f62a7474ba8f52298b3ba8a05b10ffcf178db07a092399db1d4618"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/Simulator.hs",
+        "bytes": 46852,
+        "sha256": "59839a7659f62a7474ba8f52298b3ba8a05b10ffcf178db07a092399db1d4618"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/RL/Algorithms/PpoTrainer.hs",
+        "bytes": 108394,
+        "sha256": "4477240a48791f9ea3b3d66e5e66dfb36c9f6dd4e12895b7ac3c646d1513ccc3"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/Algorithms/PpoTrainer.hs",
+        "bytes": 108394,
+        "sha256": "4477240a48791f9ea3b3d66e5e66dfb36c9f6dd4e12895b7ac3c646d1513ccc3"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/RL/Algorithms/ArsTrainer.hs",
+        "bytes": 30013,
+        "sha256": "2b5df95f5789e22684607a68ef741ae56eb4603f70dc494b3fbf84047cf366f6"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/Algorithms/ArsTrainer.hs",
+        "bytes": 30013,
+        "sha256": "2b5df95f5789e22684607a68ef741ae56eb4603f70dc494b3fbf84047cf366f6"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/RL/Algorithms/HerTrainer.hs",
+        "bytes": 33625,
+        "sha256": "2a21b6f0c4b28eb343f8026a81ed7d8e77610295ccfe18ac64a9778b22508020"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/Algorithms/HerTrainer.hs",
+        "bytes": 33625,
+        "sha256": "2a21b6f0c4b28eb343f8026a81ed7d8e77610295ccfe18ac64a9778b22508020"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/RL/Algorithms/ContinuousTrainer.hs",
+        "bytes": 59601,
+        "sha256": "004a68edc4062c005351cf63067aef0e0e8224559d027b66bd5162ba306348bb"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/Algorithms/ContinuousTrainer.hs",
+        "bytes": 59601,
+        "sha256": "004a68edc4062c005351cf63067aef0e0e8224559d027b66bd5162ba306348bb"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/RL/TrainerConfiguration.hs",
+        "bytes": 14483,
+        "sha256": "044a40208fc2d2128bf8cb44b5ef79b6ba0c1902fbc3084c9d50fa76cf77c9b2"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/TrainerConfiguration.hs",
+        "bytes": 14483,
+        "sha256": "044a40208fc2d2128bf8cb44b5ef79b6ba0c1902fbc3084c9d50fa76cf77c9b2"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/RL/TrainerExecution.hs",
+        "bytes": 75741,
+        "sha256": "796b6cf5c7e5e51086beb340fcaa6d05820d8c1753d7dfea09877e9d100518f2"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/TrainerExecution.hs",
+        "bytes": 75741,
+        "sha256": "796b6cf5c7e5e51086beb340fcaa6d05820d8c1753d7dfea09877e9d100518f2"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/RL/AlphaZero.hs",
+        "bytes": 23418,
+        "sha256": "20c137a1eded27afddcdf24a3509c29c853bd21ce69ca2ea57be56bbc74e2c4f"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/RL/AlphaZero.hs",
+        "bytes": 23418,
+        "sha256": "20c137a1eded27afddcdf24a3509c29c853bd21ce69ca2ea57be56bbc74e2c4f"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativePreparedNeuralAttempt.hs",
+        "bytes": 38368,
+        "sha256": "8ea292f8655c89a748d72b371c24c4ae44f48acc56b439a59f8f9158da8790d6"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativePreparedNeuralAttempt.hs",
+        "bytes": 38368,
+        "sha256": "8ea292f8655c89a748d72b371c24c4ae44f48acc56b439a59f8f9158da8790d6"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativePreparedArsAttempt.hs",
+        "bytes": 40447,
+        "sha256": "1f0c2d146cbef91f169514c5dbade464ce1d2bab032171e979f0f7fbc54ec452"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativePreparedArsAttempt.hs",
+        "bytes": 40447,
+        "sha256": "1f0c2d146cbef91f169514c5dbade464ce1d2bab032171e979f0f7fbc54ec452"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Product/NativePreparedAlphaZeroAttempt.hs",
+        "bytes": 43947,
+        "sha256": "bbc777901ef49367d16a8ac2869263d8282c570bc65a209767707701bcccf491"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Product/NativePreparedAlphaZeroAttempt.hs",
+        "bytes": 43947,
+        "sha256": "bbc777901ef49367d16a8ac2869263d8282c570bc65a209767707701bcccf491"
+      },
+      "literal_bytes_unchanged": true
+    },
+    {
+      "family": "native",
+      "source15c_pin": {
+        "path": "src/JitML/Training/Budget.hs",
+        "bytes": 43248,
+        "sha256": "b3f41cf02faeb0ee7805da360fe55d43afc6c80ff70e1d2f96e6096f121dd5e3"
+      },
+      "current57cf_pin": {
+        "path": "src/JitML/Training/Budget.hs",
+        "bytes": 43248,
+        "sha256": "b3f41cf02faeb0ee7805da360fe55d43afc6c80ff70e1d2f96e6096f121dd5e3"
+      },
+      "literal_bytes_unchanged": true
+    }
+  ]
+}
