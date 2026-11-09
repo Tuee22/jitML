@@ -2872,6 +2872,16 @@ The unfiltered daemon gate owns the actual CPU GenericRL CLI/daemon workflow,
 physical checkpoint/readback and current image/source/executable proof before
 cleanup. The following commands retain their complete unfiltered gate scope.
 
+**Execution doctrine (9 November; standards
+[O](development_plan_standards.md#o-incremental-failure-remediation-and-gate-execution)).**
+The complete gate below is unchanged and remains the only closure evidence. It is
+reached incrementally: after each fix, rerun only the failing test first; then run
+every other previously failing or unrun test individually, in order; do not rerun
+a test that has passed against the current source until all failing and unrun
+tests pass; run the full gate once, last, when each individual test has passed.
+Per-test results are readiness evidence only and are never adopted as, or spliced
+into, the complete gate. The per-test ledger lives under ignored `.build/`.
+
 ```bash
 docker compose run --rm jitml jitml test jitml-negative-controls --linux-cpu
 docker compose run --rm jitml jitml test jitml-daemon-lifecycle --linux-cpu
@@ -4487,6 +4497,115 @@ retains six exact views and both original manifests. No live daemon, actual curr
 five-run qualification, complete journal, registration or phase closure follows.
 
 ### Remaining Work
+
+- **Apply the user’s updated resource policy.** On 8 November the user directed
+  that low CPU headroom must no longer delay, pause or stop jitML. The governed
+  `AGENTS.md` policy now makes CPU idle diagnostic only while retaining CPU
+  quotas and memory, swap and disk safeguards. A successor operator variant
+  passed local containment, low-idle handoff, automatic handoff, namespace
+  and stream controls. Post-interruption recovery confirms the original twelve
+  application objects and eight components match the pre-run summary
+  ([readback](../.build/phase278-bca-f-recovery-readback-a/result.json)); the
+  original 120 cache users are unchanged and three known stopped users from the
+  interrupted attempt are retained ([inventory](../.build/phase278-bca-f-recovery-cache-a/result.json)).
+  The local preservation frame also matches. Historical CPU thresholds
+  below describe past attempts, not current authorization. The latest CPU55
+  attempt ended after **3,160.8 s** with supervisor/guardian exit **125** and
+  the VM stopped; a disappearing `/proc` entry was observed and the independent
+  guardian saw peer EOF. The cause of the owner exit is not yet established.
+  No complete qualification or phase closure is claimed.
+
+  The successor obtained live binding and ran the complete CPU55 subtree for
+  **52,357.9 s**; its CLI exited **1**, while the guardian exited **0** and
+  reported no safety failure ([supervisor](../.build/phase278-bca-full55-g/runtime/result.json),
+  [guardian](../.build/phase278-bca-full55-g/runtime/guardian-result.json),
+  [owner](../.build/phase278-bca-full55-g/result-a.json)). The test record reports
+  60 failures and identifies a timeout in `cifar100-wide-resnet`. Those tests
+  share the matrix aggregate acquisition; the failures do not establish 60
+  independent row failures. The workflow timeout is four hours; the record does
+  not establish why this row failed to finish within it. The successful earlier
+  ViT five-run diagnostic used a **1-CPU** client, whereas this matrix caller
+  was limited to **0.5 CPU**. That difference is a plausible contributor to the
+  timeout, not proof of its cause or of convergence. Of **25,509** whole-run
+  resource samples, **3,851** recorded caller memory at least 95% of its 4-GiB
+  limit; that accounting alone does not prove memory pressure caused the timeout.
+  The sampled host availability stayed at least **84%**, with zero swap. A
+  metadata-only inventory of the retained attempt found four CIFAR-100 seed
+  return and outcome files, at approximately **49–50-minute** intervals, and
+  no final qualification file. The attempt marker is timestamped **03:03:56 UTC**
+  and the fourth outcome **06:21:38 UTC**; the body ended about **07:03:57 UTC**.
+  This supports a deadline/throughput explanation, but file presence alone
+  establishes neither the individual outcomes' quality nor a completed fifth run.
+  Seven preceding row directories each contain five seed-outcome files; those
+  files alone are not a complete-matrix qualification or admission. All
+  closing roles ran successfully, the
+  before/after application readback summaries have identical hashes, and the
+  protected comparison passed. The post-stop local frame matches source, image,
+  approved hashes, records, criterion identities, native metadata and private
+  trees. A subsequent bounded metadata-only cache inventory confirmed all
+  **123** previously retained users unchanged and four inactive users from this
+  run, for **127** total ([inventory](../.build/phase278-bca-g-recovery-cache-a/result.json));
+  it started no nodes or training, and stopped the named VM. Investigate the
+  timeout and remaining retained state before selecting any subsequent qualification.
+  A separate [operator draft](../.build/phase278-bca-full55-h/DRAFT_NOT_RUNNABLE)
+  explores the existing one-CPU numerical client slot while retaining the
+  half-CPU lifecycle helpers. Its Python files parse, and synthetic checks pass
+  **47** caller/host containment cases and **16** numerical quota/decoder and
+  helper-isolation cases, plus **37** handoff, **11** automatic handoff,
+  **6** compact-admission, **32** namespace and **5** stream-capture cases,
+  without starting a VM or training. Bounded output checks cover six variants
+  and four refusals. A [prepared proposal](../.build/phase278-bca-full55-h/preparation-result.json)
+  pins the current source, original contracts, local controls and 127-user
+  baseline; the separate static [binding preparation](../.build/phase278-bca-full55-h/binding-preparation-a/result.json)
+  passed without starting a VM. A subsequent guarded startup found a missing
+  execution-binding manifest before starting cluster nodes; the startup guard
+  stopped the explicitly started VM successfully, and no training started
+  ([guard](../.build/phase278-bca-full55-h/startup-guard-result.json)).
+  A fresh successor repeats the local controls, has **70** verified execution
+  bindings and a successful local prelaunch frame matching the prior post-stop
+  source and protected metadata ([preparation](../.build/phase278-bca-full55-i/binding-preparation-a/result.json)).
+  Its live readiness, binding and guardian probe passed, but the owner refused
+  the numerical container before start: its creation command still requested
+  **0.5 CPU** while the new guard expected **1 CPU**. The observed container
+  remained in `created` state with no start timestamp. The guardian stopped
+  the VM ([supervisor](../.build/phase278-bca-full55-i/runtime/result.json),
+  [guardian](../.build/phase278-bca-full55-i/runtime/guardian-result.json));
+  no numerical training started. The post-stop local frame matches the
+  preowner source, image and protected metadata. Correct the actual creation
+  command and test it before preparing a fresh successor. The subsequent
+  metadata-only [cache inventory](../.build/phase278-bca-i-recovery-cache-a/result.json)
+  retained all **127** prior users unchanged and identified **3** inactive users
+  from that attempt, for **130** total; the VM was stopped. A fresh operator
+  now requests **1 CPU** in the actual numerical container creation arguments;
+  its namespace control checks those arguments for all six roles and passes.
+  The [new static binding](../.build/phase278-bca-full55-j/binding-preparation-a/result.json)
+  passes with the 130-user baseline, and the local prelaunch frame matches the
+  preceding post-stop protected metadata. No live binding or training is claimed.
+  Fresh live bindings and admission are not yet validated; it has no launch inputs and
+  is not authority to run. No CPU admission or
+  phase closure is claimed from this failed run.
+
+- **Operate under the incremental doctrine; run `full55-m` stopped.** On 9
+  November the user directed the doctrine above and the in-flight `full55-m`
+  CPU55 attempt was stopped by SIGTERM after about **2.5 h** (launcher exit
+  **143**), with the guardian retiring it and stopping the VM. It had completed
+  `mnist-lenet` and `mnist-deep-mlp` (five seeds each) and was inside
+  `fashion-mnist-resnet`. It is a retained interrupted attempt, not qualification.
+  Remaining CPU55 work proceeds per row under the doctrine, starting with the
+  known failing row `cifar100-wide-resnet`, then the other unrun rows, then the
+  single complete gate.
+
+- **Record the `full55-j` interruption (9 November).** The CPU55 body ran
+  **23,879 s** and was then killed (`colima-jitml start` exit **137**) when its
+  Codex launcher session ended after a Codex usage-limit error (09:58Z) and the
+  session was torn down (14:09Z). The guardian saw private peer EOF, exited
+  **125**, and stopped the VM. This is an operator-session loss, not a test
+  verdict: the last sample showed 86% host memory available, zero swap and zero
+  node OOM events ([result](../.build/phase278-bca-full55-j/result-a.json),
+  [guardian](../.build/phase278-bca-full55-j/runtime/guardian-result.json)).
+  No outcome files from the run are present on the host, the issuer cannot resume
+  a partial prefix, and no partial result is adopted. Qualification requires a
+  fresh attempt launched from a session that survives the full duration.
 
 - **Recover and requalify the interrupted current-source CPU55.** The current
   attempt's supervisor and guardian exit **125** after a host CPU sample of

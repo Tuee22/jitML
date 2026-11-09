@@ -47,6 +47,8 @@ interruptions remain literal in the continuation checkpoint. Current daemon75/al
 nine roles pass0; cached-artifact certification and exact canonical adoption pass0. Scientific qualification remains open. Reuse backend43,
 negative2712, compilation and image payloads. See the
 [remaining obligations](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work).
+Gates are reached incrementally (standards [O](development_plan_standards.md#o-incremental-failure-remediation-and-gate-execution)):
+targeted rerun of each fix, remaining tests one at a time, one complete gate last.
 CPU commands below run in the explicitly bounded project container; the Apple
 backend command runs on the Mac host.
 

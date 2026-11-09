@@ -59,8 +59,7 @@ Docker-context activation disabled. Start and stop it as separate operator steps
 Select the context and job limits explicitly:
 `docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml ...`.
 Use this **2 CPU / 6 GiB RAM** runtime-container limit for builds and tests while
-the cluster is stopped. Reduce CPU further when host headroom requires it; the
-retained incremental test compilation uses **1 CPU / 6 GiB / no swap**, one Cabal
+the cluster is stopped. The retained incremental test compilation uses **1 CPU / 6 GiB / no swap**, one Cabal
 job and a **3-GiB GHC heap**. Scoped cached-artifact and plan-guard checks use
 **1 CPU / 3 GiB / no swap** and a **1-GiB compiler heap**, reusing compiled
 modules. The full unfiltered negative-control suite is a full test job: with the cluster
@@ -70,8 +69,10 @@ heap fails before the suite runs. Dry-run readiness alone does not establish
 that smaller heap is sufficient. Keep the smaller budget for scoped artifact
 and plan checks, and do not carry the 6-GiB slot into cluster-running work.
 Compiler scratch belongs in a bounded disk directory,
-not the small `/tmp` RAM filesystem. Start only after measuring host CPU headroom,
-memory pressure and swap, and stop the owned workload if those reserves fail.
+not the small `/tmp` RAM filesystem. Measure host memory pressure and swap before
+starting, and stop the owned workload if the applicable memory or swap reserves fail.
+CPU idle and headroom are diagnostic only: never delay, pause, or stop a workload
+solely because CPU headroom is low. Continue to enforce explicit CPU quotas.
 These container limits do not cap a separate image builder or resize Kind nodes;
 the VM supplies the outer limit.
 For normal training with the cluster running, append

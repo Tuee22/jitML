@@ -852,6 +852,39 @@ realness audit finds a contradiction between status and evidence, the audit
 finding defines status and the owning phase moves back to `Active` until its
 standing gate passes again.
 
+### O. Incremental Failure Remediation and Gate Execution
+
+The ultimate validation criterion of a gate is unchanged: one complete,
+uninterrupted run of the whole gate on the final source. This section governs
+how a gate is reached efficiently; it does not weaken or replace that criterion,
+and no per-test or targeted result is closure evidence by itself.
+
+1. **Fix one failure, then prove that one failure.** After a change that
+   addresses a failing test, rerun only that test (or the smallest selectable
+   unit containing it) first. The change is not accepted until that targeted
+   rerun passes.
+2. **Work the remaining set individually.** Once the targeted rerun passes, run
+   each other previously failing or never-run test on its own, in order, fixing
+   and re-proving each one under rule 1. Do not restart the whole gate, or a
+   whole stanza, to learn the state of one test.
+3. **Never rerun a passing test early.** A test that has already passed against
+   the current source is not rerun until every previously failing and unrun test
+   passes. A source change that could affect an already-passing test names that
+   test and the reason; only then may it be rerun, and it is recorded as such.
+4. **Full gate last.** Run the complete gate only when every individual test has
+   passed against the current source and the operator is reasonably confident the
+   whole will pass. The full gate then runs once, unmodified, from the start.
+5. **Record per test.** Keep a per-test ledger under ignored `.build/`
+   (test, source hash, outcome, log path). Narrative stays thin: the plan records
+   the failing test, the change, the targeted rerun result and the final gate.
+6. **Honest scope.** Per-test passes establish readiness only. Retained failures,
+   interrupted attempts and the complete-gate record stay literal; no prefix of
+   a failed full run, and no collection of individual passes, is adopted as the
+   complete gate or substituted for it.
+7. **No new gate lane.** Individual runs use the same lane, hardware, resource
+   limits, seeds, bars and deadlines as the full gate. A test that cannot be
+   selected individually is first made selectable as its own change.
+
 ## Related Documents
 
 - [README.md](README.md)
@@ -885,3 +918,6 @@ standing gate passes again.
    `cabal format` manually inside the container).
 7. If the change touched Mermaid, render every Mermaid block in `DEVELOPMENT_PLAN/`
    and verify the edited diagram in the target viewer before closing the work.
+8. Follow `### O. Incremental Failure Remediation and Gate Execution` for every
+   gate: targeted rerun of each fixed failure first, remaining tests one at a
+   time, passing tests not rerun early, and the complete gate only once.
