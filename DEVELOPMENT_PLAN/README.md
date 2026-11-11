@@ -70,11 +70,7 @@ after a host CPU reserve refusal; it did not complete qualification. Its local
 preservation comparison passes, a subsequent bounded original-data readback
 matches the before summary, and the selected guest runtime identities compare
 equal after recovery. Scientific qualification remains open.
-The certified baseline retains115 users/four volumes:110 unchanged predecessors,
-four daemon helpers and one certification helper. Original12 DATA,975 frozen refs
-plus two Root files verify; one canonical daemon record is adopted with all other
-selected identities preserved. The VM is stopped. Human NVIDIA `279` follows
-only after278 validates; subsequent phases remain in numerical order.
+Human NVIDIA `279` follows only after278 validates; subsequent phases remain in numerical order. Latest host-panic cause, guard changes and next steps: [2026-11-11 entry](#2026-11-11-host-panic-and-resource-guard-status).
 
 [Historical validation and failure detail](#retained-checkpoint-before-closure-status-length-repair)
 keeps original scopes and literal failures. The ignored
@@ -82,6 +78,70 @@ keeps original scopes and literal failures. The ignored
 state and cannot establish independent or committed phase-closure authority.
 
 ## Historical Current-Status Diary
+
+### 2026-11-11 host panic and resource-guard status
+
+**Phase 278 remains Active; nothing in this entry validates it.** Source is
+unchanged by this entry (the working tree still carries the four uncommitted
+`src/` edits listed in `git status`).
+
+**Incident.** A second watchdog-timeout kernel panic occurred at about 04:38 on
+2026-11-11 (`no checkins from watchdogd in 94 seconds`; compressor segments
+100%, 61 swapfiles, the same signature as 2026-08-14). Ten host-native `sacexp`
+processes held about **133 GiB** (five at 10.3 GiB, five at 16.6 GiB), plus the
+16-GiB container VM, on a 64-GiB Mac. `sacexp` was an ad-hoc SAC experiment
+harness started by an agent session as ten simultaneous background processes
+(20k and 30k steps x seeds 42-46) with **no runtime `+RTS -M` cap** (the `-M4G`
+applied only to its compile). Footprint scaled with steps at roughly
+0.5 MiB/step, so the SAC trainer path appears to retain per-step memory; that
+is an unfixed product defect, not yet root-caused. The old `memguard` matched
+only `ghc`/`ghci` by name and logged "taking no action" from 00:00 to 03:50.
+
+**Recommendation to prevent recurrence** (items 1-3 and 5 are rules for every
+operator and agent; none is automated in the repository yet):
+1. Every host-launched GHC program, including ad-hoc experiments, is built with
+   `-rtsopts` and run with `+RTS -M<cap> -RTS` (about 3-4 GiB). `GHCRTS` stays
+   unset globally.
+2. Budget before launching: sum of caps + 16-GiB VM + about 8 GiB OS must stay
+   under 64 GiB, and no more than three or four host experiments run together.
+   Never run host experiments beside the VM training campaign.
+3. Scale gradually: run one process at a small step count, read its footprint,
+   extrapolate, then raise steps or parallelism. Do not assume constant memory
+   for SAC until the per-step growth is explained.
+4. `~/bin/memguard.py` (outside the repository) now selects by footprint, not
+   name, with a protect-list (VM, terminals, `claude`); it drops its per-process
+   limit from 8 GB to 2 GB below 5% free, checks about every 5 s, escalates
+   SIGTERM to SIGKILL, and writes `~/Library/Logs/memguard.heartbeat`. Verified
+   only by a dry run against a 3-GiB hog; it has not yet acted on a real event.
+5. Before a long run confirm the heartbeat is under about 60 s old.
+6. Investigate and fix the SAC per-step memory growth before any SAC scaling.
+
+**Validation status this session (host only).** Library, executable and
+`jitml-unit` build on the Mac (`-f-cuda`, 6-GiB compile cap). `jitml-unit` shows
+**29 / 3547** failures on the working tree against **31** on a pristine `HEAD`
+copy; every working-tree failure also fails at `HEAD`, so the uncommitted edits
+add none. The 29 are unclassified: eight caller-resource-limit tests (likely
+container-lane), about 17 journal/aggregation tests failing with
+`ProductLaneJournalWireStale 3 1`, and a pinned ProductRow PlanId mismatch.
+`bootstrap/check-path-lengths.sh` still reports **516** paths under
+`attestations/phase278-20261015-mac-validation/criterion-reviews/` until the
+human runs `git rm -r --cached` on that directory (already recorded in the phase
+document). The `jitml` Colima VM stays **stopped**; Docker, `jitml check-code`,
+the linux-cpu lane, CPU55 and Apple qualification, typed admission and the final
+quality gates have **not** run. Raw receipts were in the session scratchpad and
+are not retained.
+
+**Next steps.** (a) Human decision to start the `jitml` VM (4 CPUs / 16 GiB);
+(b) classify the 29 unit failures, first by rerunning them in the linux-cpu
+container lane; (c) apply the heap-cap rules above before any training.
+
+Moved from Closure Status to keep it at or under the60-line cap (rule N):
+
+The certified baseline retains115 users/four volumes:110 unchanged predecessors,
+four daemon helpers and one certification helper. Original12 DATA,975 frozen refs
+plus two Root files verify; one canonical daemon record is adopted with all other
+selected identities preserved. The VM is stopped. Human NVIDIA `279` follows
+Human NVIDIA `279` follows only after278 validates; subsequent phases remain in numerical order.
 
 ### Retained checkpoint before Closure Status length repair
 
@@ -299,7 +359,7 @@ Genuine8af UP/restored/Ready/full12+original fixture/closing frame0; raw strict1
 Recovery review `a8f5ec7c…` accepts finite scope/raw1/no newnormal. Source8af daemon0/64of64/70proof-integrity; all9roles0/19scopedchecks true/own+globalDocker exact/pre-adoptionV5all24,894rows0.
 Broad rawfalse retains5Cabal cache metadiffs; build/PV observed. Reviews12652cd0/d6ed accepted; daemon-only adoption0/671/3b6e9670, other4exact/failedunit retained. Freshall5/NEWReadyobserver+extension0/predecessorguardad5a/26,421rows holds its cutoff.
 Single Source8af California100 CPU55 returns1/49,071.541401708s: all60Tasty fail the shared PPO/mountain-car acquisition refusal; whole-five median and served0 each miss unchanged qualityfloor. Row13 reached/prior12calls no independent partial qualification/later42unreached; no complete candidate/qual/journal/admit or retry/search/splicing.
-All4afterops0; owned preservation accepted25protected/8runtime/1527immutables/source606/current5/native2223+14/history/full12=629581277B; rawfalse solely5Cabalcachemetadata stays literal. GenuineDOWN/new4PVgeneration p1-1755076146212073/72595239…/Stopped acceptedRoot+peer5ad771…. Newguardcapture/check0/27370rows/404roots/389pins protects fullgeneration/all3failed attempts; sameguardafterrestore0. Native8frestore0/4.069188083s:2237/saved14/Linuxshared15/development98/configABSENT; independentfilesystemacceptance433142b1…/bothCLIs exact. ScientificPPOmc failure still blocksCPUqual/admission/freshApple55; fourguards/finalquality open. User approves one product-onlyPPOmc150→300trial (2457600transitions/seed/12288000wholefive, original42..46/served0) and further investigation if convergence still fails. APPROVED_PREPARATION: firstcfa606/CLI215fe retainedbeforetestfixes (104007/6de17d42…), build0/1594.287542333s. Firstnativegatedriver1at16:35:41Z:85/86pass, stalehistorical165/PPO150fixture1fail plusMainwarning; later7/1/30NotRun. Currentf138606(3changed603same8af), production5d33151e/PPO300/Cal100/bars fixed; format/HLint/nativebuild/86+10+1+30/Apple8149adoption/helper+caller/export0. CFA85/86/warning/NotRun, expected7wrappernonpass and failedunit literal. Actualpublic110:108wholeobjects/all110reports exact;11C2policyFILEpins independently exact. Twoindependent4scopeassessments/finalassembly/materialize/capture/retention0; [Sourcef138criteria](attestations/phase278-20261015-mac-validation/criterion-reviews/f1381784c66bb54164c9f5f5dc7f3c908fabb8dccd5065a8ce16732a9bfbb968/)60files/8189443B/profiles15/6/15/16;append12Git+60literalDocker,oldprefixes+closures exact/gitcheck1empty. ObservedSourcef138nativebackup2237=2223+saved14 Root+peeraccepted. CanonicalgenONCE0/Contracts118945/8703/exact3PPOrows/37same/all38previewequal. Gencomparison/criteriondocpinskeeptheirrecordedcutoffs. CanonicalV2Dockerbuild0/2578.934067375s/check-codeok/frontendpass;Composepluginverified/imageinspect0selects773e5c10…. V1PhaseState-tokenbuildfailureliteral. BoundedimageFILEproof0/35f622/peerf2e0;stoppedstage0/oldLinuxretain0(peer02a6;2590entries/3920052786B/orig504b);v4history0/27370+oldCLImap;all7Linuxprep0/all10ELFBUILDS0/1431.422127916s/twoCLIcoherence0/actualRootCLI234007416/fd86. NOtestsrun;Linuxpackage/helpernext;CPUnegative/backend/daemon/55NotRun. Nativef1382223+saved14restorationtarget/sharedcacheDBconfigLinux;Source606/current60/policies/Purs/mixed5unchanged. Localpreflight-order1/unsuffixedstoremetadata-probe1literal;CPU55NOTSTARTED/noqual/admit. Cal100/allotherrecipes/bars fixed; seen-benchmark/no proven cause/no success guarantee.
+All4afterops0; owned preservation accepted25protected/8runtime/1527immutables/source606/current5/native2223+14/history/full12=629581277B; rawfalse solely5Cabalcachemetadata stays literal. GenuineDOWN/new4PVgeneration p1-1755076146212073/72595239…/Stopped acceptedRoot+peer5ad771…. Newguardcapture/check0/27370rows/404roots/389pins protects fullgeneration/all3failed attempts; sameguardafterrestore0. Native8frestore0/4.069188083s:2237/saved14/Linuxshared15/development98/configABSENT; independentfilesystemacceptance433142b1…/bothCLIs exact. ScientificPPOmc failure still blocksCPUqual/admission/freshApple55; fourguards/finalquality open. User approves one product-onlyPPOmc150→300trial (2457600transitions/seed/12288000wholefive, original42..46/served0) and further investigation if convergence still fails. APPROVED_PREPARATION: firstcfa606/CLI215fe retainedbeforetestfixes (104007/6de17d42…), build0/1594.287542333s. Firstnativegatedriver1at16:35:41Z:85/86pass, stalehistorical165/PPO150fixture1fail plusMainwarning; later7/1/30NotRun. Currentf138606(3changed603same8af), production5d33151e/PPO300/Cal100/bars fixed; format/HLint/nativebuild/86+10+1+30/Apple8149adoption/helper+caller/export0. CFA85/86/warning/NotRun, expected7wrappernonpass and failedunit literal. Actualpublic110:108wholeobjects/all110reports exact;11C2policyFILEpins independently exact. Twoindependent4scopeassessments/finalassembly/materialize/capture/retention0; Sourcef138criteria (local-only `criterion-reviews/f1381784c66b…`)60files/8189443B/profiles15/6/15/16;append12Git+60literalDocker,oldprefixes+closures exact/gitcheck1empty. ObservedSourcef138nativebackup2237=2223+saved14 Root+peeraccepted. CanonicalgenONCE0/Contracts118945/8703/exact3PPOrows/37same/all38previewequal. Gencomparison/criteriondocpinskeeptheirrecordedcutoffs. CanonicalV2Dockerbuild0/2578.934067375s/check-codeok/frontendpass;Composepluginverified/imageinspect0selects773e5c10…. V1PhaseState-tokenbuildfailureliteral. BoundedimageFILEproof0/35f622/peerf2e0;stoppedstage0/oldLinuxretain0(peer02a6;2590entries/3920052786B/orig504b);v4history0/27370+oldCLImap;all7Linuxprep0/all10ELFBUILDS0/1431.422127916s/twoCLIcoherence0/actualRootCLI234007416/fd86. NOtestsrun;Linuxpackage/helpernext;CPUnegative/backend/daemon/55NotRun. Nativef1382223+saved14restorationtarget/sharedcacheDBconfigLinux;Source606/current60/policies/Purs/mixed5unchanged. Localpreflight-order1/unsuffixedstoremetadata-probe1literal;CPU55NOTSTARTED/noqual/admit. Cal100/allotherrecipes/bars fixed; seen-benchmark/no proven cause/no success guarantee.
 Phase `278` stays Active; no279 execution. The user handles NVIDIA after278. See [current continuation/history](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#current-continuation). Raw receipts remain ignored under `.build/`; partial outcomes close no phase.
 
 

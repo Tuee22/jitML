@@ -844,6 +844,9 @@ The [attestation retention policy](attestations/README.md) records the versioned
 families and their actual code consumers. Ignore new attestation payloads by
 default, with explicit exceptions for these deliberate records and review
 inputs; do not exclude the directory's required data wholesale.
+Version-controlled attestation paths also obey
+[P](#p-windows-portable-version-controlled-paths); selected data whose layout
+exceeds the limit stays local until its layout is shortened.
 
 `README.md → Closure Status` stays thin: it names the current status, the
 validation commands and pass counts, and links to the historical audit narrative
@@ -885,6 +888,46 @@ and no per-test or targeted result is closure evidence by itself.
    limits, seeds, bars and deadlines as the full gate. A test that cannot be
    selected individually is first made selectable as its own change.
 
+### P. Windows-Portable Version-Controlled Paths
+
+No version-controlled file may exceed the Windows path limits, because a checkout
+on a Windows machine fails on a path it cannot create. Every path that Git tracks,
+or would track because it is not ignored, satisfies all of the following:
+
+1. **At most 160 characters repo-relative.** Windows `MAX_PATH` is 260 characters
+   including the drive, the checkout directory and a terminating NUL; 160 leaves
+   99 characters for the checkout prefix.
+2. **No component over 100 characters.**
+3. **No Windows-invalid names:** none of `< > : " \ | ? *` or control characters,
+   no component ending in a dot or a space, no reserved device name (`CON`, `PRN`,
+   `AUX`, `NUL`, `COM1`-`COM9`, `LPT1`-`LPT9`, with or without an extension), and
+   no two paths that differ only by letter case.
+4. **No dependence on `core.longpaths`.** The repository must check out with
+   default Git settings on Windows.
+
+Consequences for plans, evidence and generated data:
+
+- A directory or file name derived from a hash, run id or source stamp does not
+  repeat a full 64-character digest across several path levels. Prefer one short
+  prefix (at most 16 characters) per level, or a flat layout keyed by a single
+  digest.
+- Evidence whose layout cannot meet the limits is local-only: it lives under
+  ignored `.build/`, the data/cache homes, or an ignored `attestations/` subtree,
+  and the plan cites it by a code span, never a Markdown link. Plan and doc links
+  point only at tracked files.
+- A phase that needs such evidence in a clean checkout first lands a layout that
+  meets these limits, as its own change, before the evidence is version controlled.
+  A path constant that appears in source or in hashed identities changes together
+  with its data and its pinned identities.
+- A new phase, sprint, attestation or fixture path is checked before it is added.
+  `bootstrap/check-path-lengths.sh` reports every offending tracked or unignored
+  path and exits non-zero; it needs only Git, `sh` and `awk`, and runs on the Mac
+  host and in the container. A non-zero result blocks closure of the change that
+  introduced the path.
+- Removing a path from version control while keeping the local file is a human
+  operation (`git rm -r --cached <path>`), consistent with the repository Git
+  policy; agents change ignore rules and working-tree files only.
+
 ## Related Documents
 
 - [README.md](README.md)
@@ -921,3 +964,6 @@ and no per-test or targeted result is closure evidence by itself.
 8. Follow `### O. Incremental Failure Remediation and Gate Execution` for every
    gate: targeted rerun of each fixed failure first, remaining tests one at a
    time, passing tests not rerun early, and the complete gate only once.
+9. Run `bootstrap/check-path-lengths.sh` before closing any change that adds,
+   renames or admits files, and follow `### P. Windows-Portable Version-Controlled
+   Paths`: a non-zero result blocks closure.

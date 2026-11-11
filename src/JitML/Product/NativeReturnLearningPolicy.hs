@@ -27,6 +27,7 @@ module JitML.Product.NativeReturnLearningPolicy
 import Control.Monad (unless)
 import Data.List (find, sort)
 import Data.Text (Text)
+import Data.Text qualified as Text
 import Data.Word (Word64)
 import GHC.Float (castDoubleToWord64)
 
@@ -162,7 +163,20 @@ compareNativeReturnCohort references observations = do
       let jointCount = length (filter nativeReturnSeedComparisonJointLearning comparisons)
           failures =
             ["native return cohort has fewer than three joint learning successes" | jointCount < 3]
-              <> [ "native return whole-five median fails the unchanged quality floor"
+              <> [ "native return whole-five median fails the unchanged quality floor (median "
+                     <> Text.pack (show median)
+                     <> ", ordered per-seed quality "
+                     <> Text.pack (show (fmap nativeReturnSeedComparisonLegacyQuality comparisons))
+                     <> ", per-seed initial/final exact median "
+                     <> Text.pack
+                       ( show
+                           [ (fromRational initial :: Double, fromRational final :: Double)
+                           | comparison <- comparisons
+                           , let initial = nativeReturnSeedComparisonInitialMedian comparison
+                           , let final = nativeReturnSeedComparisonFinalMedian comparison
+                           ]
+                       )
+                     <> ")"
                  | not (Thresholds.passesConvergence (Thresholds.fbrThreshold declaration) median)
                  ]
               <> fmap ("native return served index0 fails: " <>) (nativeReturnSeedComparisonFindings served)

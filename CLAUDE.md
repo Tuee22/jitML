@@ -45,6 +45,14 @@ test/criterion data, structured validation records, and registered generated
 source in their canonical homes. Do not create new dated raw-receipt trees under
 `DEVELOPMENT_PLAN/attestations/`; see the [plan standards](DEVELOPMENT_PLAN/development_plan_standards.md#n-evidence-derived-product-status-and-thin-closure-narrative).
 
+Every version-controlled path must stay within the Windows path limits: at most
+160 characters repo-relative, no component over 100 characters, and no
+Windows-invalid names, so a default Git checkout works on Windows without
+`core.longpaths`. Run `bootstrap/check-path-lengths.sh` before adding, renaming
+or admitting files; evidence whose layout cannot comply stays local under ignored
+paths. Owner:
+[plan standards P](DEVELOPMENT_PLAN/development_plan_standards.md#p-windows-portable-version-controlled-paths).
+
 ## Code-quality execution
 
 Linting and `jitml check-code` are container-only workflows. Lack of host-level

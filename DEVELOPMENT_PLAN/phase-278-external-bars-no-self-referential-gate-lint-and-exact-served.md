@@ -1904,7 +1904,7 @@ later **NotRun**, Source8af scientific failure and failed full-unit record stay 
 Actual public110 review confirms **108** unchanged whole objects and all **110**
 report digests unchanged; only two PPO/mountain-car PlanIds change. The separate
 **11** canonical C2 policy/reference source FILE pins are independently confirmed exact.
-Two distinct reviewers approve the [four Sourcef138 prospective criterion scopes](attestations/phase278-20261015-mac-validation/criterion-reviews/f1381784c66bb54164c9f5f5dc7f3c908fabb8dccd5065a8ce16732a9bfbb968/);
+Two distinct reviewers approve the four Sourcef138 prospective criterion scopes (local-only `criterion-reviews/f1381784c66b…`);
 final assembly, materialization, production capture and append-only retention return `0`.
 The actual closure is **60 files / 8,189,443 bytes**, profiles **15 / 6 / 15 / 16**:
 **52** artifacts, **4** receipts and **4** selectors. Exactly **12** Git exceptions and
@@ -4498,6 +4498,112 @@ five-run qualification, complete journal, registration or phase closure follows.
 
 ### Remaining Work
 
+
+- **Source edits, review keying and the first reruns (10 November).** Three
+  `src/` edits are built into image `fdb74c9d…` (it passes `jitml docs check` and
+  `jitml check-code` in the build): `selectMiniBatch` replaces the whole-dataset
+  `miniBatches` in `JitML.SL.Architecture`; `HeldOutExamples` stores rows as
+  unboxed vectors behind pattern synonyms; the native-return quality-floor
+  refusal now states the median and per-seed values. The source stamp changed to
+  `0698180a…`. **Criterion DATA is keyed to the exact source stamp**
+  (`CriterionReviewData.reviewRoot`), so the new stamp has no reviewed criterion
+  DATA: every product row stops at once with `CriterionReviewMissingFile`. This
+  also corrects the earlier claim that `criterion-reviews/` is unused: it is a
+  required runtime gate input, and `.dockerignore` must keep it in the image even
+  if Git stops tracking it (restored as one negation after the
+  `attestations/**` exclusion; verified with a throwaway build). Independent
+  review and reissue for the final source are still required before the complete
+  gate and must not be self-attested. For readiness reruns only, a local copy of
+  the `bca776a5…` tree re-keyed to the experimental stamp is bind-mounted from
+  `.build/phase278-row-runs/cr-0698/`; it is never evidence. Findings: the
+  tuning row at `-M2G` now exits **251** after about **30 s** (previously
+  **8,353 s**) with only about **550 MB** residency but about **1.1 GB lost to
+  fragmentation**; the faster update loop reaches the cohort-wide
+  evaluation/array churn that previously took hours, so the allocation pattern
+  there, not the dataset lists, is the open memory defect. The `tiny-imagenet-resnet50`
+  and `PPO/mountain-car` reruns are in progress.
+
+- **`PPO/mountain-car` per-seed result (10 November).** Rerun under the gate
+  container limits (1,666 s, exit **2**) with the new diagnostics: ordered per-seed
+  quality **[-154, -168, -158, -164, -163]**, whole-five median **-163.0** against
+  the unchanged floor **-155** (target **-110** with slack **45**). Every seed
+  improves from an initial exact median of **-200** (seed 4: **-124**) to between
+  **-154** and **-168**, so the policy learns but stops about **8** return units
+  short; one seed (-154) clears the floor alone. This is a convergence shortfall,
+  not a pipeline failure; the next experiment is a controlled budget/learning
+  curve study with bars, seeds and recipes unchanged except the already approved
+  iteration budget.
+
+- **`tiny-imagenet-resnet50` fixed and verified (11 November).** With the
+  unboxed `HeldOutExamples` the row exits **0** and is `eligible` after
+  **13,209 s** at the pinned **`-M2G`** under the gate container limits (image
+  `fdb74c9d…`, re-keyed readiness reviews only). A further tuning edit bounds
+  trial concurrency by the runtime capability count in
+  `JitML.Tune.Catalog.mapConcurrentlyBounded` (cohort width and results are
+  unchanged); it is verified by a targeted `hyperparameter-tuning` rerun, which
+  fails within about 30 s if the heap still exhausts.
+
+- **`hyperparameter-tuning` heap death: what is and is not established (11
+  November).** On images `fdb74c9d…` and `427bed3d…` (stamp `ffc1e5b3…`, readiness
+  reviews only) the row exits **251** with `Heap exhausted` at **`-M2G`** after
+  **31-41 s**, with **61 GB** allocated, only **~500 MB** maximum residency and
+  **~1.1 GB** reported lost to fragmentation. Gen-1 collections recur every
+  0.1-0.3 s while live data oscillates **310 <-> 530 MB**, i.e. a dataset-sized
+  (~210 MB) large array is allocated and freed per optimizer update. The previous
+  image (`9a4e488c…`) survives the same window at **190-400 MB** live. Ruled out:
+  dropping `-c` (still dies), trial concurrency (`experiments/mnist-tune.dhall`
+  and the bounding edit in `mapConcurrentlyBounded` both give width 1), the
+  held-out lists (not on this path). Not yet established: which allocation is
+  ~210 MB per update (the device batch-gradient path
+  `LayerGraphDevice.classifierBatchGradientDevice` and `graphAdamBatchStep` are
+  the candidates) and why the new image's loop reaches the limit sooner than the
+  old one. Next: allocation attribution (a profiled or info-table-mapped build, or
+  an instrumented single-update harness), then an allocation-bounded update; a
+  heap-budget change would be a pinned gate-recipe decision and is not assumed.
+
+- **`hyperparameter-tuning` fixed and verified (11 November).** Root cause was
+  mine: `selectMiniBatch` stopped visiting every example on the first update, so
+  example feature vectors materialised batch by batch, interleaved with the
+  ~200 MB per-update transient arrays, fragmenting the heap (3 GiB also failed:
+  650 MB live, 1.9 GiB lost). `initialiseExactArchitectureTraining` now settles
+  every train/validation feature vector once at trial initialisation (values
+  unchanged). Image `0a7b530f…`, pinned **`-M2G`**, gate container limits: exit
+  **0**, `eligible`, **1,005 s** (previously **13,793 s** with a larger heap),
+  promoted artifact `3d8572ea…` identical to the earlier larger-heap run, **0 MiB**
+  lost to fragmentation. Individually passing rows: **40 of 55**.
+
+- **Per-seed diagnostics of learning refusals (11 November; readiness reruns on
+  image `0a7b530f…`, re-keyed local reviews, not evidence).**
+  `SAC/pendulum` (241 s): initial and final exact medians are equal to about five
+  digits for every seed (e.g. -378.1126 -> -378.1129; -1046.65 -> -1046.18), so
+  the served policy is effectively unchanged by training; seeds 0-1 already sit at
+  the floor (-380) and seeds 2-4 at about -1000. The product step floor for this
+  row is `continuousStepFloor "sac" "pendulum" = 2_000` against 50,000 for the
+  other continuous rows, and a pendulum warm-start recipe exists, so the first
+  hypothesis is a budget-starved update schedule (unverified). `A2C/lunar-lander`
+  (462 s): per-seed final quality [252.6, 9.8, 30.6, 58.5, 72.7] from initial
+  [-200, -178132, 252, -10, -225]; high variance, median 58.5 below the floor.
+  `connect4`: final arena score does not exceed the initial observation for the
+  served seed and fewer than three joint successes. These are algorithm/budget
+  investigations, each needing a source or recipe change, a re-keyed readiness
+  review, an image rebuild and a targeted rerun.
+
+- **Per-row doctrine pass result (10 November).** The individual-row driver
+  finished all 55 CPU rows in the CPU55 container lane (1 CPU, 4 GiB, no swap,
+  256 pids, `-M2G`): 38 passed and 17 are unresolved. Ledger and logs are local
+  under `.build/phase278-row-runs/`. Unresolved rows: `tiny-imagenet-resnet50`
+  and `hyperparameter-tuning` (heap exhausted at `-M2G`); `TRPO/key-door-grid`
+  (passed the 14,400 s row deadline with an empty log); and 14 learning
+  refusals with unchanged bars (`NativeServingLearningRefusal`): `PPO/mountain-car`,
+  `PPO/key-door-grid`, `A2C/lunar-lander`, `A2C/key-door-grid`,
+  `MaskablePPO/mountain-car`, `MaskablePPO/key-door-grid`,
+  `RecurrentPPO/mountain-car`, `RecurrentPPO/key-door-grid`,
+  `QR-DQN/mountain-car`, `DQN/key-door-grid`, `SAC/pendulum`,
+  `CrossQ/lunar-lander`, `connect4` and `hex`. Passing rows are not rerun until
+  these are fixed. Bars, recipes and seeds stay unchanged. The complete gate
+  stays the unchanged closing criterion and runs only after every row passes
+  individually. Next: per-row remediation in the order memory, deadline, then
+  learning, each proven by a targeted single-row rerun.
 - **Apply the user’s updated resource policy.** On 8 November the user directed
   that low CPU headroom must no longer delay, pause or stop jitML. The governed
   `AGENTS.md` policy now makes CPU idle diagnostic only while retaining CPU
@@ -4585,6 +4691,59 @@ five-run qualification, complete journal, registration or phase closure follows.
   is not authority to run. No CPU admission or
   phase closure is claimed from this failed run.
 
+- **Per-row runs expose two real failures (9 November).** With 13 of 55 rows
+  passed individually (`mnist-*`, `fashion-mnist-*`, `cifar10-*`,
+  `cifar100-wide-resnet` and the first RL rows), two rows fail and are retained
+  literally in the ledger. **(1) `tiny-imagenet-resnet50`** exits **251** after
+  **2,689 s**: training completes (15 epochs, test accuracy 0.041) and the process
+  then reports `Heap exhausted` at the gate's **`-M2G`** per-process heap, so the
+  post-training evaluation/publication step does not fit; this is a memory-fit
+  defect, not a quality result, and any change to the heap budget or to that
+  step's allocation must keep recipes, seeds and bars unchanged. **(2)
+  `PPO/mountain-car`** exits **2** after **1,647 s** with
+  `NativeServingLearningRefusal`: the whole-five median fails the unchanged
+  quality floor (target **-110**, slack **45**) under the approved 300-iteration
+  budget. This is the retained 28 October scientific refusal, still unresolved;
+  the further convergence investigation the user already approved applies. Both
+  fixes are source changes that re-key the source stamp, so they are made after
+  the remaining rows finish, each verified by a targeted single-row rerun first
+  (standards O), before one complete gate.
+
+- **Decisions for the two row failures (9 November; unverified hypotheses).**
+  `tiny-imagenet-resnet50` is fixed by reducing the post-training allocation, not
+  by raising the pinned **`-M2G`** heap. Suspect: `runDeviceMnistTraining…` builds
+  `tmHeldOutExamples` as `HeldOutClassification [([Double], Int)]` via
+  `VU.toList` per held-out image (**12,288** values each; about **40 B** per boxed
+  element, roughly **490 KB** per example), and the same boxed list feeds
+  `RawClassificationEvaluation` in the publisher and receipt; an unboxed
+  representation is the candidate fix. This is unmeasured: confirm peak residency
+  with `+RTS -s` on a single-row run before and after. `PPO/mountain-car` gets a
+  read-only analysis now and experiments after the cluster workload ends, because
+  the compiler job is not run beside cluster-resident rows. Neither fix is applied
+  yet; each is verified by a targeted single-row rerun before the complete gate.
+
+- **Make version-controlled paths Windows-portable (9 November; standards
+  [P](development_plan_standards.md#p-windows-portable-version-controlled-paths)).**
+  A Windows checkout failed because **516** tracked paths, all under
+  `attestations/phase278-20261015-mac-validation/criterion-reviews/`, were
+  **179-249** characters repo-relative; no other tracked path exceeds **106**.
+  `bootstrap/check-path-lengths.sh` now reports them. Both ignore files no longer
+  admit that tree, so its fourteen source trees (including the current
+  `bca776a5…` files) are local-only, and links into it became code spans. The
+  human must run `git rm -r --cached
+  DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/criterion-reviews`
+  once; local copies stay. No tracked code or test names those source hashes and
+  no tracked registration or journal requires them from a clean checkout. The
+  source digest covers only `app`, `gen`, `src`, `test` and the cabal files, so
+  none of this changes source **bca776a5… / 617** or the in-flight preparation.
+  **Remaining:** before Phase 278 can claim criterion data is retained in a clean
+  checkout, land a short-root layout (`reviewRoot` in `CriterionReviewData.hs`, its
+  test constants, and regenerated selection/receipt data with new pinned
+  identities, at most 160 characters per path). That is a source change and
+  re-keys the source stamp, so it is sequenced with the next source change and the
+  complete gate, not applied to this gate's frozen source. The literal Git/Docker
+  retention check for the current criterion files is deferred to that layout.
+
 - **Operate under the incremental doctrine; run `full55-m` stopped.** On 9
   November the user directed the doctrine above and the in-flight `full55-m`
   CPU55 attempt was stopped by SIGTERM after about **2.5 h** (launcher exit
@@ -4594,6 +4753,19 @@ five-run qualification, complete journal, registration or phase closure follows.
   Remaining CPU55 work proceeds per row under the doctrine, starting with the
   known failing row `cifar100-wide-resnet`, then the other unrun rows, then the
   single complete gate.
+
+- **Targeted rerun of the one known failure passes (9 November).** The single
+  failing row `cifar100-wide-resnet` was rerun alone with
+  `jitml internal train-and-publish-product-rows --linux-cpu --row
+  cifar100-wide-resnet` in the gate's limits (**1 CPU / 4 GiB / no swap**, 256 pids,
+  `-M2G -c -Fd1` RTS, original **14,400 s** row deadline): exit **0** in
+  **7,208 s**, no OOM, manifest admitted. One earlier attempt exited 1 after 21 s
+  when the MinIO edge was not yet ready after cluster restart; it is retained in
+  the ledger. This is readiness evidence only, not gate evidence. The remaining
+  54 rows now run individually (two single-CPU lanes, skipping any row already
+  passed) from the ignored per-row ledger
+  [`.build/phase278-row-runs/ledger.jsonl`](../.build/phase278-row-runs/ledger.jsonl);
+  the complete gate runs once afterward.
 
 - **Record the `full55-j` interruption (9 November).** The CPU55 body ran
   **23,879 s** and was then killed (`colima-jitml start` exit **137**) when its

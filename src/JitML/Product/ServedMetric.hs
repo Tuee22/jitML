@@ -1,11 +1,13 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE ViewPatterns #-}
 
 -- | Recompute a ProductRow's held-out measurement through the exact runtime
 -- and weight tensor re-admitted from its persisted checkpoint. The constructor
 -- of 'AdmittedCompletedCheckpoint' is private to Store, so a training-returned
 -- model or a decoded but unaddressed manifest cannot enter this check.
 module JitML.Product.ServedMetric
-  ( HeldOutExamples (..)
+  ( HeldOutExamples (HeldOutClassification, HeldOutRegression)
   , assertAdmittedHeldOutMetric
   , assertServedMetricProvenance
   , assertAdmittedHeldOutMetricAndLearningSignal
@@ -26,15 +28,61 @@ import JitML.Product.LearningSignal qualified as LearningSignal
 -- the positive scale converts their error back to the standardized RMSE unit
 -- in which the trainer reports its held-out metric.
 data HeldOutExamples
-  = HeldOutClassification ![([Double], Int)]
-  | HeldOutRegression !Double ![([Double], Double)]
+  = PackedHeldOutClassification !(VU.Vector Int) !(VU.Vector Double) !(VU.Vector Int)
+  | PackedHeldOutRegression !Double !(VU.Vector Int) !(VU.Vector Double) !(VU.Vector Double)
   deriving stock (Eq, Show)
+
+-- | List-shaped view of the evidence. Rows are stored as unboxed vectors (one
+-- 'Double' is 8 bytes, not a 40-byte boxed list cell) and the boxed list is
+-- rebuilt lazily on each match, so large image held-out sets are never
+-- resident as boxed lists. Construction settles every row.
+pattern HeldOutClassification :: [([Double], Int)] -> HeldOutExamples
+pattern HeldOutClassification examples <-
+  (unpackClassification -> Just examples)
+  where
+    HeldOutClassification examples =
+      let (lengths, features) = packRows (fmap fst examples)
+       in PackedHeldOutClassification lengths features (VU.fromList (fmap snd examples))
+
+pattern HeldOutRegression :: Double -> [([Double], Double)] -> HeldOutExamples
+pattern HeldOutRegression scale examples <-
+  (unpackRegression -> Just (scale, examples))
+  where
+    HeldOutRegression scale examples =
+      let (lengths, features) = packRows (fmap fst examples)
+       in PackedHeldOutRegression scale lengths features (VU.fromList (fmap snd examples))
+
+{-# COMPLETE HeldOutClassification, HeldOutRegression #-}
+
+packRows :: [[Double]] -> (VU.Vector Int, VU.Vector Double)
+packRows rows = (VU.fromList (fmap length rows), VU.fromList (concat rows))
+
+unpackRows :: VU.Vector Int -> VU.Vector Double -> [[Double]]
+unpackRows lengths features = go 0 0
+ where
+  go row offset
+    | row == VU.length lengths = []
+    | otherwise =
+        let width = lengths VU.! row
+         in VU.toList (VU.slice offset width features) : go (row + 1) (offset + width)
+
+unpackClassification :: HeldOutExamples -> Maybe [([Double], Int)]
+unpackClassification evidence = case evidence of
+  PackedHeldOutClassification lengths features labels ->
+    Just (zip (unpackRows lengths features) (VU.toList labels))
+  PackedHeldOutRegression {} -> Nothing
+
+unpackRegression :: HeldOutExamples -> Maybe (Double, [([Double], Double)])
+unpackRegression evidence = case evidence of
+  PackedHeldOutRegression scale lengths features targets ->
+    Just (scale, zip (unpackRows lengths features) (VU.toList targets))
+  PackedHeldOutClassification {} -> Nothing
 
 heldOutExampleCount :: HeldOutExamples -> Int
 heldOutExampleCount evidence =
   case evidence of
-    HeldOutClassification examples -> length examples
-    HeldOutRegression _ examples -> length examples
+    PackedHeldOutClassification _ _ labels -> VU.length labels
+    PackedHeldOutRegression _ _ _ targets -> VU.length targets
 
 -- | The production serving path reconstructs the graph from the admitted
 -- manifest and physical @supervised.weights@ tensor once, then evaluates the

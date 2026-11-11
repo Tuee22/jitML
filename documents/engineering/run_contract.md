@@ -1090,7 +1090,8 @@ row's ProductRow-origin artifact or completed scenario journal. Matching a
 
 Qualifying execution first captures the separately selected criterion review
 from fixed files under
-`DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/criterion-reviews/`,
+`DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/criterion-reviews/`
+(a required runtime input whose current paths exceed the Windows checkout limit; it moves to a short root with the next reviewed source),
 bound to the original code source, lane, scope and full ordered 55-row contract
 set. Native execution compares the current contract digest before reserving its issued
 attempt or launching training; its private certificate and retained receipt bind

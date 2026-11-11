@@ -59,6 +59,7 @@ module JitML.SL.Architecture
   )
 where
 
+import Control.Exception (evaluate)
 import Control.Monad (foldM)
 import Data.Bifunctor (first)
 import Data.List qualified as List
@@ -1952,6 +1953,13 @@ initialiseExactArchitectureTraining spec config optimizer dropout trainSet valid
   | isNaN dropout || isInfinite dropout || dropout < 0.0 || dropout >= 1.0 =
       pure (Left "initialiseExactArchitectureTraining: dropout must be finite and in [0, 1)")
   | otherwise = do
+      -- Settle every example's feature vector once, up front and contiguously.
+      -- Visiting examples lazily batch by batch interleaves their large
+      -- objects with the per-update transient arrays, which fragments the
+      -- heap until it exhausts a fixed -M limit long before the live data
+      -- (a few hundred MB) does. The values are unchanged.
+      forceDatasetFeatures trainSet
+      forceDatasetFeatures validationSet
       statesE <- initialiseLayers (clfSeed config) (archLayers spec)
       pure $
         fmap
@@ -1995,13 +2003,11 @@ advanceExactArchitectureTraining device additionalUpdates training
         | otherwise -> do
             let config = exactTrainingConfig current
                 absoluteUpdate = exactTrainingUpdates current + 1
-                batches =
-                  miniBatches
-                    (clfBatchSize config)
-                    (fmap exampleFeatures (exactTrainingTrainSet current))
-                    (fmap exampleLabel (exactTrainingTrainSet current))
                 (batchInputs, batchLabels) =
-                  batches !! ((absoluteUpdate - 1) `mod` length batches)
+                  selectMiniBatch
+                    (clfBatchSize config)
+                    (absoluteUpdate - 1)
+                    (exactTrainingTrainSet current)
                 droppedInputs =
                   applyDeterministicInputDropout
                     (clfSeed config)
@@ -2032,6 +2038,10 @@ advanceExactArchitectureTraining device additionalUpdates training
                           }
                     )
                     adamE
+
+forceDatasetFeatures :: Dataset -> IO ()
+forceDatasetFeatures =
+  mapM_ (\example -> evaluate (VU.length (exampleFeatures example) + exampleLabel example))
 
 measureExactArchitectureValidation
   :: MlpDevice
@@ -2159,14 +2169,15 @@ checkedExactExamplesProcessed current additional
       Left "exact architecture examples-processed count exceeds the Int range"
   | otherwise = Right (current + additional)
 
-miniBatches :: Int -> [Vector Double] -> [Int] -> [([Vector Double], [Int])]
-miniBatches size inputs labels =
-  case splitAt size (zip inputs labels) of
-    ([], _) -> []
-    (chunk, rest) ->
-      let (chunkInputs, chunkLabels) = unzip chunk
-          (restInputs, restLabels) = unzip rest
-       in (chunkInputs, chunkLabels) : miniBatches size restInputs restLabels
+-- | The cyclic mini-batch for a zero-based update index: the dataset is cut
+-- into consecutive chunks of @size@ examples (the last chunk may be short) and
+-- update @k@ uses chunk @k `mod` chunkCount@. Only that chunk is materialised,
+-- so a step costs one batch, not a boxed pair list over the whole dataset.
+selectMiniBatch :: Int -> Int -> [LabeledExample] -> ([Vector Double], [Int])
+selectMiniBatch size updateIndex examples =
+  let chunkCount = (length examples + size - 1) `div` size
+      chunk = take size (drop ((updateIndex `mod` chunkCount) * size) examples)
+   in (fmap exampleFeatures chunk, fmap exampleLabel chunk)
 
 initialiseLayers :: Int -> [LayerSpec] -> IO (Either Text [LayerState])
 initialiseLayers seed specs =

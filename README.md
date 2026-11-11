@@ -475,7 +475,7 @@ later **NotRun**, Source8af scientific failure and failed full-unit record stay 
 Actual public110 review confirms **108** unchanged whole objects and all **110**
 report digests unchanged; only two PPO/mountain-car PlanIds change. The separate
 **11** canonical C2 policy/reference source FILE pins are independently confirmed exact.
-Two distinct reviewers approve the [four Sourcef138 prospective criterion scopes](DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/criterion-reviews/f1381784c66bb54164c9f5f5dc7f3c908fabb8dccd5065a8ce16732a9bfbb968/);
+Two distinct reviewers approve the four Sourcef138 prospective criterion scopes (local-only `criterion-reviews/f1381784c66b…`);
 final assembly, materialization, production capture and append-only retention return `0`.
 The actual closure is **60 files / 8,189,443 bytes**, profiles **15 / 6 / 15 / 16**:
 **52** artifacts, **4** receipts and **4** selectors. Exactly **12** Git exceptions and

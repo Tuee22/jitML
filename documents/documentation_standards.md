@@ -203,6 +203,22 @@ Rules:
   `./engineering/determinism_contract.md#per-substrate-floating-point-semantics`.
 - Each governed doc links to at least one other governed source.
 - Module names, commands, paths, types, and binaries use backticks.
+- **Version-controlled paths stay Windows-portable.** Every path that Git tracks
+  (or would track, because it is not ignored) is at most **160** characters
+  repo-relative, has no component longer than **100** characters, uses none of
+  `< > : " \ | ? *` or control characters, has no component ending in a dot or a
+  space, uses no reserved Windows device name (`CON`, `PRN`, `AUX`, `NUL`,
+  `COM1`-`COM9`, `LPT1`-`LPT9`, with or without an extension), and differs from
+  every other path by more than letter case. Windows `MAX_PATH` is 260 characters
+  including the drive, the checkout directory and a terminating NUL, so 160
+  leaves 99 characters for the checkout prefix; checkout must never depend on
+  `core.longpaths`. Content-addressed or hash-named data does not repeat a full
+  digest in several directory levels; a layout that cannot meet the limit is not
+  version controlled and stays under ignored `.build/` or the data/cache homes.
+  Docs never link to files that Git does not track. The owner of the rule and its
+  rationale is
+  [../DEVELOPMENT_PLAN/development_plan_standards.md](../DEVELOPMENT_PLAN/development_plan_standards.md#p-windows-portable-version-controlled-paths);
+  `bootstrap/check-path-lengths.sh` enforces it.
 - **Never copy** configuration, source snippets, doctrine text, or the typed
   run-plan / delivery / lifecycle / evidence / journal shapes between docs — cite
   the owner (e.g. [engineering/run_contract.md](engineering/run_contract.md)) by
@@ -361,6 +377,8 @@ Keep the owning doc and the affected phase document changing together:
 - A target statement phrased as an implemented claim (§3).
 - A manufactured reciprocal backlink added only to satisfy `**Referenced by**:` (§1).
 - YAML front-matter, or a `docs/` directory (§1, §5).
+- A tracked path over the Windows limits, a link to an untracked or ignored file,
+  or reliance on `core.longpaths` (§6).
 
 ---
 
@@ -377,6 +395,9 @@ target, and exercised by `test/unit/Main.hs`. It verifies:
   and `CLAUDE.md`;
 - generated-section marker/metadata reconciliation and whole-file
   tracked-generated-path integrity;
+- Windows path portability of every tracked or unignored path
+  (`bootstrap/check-path-lengths.sh`, a standalone `sh`/`awk` guard that needs only
+  Git; run it before closing any change that adds or renames files);
 - the closure-claim scan (`src/JitML/Lint/Docs.hs`): governed docs must not assert
   current product closure (`production ready`, `all phases done`, `no-caveat product
   complete`, …) unless the evidence-derived `ClosureVerdict` is closed — dated

@@ -95,6 +95,7 @@ module JitML.Tune.Catalog
 where
 
 import Codec.Serialise (Serialise, deserialiseOrFail, serialise)
+import Control.Concurrent (getNumCapabilities)
 import Control.Concurrent.Async (mapConcurrently)
 import Control.Exception.Safe (displayException, tryAny)
 import Control.Monad (foldM)
@@ -1250,9 +1251,16 @@ finishExactRuntime disposition runtime = do
       , internalTrialResultDisposition = disposition
       }
 
+-- | Results keep input order. At most @width@ actions run at once and never
+-- more than the runtime's capabilities: threads beyond the capability count
+-- add no throughput, but each live trial holds its own weights, optimizer
+-- state and per-update arrays, so oversubscription only multiplies peak memory.
+-- The plan's cohort width is a scheduling parameter and is unchanged.
 mapConcurrentlyBounded :: Int -> (value -> IO result) -> [value] -> IO [result]
-mapConcurrentlyBounded width action =
-  fmap concat . traverse (mapConcurrently action) . chunksOf width
+mapConcurrentlyBounded width action values = do
+  capabilities <- getNumCapabilities
+  let effective = max 1 (min width capabilities)
+  fmap concat (traverse (mapConcurrently action) (chunksOf effective values))
 
 architectureOptimizer :: Text -> Either Text Architecture.ArchitectureOptimizer
 architectureOptimizer "Adam" = Right Architecture.ArchitectureAdam
