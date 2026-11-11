@@ -5,9 +5,85 @@
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [development_plan_standards.md](development_plan_standards.md)
 **Generated sections**: none
 
-> **Purpose**: Convergence and Evidence. Single-session phase migrated from legacy Sprint 24.4 in the 2026-07-24 phase-per-session renumber; see the old→new map in [README.md](README.md).
+> **Purpose**: Convergence and Evidence. Originally migrated from legacy Sprint 24.4 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
 ## Phase State
+
+⏸️ **Blocked** for the expanded validation foundation in Sprint `245.2`.
+The earlier Sprint `245.1` record below is retained on its original source and
+scope; it does not validate this target or a current hardware lane. The execution
+order and transition authority are [the validation-foundation refactor](README.md#validation-foundation-refactor).
+
+The new source/catalogue, runner and hardware controls remain unimplemented.
+Sprint `221.2` owns reconciliation of the existing checker with these documented
+targets; this documentation-only change supplies no machine-validation receipt.
+
+## Sprint 245.2: Supervised memory fit and prospective learning readiness [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: Target changes to `src/JitML/SL/Architecture.hs`, `src/JitML/Product/ServedMetric.hs`, `src/JitML/Product/SupervisedQualification.hs`.
+**Blocked by**: Sprint `160.2`, Sprint `225.2`.
+**Docs to update**: `../documents/engineering/execution_resources.md`, `../documents/engineering/validation_execution.md`, `../documents/engineering/training_metrics_and_splits.md`, `../documents/engineering/checkpoint_format.md`, `README.md`, `system-components.md`, `legacy-tracking-for-deletion.md`.
+
+### Objective
+
+Every supervised readiness result combines genuine held-out learning with bounded training, evaluation, publication and retained-cohort memory on the current candidate.
+
+The target contracts are [execution resources](../documents/engineering/execution_resources.md)
+and [validation execution](../documents/engineering/validation_execution.md).
+Their acceptance requirements below are planned work, not implemented behavior.
+
+### Deliverables
+
+- Reprove scalar/tape retention, packed held-out examples and feature materialization on the current candidate, including full-size evaluation and publication transients under the admitted process-family budget.
+- Preserve real train/validation/test separation, authentic initial/final comparisons, exact serving replay and required cohort outcomes. Historical calibrated floors are not relabeled as external literature evidence.
+- Use the prospective criterion policy owned by `278.2`. A replacement criterion or training budget requires independent justification before qualification; it is not fitted to a failing final value.
+- Keep a source/image/recipe/resource readiness ledger and name the prior greens affected by each shared allocation or evaluation change. Final reviewed source binding belongs to qualification after readiness.
+
+### Validation
+
+1. Run the targeted retention/representation controls first, checking exact outputs and measured live/aggregate peak behavior rather than RSS alone.
+2. Run the affected single supervised row through the production CLI with its prescribed five outcomes, real runtime and unchanged acceptance contract; distinguish refusal, timeout and memory failure.
+3. Exercise accumulated completed-row results, publication and joins with bounded fixtures; isolated row success does not establish full-campaign retention fit.
+4. Complete the owned supervised readiness and canonical controls after the targeted repair; complete cross-family convergence and lane admission remain downstream obligations.
+
+Closure requires the owned targeted/hermetic controls listed above, with a
+nonempty independently enumerated test inventory and exact scoped transcripts.
+The implementation publishes actual selectable groups in the existing stanzas
+and uses the supported `--test-options` passthrough; no invented selector or
+unfiltered full-matrix acquisition is an acceptable substitute. A scoped result
+is recorded as scoped, never as a passing full stanza. Resource/live controls
+also require the actual owned runtime observations named above.
+
+Complete evidence-dependent unit/integration/negative-control transcripts belong
+to Sprints `277.2` and `280.2`; cross-family convergence belongs to `283.2` and
+`285.2`. Those downstream records are not prerequisites for this foundation or
+readiness closure. Every original case remains registered with an explicit owner.
+The existing documentation/code-quality commands below run after source parity
+is implemented, inside the admitted profile; they do not execute these controls.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+Cluster-running jobs use the separately admitted cluster/lifecycle overlays
+instead of the stopped-cluster build profile. A real hardware lane is never
+claimed by CPU fixtures; absent required runtime capability fails that lane.
+
+### Remaining Work
+
+- Confirm current-source supervised memory fit, repair affected regressions and retain the literal earlier failures.
+- Complete prospective criterion review and readiness impact analysis before final candidate freeze; no diagnostic review copy or historical eligible row is final qualification.
+
+## Retained Historical Scope
+
+The following state, commands, measurements and closure statements describe the
+original Sprint `245.1` surface only. New execution rules and acceptance
+above supersede any conflicting operational instruction; old receipts are not
+reinterpreted as current readiness.
+
+### Historical Phase State
 
 ✅ **Done** (closed 2026-07-30; gate-validated on the live linux-cpu cluster).
 Each literal graph now trains from real random init with real cross-entropy / MSE
@@ -99,12 +175,15 @@ architecture.
 
 **Engineering docs to create/update:**
 
-- None (single-session phase migrated in the 2026-07-24 renumber; evidence lives in the Validation gate above).
+- `../documents/engineering/execution_resources.md`.
+- `../documents/engineering/validation_execution.md`.
+- `../documents/engineering/training_metrics_and_splits.md`.
+- `../documents/engineering/checkpoint_format.md`.
 
 **Product docs to create/update:**
 
-- None.
+- [Development-plan entry](README.md#validation-foundation-refactor), [component inventory](system-components.md), and [deletion ledger](legacy-tracking-for-deletion.md).
 
 **Cross-references to add:**
 
-- None.
+- Link the target contracts, exact sprint dependencies and evidence pointers together when source implementation lands; update root summaries only in an authorized root-file change.

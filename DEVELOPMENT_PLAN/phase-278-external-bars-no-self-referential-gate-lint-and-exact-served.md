@@ -5,9 +5,159 @@
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [development_plan_standards.md](development_plan_standards.md)
 **Generated sections**: none
 
-> **Purpose**: External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance. Single-session phase migrated from legacy Sprint 32.2 in the 2026-07-24 phase-per-session renumber; see the old→new map in [README.md](README.md).
+> **Purpose**: External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance. Originally migrated from legacy Sprint 32.2 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
 ## Phase State
+
+⏸️ **Blocked** on the expanded campaign obligations below. Historical closure
+remains scoped to the execution and implementation it actually proved.
+
+The [validation foundation refactor](README.md#validation-foundation-refactor)
+owns the current execution order. Sprint `221.2` first updates the source
+catalogue/checkers for the reopened sprint graph; those source changes are not
+part of this documentation-only revision. Current machine projection still
+reflects the old catalogue and must not be reported as validating these targets.
+
+The [execution contract](../documents/engineering/validation_execution.md) and
+[resource contract](../documents/engineering/execution_resources.md) state the
+new targets. Atomic row recovery is not implemented or authorized by prose: until
+`261.2` passes, existing qualification remains non-resumable. No historical partial
+attempt, diagnostic review copy or readiness ledger is adopted as qualification.
+
+The latest retained individual screening records 40/55 passes across multiple
+source/image versions, not final-source qualification. Twelve RL learning refusals
+and the TRPO/key-door-grid timeout belong to 249.2; Connect4/Hex learning refusals
+belong to 254.2. The two repaired memory rows require current-source impact and
+resource validation under 115.2/245.2. Phase 278 no longer owns supervisor development
+or execution of every hardware lane.
+
+## Sprint 278.1: External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprint `278.2`, Sprint `278.3`
+**Docs to update**: `../documents/engineering/validation_execution.md`, `../documents/engineering/execution_resources.md`, `../documents/engineering/run_contract.md`, `../documents/engineering/unit_testing_policy.md`, `README.md`, `system-components.md`
+
+### Objective
+
+Retain the original unmet obligation and historical failures while completing
+its explicitly reassigned or expanded proof below. The prior numerical chain
+and old command sequence in the historical section are not current launch
+authority. No previous failure or missing closing proof is erased.
+
+### Deliverables
+
+- Preserve the original contract and evidence obligations through the named
+  current owners; qualify no obligation from diagnostic or historical data.
+- Reconcile the typed catalogue and replacement acceptance in 221.2, then admit
+  the complete current evidence without duplicate training at consumer phases.
+
+### Validation
+
+Run the applicable complete CPU unit and negative-control stanzas only after
+their real data/live prerequisites exist; the expanded sprint below specifies
+its live or production-reader acceptance.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-unit --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-negative-controls --linux-cpu
+```
+
+### Remaining Work
+
+- Complete the named prerequisites and expanded acceptance below.
+- Reconcile all original owned obligations and obtain evidence-derived status;
+  the historical text supplies no current closure claim.
+
+## Sprint 278.2: Prospective criteria and final-source review binding [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprint `225.2`
+**Docs to update**: `../documents/engineering/validation_execution.md`, `../documents/engineering/execution_resources.md`, `../documents/engineering/run_contract.md`, `../documents/engineering/unit_testing_policy.md`, `README.md`, `system-components.md`
+
+### Objective
+
+Independent acceptance policy and provenance reviews are fixed before qualifying acquisition. Phase 278 owns this policy/audit boundary; it no longer develops the process supervisor or schedules all hardware lanes.
+
+### Deliverables
+
+- Separate legitimate development/calibration experiments from qualification; identify evaluation data already inspected and do not call repeatedly observed outcomes unseen evidence.
+- Review the actual product goals and supported quantitative bars prospectively. A recipe/criterion revision needs independent rationale and fresh qualification, never a lowered floor fitted to a failing measured result.
+- Provide short Windows-portable criterion data paths with exact source, scope, policy and review identities; verify clean-checkout and image retention before the source freeze.
+- Retain conservative full-source qualification invalidation. Bind final-source implementation reviews independently; copying/re-keying diagnostic review data never creates independent review authority.
+- Preserve real learning, real kernels, full cohort outcomes, fixed served-model selection, authentic counters, exact serving and complete row coverage. Clarify the trusted reviewer/issuer boundary.
+
+### Validation
+
+These are acceptance requirements for the target implementation. They are not
+passes from this documentation change. Targeted failing controls run first; the
+complete applicable stanzas run only after their actual evidence prerequisites
+exist. Commands use the explicit named context and task-specific approved bounds;
+cluster-running work uses the separately admitted cluster/lifecycle profile.
+
+1. Use controls for missing/stale/foreign/re-keyed reviews, changed source/evaluator/recipe, unsupported provenance and a criterion fitted to observed qualifying outcomes.
+2. Verify required criterion inputs through actual production FILE readers and literal tracked/image retention. These DATA checks are necessary and do not supply scientific execution evidence.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-unit --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-negative-controls --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Implement the deliverables after the listed prerequisites; retain every failed or incomplete observation in its original scope.
+- Complete the listed acceptance in its declared evidence scope, retain the required records, and reconcile the source status catalogue before claiming closure.
+
+## Sprint 278.3: Independent current qualification and provenance audit [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprint `263.3`, Sprint `268.2`, Sprint `273.2`, Sprint `278.2`
+**Docs to update**: `../documents/engineering/validation_execution.md`, `../documents/engineering/execution_resources.md`, `../documents/engineering/run_contract.md`, `../documents/engineering/unit_testing_policy.md`, `README.md`, `system-components.md`
+
+### Objective
+
+Audit the completed current campaigns and scientific/provenance evidence on CPU. Each hardware owner executes its own lane; this sprint consumes the retained proof.
+
+### Deliverables
+
+- Verify exact source/criterion/contract bindings, all prescribed attempts and cohorts, original index-zero serving, authenticated journals and Store/replay admission across the three lanes.
+- Require resolved scientific/readiness failures through 115.2/245.2/249.2/254.2, qualified execution foundations and actual aggregate memory/preservation evidence.
+- Retain the distinction between the October spinlock incident of unresolved cause and the November watchdog/compressor incident; controlled containment and clean campaigns establish their scope, not immunity from every kernel fault.
+- Preserve original failures and interrupted attempts without adopting their prefixes or reconstructing missing closing evidence.
+
+### Validation
+
+These are acceptance requirements for the target implementation. They are not
+passes from this documentation change. Targeted failing controls run first; the
+complete applicable stanzas run only after their actual evidence prerequisites
+exist. Commands use the explicit named context and task-specific approved bounds;
+cluster-running work uses the separately admitted cluster/lifecycle profile.
+
+1. Independently reopen and readmit exact portable objects and original qualified artifacts through production APIs; reject diagnostic authority, hidden attempts, missing closings and mixed source.
+2. Complete current CPU negative/provenance controls and documentation/code-quality gates after all audit inputs exist. No training or accelerator execution is introduced by the audit.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-negative-controls --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-unit --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Implement the deliverables after the listed prerequisites; retain every failed or incomplete observation in its original scope.
+- Complete the listed acceptance in its declared evidence scope, retain the required records, and reconcile the source status catalogue before claiming closure.
+
+## Retained Historical Contract and Evidence
+
+The remainder records prior implementation, commands, status and failures. Its
+claims retain their original source, policy and date. Superseded launch ordering,
+resource rules and uninterrupted-process requirements do not override the current
+sprints above. Preserve these receipts; do not execute a historical recipe as a
+current authorized campaign.
+
+## Retained Historical Phase State
 
 Phase `278` remains **Active**. Source **495822c9… / 617** retains engineering
 negative2712/backend43/daemon75 validation and all110 unchanged training
@@ -2618,7 +2768,7 @@ preserves the original failed attempts and their source scopes.
 
 ### Historical Evidence
 
-The [complete preceding phase narrative](attestations/phase278-20261015-mac-validation/runtime-receipts/compact-unit-wire-validation/objects/96c29c8b3416850a82dea7f9967f4652141815b287106d5dedbabca11dff4266.txt)
+The complete preceding phase narrative (`attestations/phase278-20261015-mac-validation/runtime-receipts/compact-unit-wire-validation/objects/96c29c8b3416850a82dea7f9967f4652141815b287106d5dedbabca11dff4266.txt`; local historical payload unavailable)
 retains the exact original text and audit chronology. Historical records retain
 their authentic outcomes; no failed record, obsolete journal or focused check is
 upgraded into current closure evidence.
@@ -2655,7 +2805,7 @@ binds selected-device evaluation and terminal/truncated bootstrap behavior.
 The [identity proof](attestations/phase278-20261015-mac-validation/runtime-receipts/on-policy-identity/README.md)
 changes exactly **66 / 165** projections for the two recipe fields, preserving
 **99** unrelated plans and report-only digests at that scope. The separate
-[compiled compact projection proof](attestations/phase278-20261015-mac-validation/runtime-receipts/compact-final-validation/objects/7a6bb96bd866c738118185e7020efa4f304d1c3514a1bbe8f8ffb80483c80dab.txt)
+compiled compact projection proof (`attestations/phase278-20261015-mac-validation/runtime-receipts/compact-final-validation/objects/7a6bb96bd866c738118185e7020efa4f304d1c3514a1bbe8f8ffb80483c80dab.txt`; local historical payload unavailable)
 records **33 changed SL PlanIds / 33 changed SL report digests**, with **132**
 unrelated projections unchanged for that isolated SL change. The current
 native-generated browser file proves PlanId changes only.
@@ -2725,7 +2875,7 @@ scores. Historical floors retain their disclosed measured-calibrated or
 unproven origins and remain additional restrictions. The reviewed RL criterion
 still requires its actual five-run evidence and machine-observable context resolution.
 
-## Sprint 278.1: External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance [🔄 Active]
+## Historical Sprint 278.1: External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance [🔄 Active]
 
 **Status**: Active
 **Implementation**: `src/JitML/Bootstrap.hs`,
@@ -6984,7 +7134,7 @@ remaining obligations are listed above.
   aggregate; Phase285 owns standalone convergence grading. None is an upstream
   blocker or work to execute here before Phase278 closes.
 
-## Documentation Requirements
+## Historical Documentation Requirements
 
 **Engineering docs to create/update:**
 
@@ -7007,3 +7157,23 @@ remaining obligations are listed above.
 **Cross-references to add:**
 
 - None.
+
+## Documentation Requirements
+
+**Engineering docs to create/update:**
+
+- [Validation execution](../documents/engineering/validation_execution.md),
+  [execution resources](../documents/engineering/execution_resources.md),
+  [run contract](../documents/engineering/run_contract.md), and
+  [testing policy](../documents/engineering/unit_testing_policy.md).
+
+**Product docs to create/update:**
+
+- [Plan](README.md#validation-foundation-refactor), [overview](00-overview.md),
+  [component inventory](system-components.md), and the corresponding lane
+  report/portable evidence after actual qualification.
+
+**Cross-references to add:**
+
+- The current typed catalogue and [legacy removal ledger](legacy-tracking-for-deletion.md)
+  name every changed owner and deprecated active path; original evidence is retained.

@@ -11,6 +11,12 @@
 
 ## Current Status
 
+**Refactor boundary.** The campaign/resource contracts below are targets. Current
+implementation does not acquire their safety or qualification authority from
+this documentation change; execution order and pending work live in the
+[validation foundation refactor](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
+
+
 The bar discipline below is the contract. Its anchoring invariant is enforced by
 two predicates and a source lint (first point); what a literal constant's origin
 is cannot be enforced mechanically (second point), so this section states that
@@ -125,6 +131,38 @@ canonical ProductRow. These implemented paths do not supply current five-run
 qualification, fresh journals or actual owned live CLI/daemon evidence; those
 remain obligations of
 [Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work).
+
+## Prospective Scientific Readiness Target
+
+**Target; the existing structural bar checks do not prove independent scientific
+provenance.** Reopened Phases 115, 245, 249 and 254 own readiness; Phase 278 owns
+independent criterion policy and source-bound review. Current status and named
+failures remain in the [development plan](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
+
+Every investigation records a falsifiable hypothesis and the smallest bounded
+experiment that distinguishes it. Preserve authentic initial/final observations,
+actual work counters and learning curves. Separate memory/throughput/refusal
+failures from learning failure; host survival or successful publication does not
+establish convergence. Common environment/action/reward/termination behavior is
+checked before treating related algorithm failures as unrelated recipes.
+
+Development, calibration and qualification evidence have explicit roles. Recipes
+and acceptance predicates are fixed prospectively for qualifying execution.
+Budget or criterion changes need independent justification using appropriate
+calibration data, declared seed/split cohorts and provenance; they never relabel
+old results. Do not reduce a floor to a measured failing result, select favorable
+seeds, omit failures, or describe repeatedly inspected qualification values as
+unseen evidence. Historical project-calibrated constants remain honestly labeled.
+No literature-style field name or lexical lint proves an external anchor.
+
+Final exact-source implementation assessment and runtime criterion retention are
+required even when the acceptance policy itself is unchanged. Diagnostic contexts
+cannot refine into qualification. The original fixed served-index and whole-cohort
+learning checks remain until an explicitly reviewed replacement policy is
+implemented and all affected lane evidence is regenerated. Qualification under a
+fixed inspected seed set supports its stated scope, not an unstated statistical
+generalization claim.
+
 
 ## Additional held-out learning-signal policy
 
@@ -880,3 +918,21 @@ only in the
 - [Checkpoint Format](checkpoint_format.md)
 - [Product Completion Contract](product_completion_contract.md)
 - [Development Plan](../../DEVELOPMENT_PLAN/README.md)
+
+## Validation
+
+The following existing commands are run inside the explicitly admitted, bounded
+project container with real linux-cpu prerequisites. Target-specific cases are
+implemented by the owning reopened sprints before these commands can prove the
+new contract. No result from this documentation change is a passing execution.
+
+```bash
+# Example: Existing validation entrypoints inside the bounded project container
+jitml test jitml-unit --linux-cpu
+jitml test jitml-negative-controls --linux-cpu
+jitml docs check
+jitml check-code
+```
+
+Real backend, integration, browser and cohort evidence is additionally required
+where the owning sprint names it; pure controls cannot replace selected hardware.

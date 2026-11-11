@@ -10,11 +10,21 @@
 > ledger across the CLI bootstrap, the three-substrate cluster buildout, the
 > training and inference workloads, and the within-substrate test surface.
 
+## Current Status
+
+These standards define the adopted planning and target execution contracts.
+The documentation-only refactor does not implement the durable supervisor,
+resource enforcement, campaign recovery, source catalogue or checker changes.
+Sprint `221.2` reconciles machine-derived status with the reopened plan; the
+[execution order](README.md) names the actual implementation owners. Existing
+root CLI contracts remain binding until Phase `3` completes their explicit
+transfer. No safety or hardware-qualification pass is claimed by this text.
+
 ## Core Principles
 
 ### A. Continuous Clean-Room Narrative
 
-The plan must read as one sequential buildout from an empty checkout to the intended
+The plan must read as one dependency-ordered buildout from an empty checkout to the intended
 repository end state — one Haskell CLI driving three substrates (`apple-silicon`,
 `linux-cpu`, `linux-cuda`) behind a uniform command surface, the `jitml service`
 daemon as the single Pulsar-subscribed worker, deterministic JIT-compiled execution
@@ -24,7 +34,8 @@ contracts. Every workload crosses a raw-to-validated `RunPlan` boundary, execute
 through a pure protocol/evidence contract plus one resource-safe interpreter, and
 publishes reports derived from append-only execution journals.
 
-- Every phase assumes the previous phase has already closed.
+- A sprint assumes only its explicitly declared prerequisites have closed. Stable
+  phase numbers identify owners; the dependency graph determines execution order.
 - The plan flows from documentation topology to the CLI surface, to bootstrap
   reconcilers and JIT cache discipline, to cluster substrate and stateful platform
   services, to the long-running daemon, then through the numerical core and per-
@@ -450,111 +461,11 @@ all-model demo-rendering ownership, per-model integration/e2e ownership,
 linux-cuda product-lane ownership, apple-silicon product-lane ownership, and
 final no-caveat aggregation ownership each live in one place only.
 
-The 2026-07-12 typed-run-contract audit reopened existing owners instead of
-adding a Phase `35`; its completed process, delivery, plan, and interpreter
-prefix remains historical evidence for those retained surfaces. The 2026-07-18
-checkpoint/runtime audit found that supervised publisher artifacts were written
-through a name-derived generic checkpoint path, carried no executable runtime
-payload, and could be labelled eligible without exact persisted-byte admission.
-It therefore reopens the existing Phase `10`, `19`, `23`, `24`, and `32` owners.
-The strict forward chain runs `1 → … → 289` in the single-session numbering.
-The 2026-07-26 IR-single-owner `+4` renumber inserted Phases `236`–`239` and
-shifted the former tail `236`–`283` to `240`–`287`; Phase `289` is the later
-evidence-typed report-measurement owner. The 2026-08-09 local-resource correction
-reopens the existing topology owners instead of adding a tail phase. The
-2026-09-08 evidence-retention audit found that the three lane attestations were
-only Markdown projections and that none retained the typed scenario journal
-needed for later exact admission. That audit opened the chain
-`261 → 268 → 273 → 276 → 278 → 280 → 281 → 282 → 285 → 288 → 289`. Phase `261`
-has since re-closed after retaining and admitting the exact typed CPU journal;
-Phases `268`, `273`, and `276` have since closed. The current chain is
-`278 → 279 → 280 → 281 → 282 → 285 → 288 → 289`, with each later member Blocked by
-its immediate executable prerequisite. Phase `278` is Active: its changed
-supervised qualification and numerical recipes require fresh current lane
-journals; earlier CPU/CUDA re-issues retain only their historical source scope.
-The Mac supplies real Metal and container CPU execution, with qualification,
-exact runtime/physical replay still open. The forward allocation retains
-CPU/Apple journals and local/live-daemon/backend/quality gates in `278`, assigns
-CUDA plus its behavioral detector to `279`, and assigns aggregation plus the
-unchanged full CPU unit/integration gates to `280`. All four `278` execution/
-criterion guards and global standing requirements remain; no status is waived.
-Phase `279` remains Blocked for its existing behavioral-detector gap. The Phase
-`19`–`34` registry is **62 Done / 1 Active / 0 Planned / 7 Blocked**, counted from
-its 70 entries. [README.md → Closure Status](README.md#closure-status) owns the
-current executable status.
-Phases `42`, `53`, `69`, `229`, and `262` remain Done. At the dated
-2026-08-12 execution-architecture checkpoint, the audit had returned Phases
-`229`, `233`, `241`, `263`, `264`, `265`, and `270` to Active and moved Phase
-`268` to Blocked; Phases `229`, `7`, and `72` re-closed `Done` on 2026-08-13.
-Intervening phases remain Done on their retained non-topology surfaces. Sprint
-`23.1` is Done — its correct reverse-mode autodiff node
-library over the typed `LayerGraph` IR is finite-difference-validated, its
-`cifar10-vit` convergence go/no-go returned GO, and the vacuous convergence bars
-are resolved (served-path Tier-2 wiring and the attention residual add are now
-handled by the IR redesign in Phases `235`–`239`). Phases `234` (oneDNN layer
-kernels for training, including the batched IR kernels), `235` (the one
-self-describing checkpoint envelope collapsing the V1/V2/V3 wire versions), and
-`236` (the checkpoint admission single-path collapsing the version-gated store
-admission) all closed `Done` on 2026-07-27. Phases `237` (supervised serving on
-the IR) and `238` (supervised training on the IR) closed `Done` on 2026-07-28;
-Phase `239` (checkpoint construction from the trained graph) closed `Done` on
-2026-07-28; Phases `240`–`246` (the coupled literal-architecture landing) closed
-`Done` on 2026-07-30; Phase `250` (Typed RL Cohort) closed `Done` on 2026-07-30; Phases `251` (TrainingPlan/EvaluationPlan Compiler and Trainer Migration) and `252` (Typed Measured Counters and Evidence Separation) closed `Done` on 2026-07-31. Phase `261` closed `Done` on 2026-08-01 after immutable-image integration **161 / 161** (Phase `261` subtree **60 / 60**), unit **772 / 772**, authenticated ordered version-`3` **55-row** aggregate plus exact Store re-admission, live **9-component** and **12-dataset-object** checks, docs check, and check-code passed. Phase `262` (contract-driven live execution: browser and Playwright) closed `Done` on 2026-08-11. Phase `263` (contract-driven live execution: fragment issuance) closed `Done` on 2026-08-12 and reopened the same day under rule `C` when its device-evidence column proved to be declaration-derived. At that checkpoint the Phase `19`–`34` registry was **54 Done / 2 Active / 1 Planned / 11 Blocked**, with Phase `266` as the first executable owner. Once the preceding Linux lane journals have been retained, the apple-silicon wall at Phase `273` is the eventual hard stop on non-Apple hosts. Untouched
-phases remain Done on their retained surfaces, but the overall product handoff
-is incomplete until the current chain closes. Sprints `29.5` and `30.4` independently
-refresh the `linux-cuda` and `apple-silicon` evidence; Sprint `31.3` aggregates
-their committed journals on `linux-cpu` without re-running an accelerator.
-
-The 2026-07-15 retained-cluster audit additionally reopened Sprint `2.9` and
-Sprint `3.7` after the typed bootstrap migration proved to have dropped its
-Kind existence branch. Sprint `2.9` has re-closed on the typed retained-cluster
-recovery branch, and Sprint `3.7` has re-closed after two supported
-`linux-cpu` reconciles proved durable topic convergence, retained identity,
-exact image authority, publication/stamp stability, and the steady-state
-exit-`3` no-op result. Sprint `12.16` has also re-closed after its immutable-
-image six-command `linux-cpu` block, docs/code-quality gates, and independent
-resource checks passed. Those retained-cluster and shared-interpreter closures
-precede the current numerical open suffix above. They do not override the
-closed Phase `10` checkpoint/runtime owner or invalidate unrelated closed
-owners.
-
-The closure phases form a **forward chain** (renumbered 2026-06-16 per the
-forward-DAG doctrine in rule M): Phase `13` owns the full no-caveat model runtime
-(consuming the reopened Phases `8`–`10`), Phase `14` owns the browser product
-surface plus Playwright assertions for that runtime, and both close on the
-always-available `linux-cpu` lane. Phases `15`–`17` then carry every live-runtime
-obligation extracted from Phases `7`–`14` and consolidate it by machine-affinity
-so each phase is independently closeable on a single host with **at most one**
-accelerator plus `linux-cpu`: Phase `15` is the `linux-cuda` live lane (NVIDIA
-host), Phase `16` is the `apple-silicon` live lane (Mac host, independent of Phase
-`15`), and Phase `17` aggregates within-substrate reproducibility from the
-committed per-lane artifacts on `linux-cpu`. Phase `18` is the final
-`linux-cpu`-only handoff that merges the per-lane evidence into one no-caveat
-report card. Every Blocked-by and dependency edge references a strictly
-lower-numbered phase (rule M), so the plan is workable in numerical order.
-
-The 2026-07-01 product-truth reopen extends that forward chain without
-modifying the owned closure of Phases `0`–`18`, and the user elected to
-implement every row **for real** — the plan narrows nothing by documentation;
-each obligation is closed by real training, real inference, and real kernels.
-Phase `19` installs the typed product-truth gates, the single `ProductRow`
-registry, a matrix floor, per-row convergence bars, and the typed Phase `19`–`34`
-sprint-status registry that downstream closure gates consume. Phase `20`
-removes the legacy fake-ML fossils and installs the forbidden-scaffold +
-import-edge lint. Phase `21` makes inference eligibility a type-state property
-and training evidence non-fabricable. Phase `22` makes the canonical matrix and
-dataset-integrity boundary singular. Phase `23` builds the general
-differentiable layer engine — reverse-mode autodiff over the full layer catalog
-wired to real oneDNN. Phase `24` closes the real, literal supervised
-architectures. Phase `25` closes the real, genuinely-distinct RL algorithms and
-environments. Phase `26` closes real AlphaZero self-play per game. Phase `27`
-renders every row from real artifacts in the demo. Phase `28` gives every row
-integration and e2e coverage on `linux-cpu`. Phase `29` validates the product
-matrix on the `linux-cuda` lane with real cuDNN/cuBLAS kernels. Phase `30`
-validates it on the `apple-silicon` lane with real Metal kernels. Phase `31` is
-the `linux-cpu`-only aggregation and handoff. Phases `19`–`28` and `31` are
-`linux-cpu` only; Phase `29` may require `linux-cuda`; Phase `30` may require
-`apple-silicon`; no phase may require both accelerators.
+Historical phase maps and dated closure receipts live in
+[README.md](README.md) and their owning phase documents. They do not define a
+second execution order here. The explicit graph in rule M supersedes earlier
+numeric chains; reopened owners retain the original evidence only for its
+recorded surface.
 
 ### F. System Component Inventory
 
@@ -689,9 +600,14 @@ This standards document describes Mermaid rules with prose, inline code, or
 
 ### L. Project Doctrine Alignment
 
-[../README.md](../README.md) is the authoritative project and CLI doctrine.
-Phase documents and sprint blocks that schedule adoption work must cite the doctrine
-sections they implement by name (for example, `CommandSpec`, `Plan / Apply`,
+The canonical engineering owners are indexed by
+[../documents/engineering/README.md](../documents/engineering/README.md).
+The root [../README.md](../README.md) remains the binding CLI/project entry
+contract until its authority transfer is implemented under Phase `3`. This
+documentation-only refactor changes no root file or supported CLI surface.
+Phase documents and sprint blocks cite the canonical contract they implement;
+existing README-owned contracts retain their authority until an explicit transfer
+updates their consumers and anchors. Cite doctrine sections by name (for example, `CommandSpec`, `Plan / Apply`,
 `Subprocesses as Typed Values`, `Prerequisites as Typed Effects`, `Application
 Environment`, `Long-Running Daemons in the Same Binary`, `Reconcilers: Idempotent
 Mutation as a Single Command`, `At-Least-Once Event Processing`, `Capability Classes
@@ -700,12 +616,15 @@ Code-Quality Stack`, `Generated Artifacts → The generated-section registry`,
 `Test Organization`, `Output Rules`, `Error Handling`, `Typed Run Contracts`,
 `Toolchain pinning`, `Project Structure`).
 
-- Governed engineering docs under `documents/engineering/` referenced from the
-  README's `Referenced by` line must defer to the README for the patterns it owns
-  and retain only project-specific elaborations such as substrate identifiers,
-  Pulsar topic names, the Envoy Gateway socket convention, JIT-cache content-
-  addressing, RL-algorithm identifiers, AlphaZero loop, or the checkpoint wire
-  format.
+- Each durable contract has one canonical owner. An authority transfer lists
+  the old section, new owner, affected consumers, replacement anchors and
+  validation before removing binding text. Root documents summarize and link
+  after that transfer; duplicate contract bodies enter the removal ledger.
+- The target execution/resource contracts are
+  [validation execution](../documents/engineering/validation_execution.md) and
+  [execution resources](../documents/engineering/execution_resources.md). Their
+  Current Status sections distinguish the implementation that exists from the
+  behavior reopened sprints still owe.
 - The jitML adoption envelope of the doctrine is bounded: the in-scope and
   out-of-scope splits live in [00-overview.md](00-overview.md) `Doctrine Scope` and
   are inherited verbatim from the project [../README.md](../README.md) `Doctrine
@@ -722,95 +641,71 @@ Code-Quality Stack`, `Generated Artifacts → The generated-section registry`,
 - If a doctrine section changes, the same change updates every governed doc that
   references it.
 
-### M. Forward-Only, Single-Accelerator, Numerically-Ordered Phases
+<a id="m-forward-only-single-accelerator-numerically-ordered-phases"></a>
 
-This rule is the binding form of the project doctrine
-[Substrate-Affinity Phasing](../README.md#substrate-affinity-phasing) (in the
-[../README.md](../README.md) `Doctrine scope` registry). Its two primary
-invariants are **(a) Forward-Only Phase Dependencies** and **(b)
-Single-Accelerator Phase Validation**; **(c) numerical-order execution** and
-**(d) single-host closeability** are corollaries. The phase graph is a strict
-forward DAG that is workable in numerical order, and every phase closes on one
-host with at most one accelerator. These four invariants are mandatory; any plan
-change that would violate one is rejected, and the `### M. Enforcement` checks
-below make the plan self-policing. Invariants (a) and (b) are shared verbatim with
-the `infernix` sister project as the cross-project
-[Pulsar ML-Workflow Contract](../documents/engineering/pulsar_ml_workflow.md)
-(`Phasing rules`), so both repos converge on one forward-only,
-single-accelerator-per-phase shape.
+### M. Explicit Dependencies, Hardware Affinity, and Stable Phase IDs
 
-- **(a) Forward-only dependencies.** A phase's owned obligations, its sprints'
-  `**Blocked by**:` lines, and every dependency edge it declares may reference
-  only **equal-or-lower-numbered** phases and sprints. A later phase must never
-  appear in an earlier phase's `Blocked by`. A later phase *may* own an obligation
-  migrated out of an earlier phase — that is an ownership transfer (the earlier
-  phase's `Done` is then defined on its retained surface only), not a blocker.
-  Phases `0`–`12` retain forward "deferral" prose only as ownership transfers to
-  the downstream owner, never as blockers.
-- **(b) Single accelerator per phase.** No single phase's closure may require both
-  `apple-silicon` and `linux-cuda`. A phase that needs an accelerator selects
-  **exactly one** of `{linux-cuda, apple-silicon}` plus `linux-cpu`. A contract
-  that must hold on both accelerators is split into two sibling phases (one per
-  accelerator) or attested per-lane in independent sessions and aggregated by a
-  later `linux-cpu`-only phase. A phase's `### Validation` block must not list a
-  single must-pass-together gate spanning both accelerators.
-- **(c) Numerical-order execution.** The plan is workable strictly in numerical
-  order: every `Depends-On`/`Blocked by` edge references a strictly lower number
-  (a consequence of (a)), and each phase is **fully validated** — its owned
-  Exit-Definition obligations met per rule C — before the next phase begins.
-- **(d) Single-host closeability.** Each phase is fully closeable in a single
-  machine session on a single host: a `linux-cpu`-only phase closes on any Docker
-  host; a `linux-cuda` phase closes on the NVIDIA host (which also provides
-  `linux-cpu`); an `apple-silicon` phase closes on the Mac host (which also
-  provides `linux-cpu`). No phase requires two hosts. Cross-substrate
-  reproducibility and final handoff are therefore `linux-cpu`-only **aggregation**
-  phases that consume per-lane artifacts committed by the earlier
-  single-accelerator phases — they never re-run an accelerator lane.
+Phase and sprint IDs are stable ownership identities. The binding execution
+order is an explicit acyclic sprint graph, displayed in
+[README.md](README.md), with dependencies before consumers and numeric sprint
+ID as a deterministic tie-break among ready owners. A higher-numbered sprint
+may be a prerequisite of a lower-numbered one. Numeric order and one interactive
+machine session are not completion requirements. The old heading anchor above
+is retained for navigation, not as a second rule.
 
-Already-`Done` phases whose historical Validation listed all three substrates in
-one block (for example, the per-lane SL/RL/e2e gates) are re-documented as
-**validated per-lane in separate single-host sessions** to satisfy (b)/(d); this
-is a documentation note, not a code change, and does not reopen them. When the
-closure phases are renumbered to honor (a)–(d), the renumbering is recorded at the
-top of [README.md](README.md) `Closure Status` with an explicit old→new map.
+1. **Explicit dependencies.** Every unmet prerequisite appears in the owning
+   sprint's `**Blocked by**:` line and in the target evidence catalogue. There
+   are no implicit dependencies on every lower phase number. Cycles, self-edges,
+   missing owners and duplicated ownership are invalid. A transfer names both
+   owners and the exact obligation; historical evidence keeps its original scope.
+2. **Hardware affinity.** An execution owner selects `linux-cpu` alone or one
+   of `apple-silicon` and `linux-cuda` plus its CPU support. A closure gate does
+   not require both accelerators. Independent lanes consume shared readiness;
+   unrelated hardware qualification is not an artificial prerequisite.
+3. **Single-host campaigns.** A hardware owner closes on its declared host/device
+   configuration through a durable campaign spanning observer sessions. The
+   campaign mechanism in rule O does not authorize migration to a different
+   device or source identity. Missing selected hardware fails readiness; another
+   lane does not masquerade as its pass.
+4. **Aggregation without execution.** CPU aggregation owners consume exact
+   admitted lane records. Their validation starts no accelerator workload and
+   invents no numerical cross-substrate parity requirement. Hardware scheduling
+   and an exclusive host workload admission are separate from dependency edges.
+5. **Scoped reopening.** A disproved existing promise reopens its actual owner.
+   A distinct expanded obligation receives an evidenced sprint. Neither case
+   erases old receipts or promotes them to proof of a stronger contract.
 
 #### M. Enforcement
 
-Invariants (a) and (b) are machine-checkable, so the plan polices itself rather
-than relying on reviewer vigilance. Scans 1 and 2 below are **automated** in the
-`jitml-unit` "Product phase status registry" group (the
-`every dependency edge is forward-only`,
-`every sprint declares a concrete validation gate`, and
-`no sprint validation requires both accelerators` cases parse every registered
-phase document); scan 3 remains a documented deterministic scan run alongside
-`jitml check-code` / `jitml docs check` in the maintenance pass. A plan change
-closes only when all three report their zero-tolerance count. Each check is a
-deterministic scan over `phase-*.md` (no model judgement required):
+**Implementation boundary.** The current source catalogue/checkers still enforce
+numeric forward edges and a product-only inventory. Sprint `221.2` replaces
+those predicates with the graph and foundation-sprint coverage below. This
+planning refactor is not evidence that the source already projects the new
+statuses; source/checker drift remains an explicit prerequisite, never an
+allowlisted passing check.
 
-1. **Zero backward edges — enforces (a)/(c).** Build the dependency graph from
-   every sprint `**Blocked by**:` line and every declared dependency edge; the
-   pass condition is **0 edges** pointing from a lower-numbered phase/sprint to a
-   higher-numbered one. Ownership-transfer prose is not an edge and is excluded by
-   construction. (Reference scan: for each `phase-N-*.md`, every `N'.M` and
-   `Phase N'` named in a `**Blocked by**:` line satisfies `N' <= N`.)
-2. **No dual-accelerator validation gate — enforces (b).** For every phase, **no
-   single `### Validation` gate** names both an `apple-silicon` lane
-   (`--apple-silicon` / `apple-silicon.sh`) and a `linux-cuda` lane
-   (`--linux-cuda` / `linux-cuda.sh` / `-fcuda`). A phase may name both
-   accelerators only across *separate* per-lane gates, or as historical /
-   aggregation prose — never in one must-pass-together gate. Pass condition:
-   dual-accelerator-gate count == 0.
-3. **Aggregation-phase no-rerun — enforces (d).** A `linux-cpu`-aggregation
-   phase's `### Validation` contains only `--linux-cpu` invocations plus
-   "merge committed per-lane fragment" steps — no `-fcuda` / `--apple-silicon`
-   lane re-runs. Pass condition: per such phase, accelerator-invocation count == 0.
+The required deterministic checks are:
 
-Scans 1 and 2 are implemented as the `jitml-unit` phase-status guards named
-above (`test/unit/JournalDerivedStatus.hs`, registered from `test/unit/Main.hs`, parsing `**Blocked by**:` edges and `### Validation`
-blocks per registered phase document); a plan change that introduces a backward
-edge, a sprint with no validation gate, or a dual-accelerator gate fails
-`jitml-unit`. Scan 3 (aggregation no-rerun) remains the documented deterministic
-scan run before closing a plan change.
+- **Graph integrity:** zero cycles, self-edges, missing prerequisites, duplicate
+  sprint IDs and unknown owners; catalogue and `Blocked by` edges agree; emitted
+  order is a deterministic topological order.
+- **Evidence/status integrity:** explicit reopened foundation inventory plus the
+  complete product inventory; legacy attestations are shrink-only; no declared
+  status literal or historical receipt can close a newly evidenced obligation.
+- **Hardware affinity:** zero dual-accelerator execution gates and zero
+  accelerator launches in aggregation validation. Explicit per-lane owners
+  retain real hardware/toolchain availability failures.
+- **Dependency-bound validation:** hermetic engineering controls precede costly
+  campaigns; tests requiring newly admitted lane records execute after their
+  actual producers. Every original test obligation has one owner; no case is
+  dropped, skipped into a pass or allowed to fail silently to break a cycle.
+
+The implementation lives in the phase/status and document-checker surfaces
+owned by Sprint `221.2`, including `JitML.Product.PhaseStatus`,
+`StatusEvidence`, `StatusLoader`, `PlanDoc`, `JitML.Docs.Check`, and
+`test/unit/JournalDerivedStatus.hs`. Tests include a valid higher-numbered
+prerequisite, a cycle, a missing foundation sprint and hardware-affinity
+violations. `jitml docs check` and `jitml check-code` remain container-only.
 
 ### N. Evidence-Derived Product Status and Thin Closure Narrative
 
@@ -836,7 +731,8 @@ structured `attestations/validation/` records, selected criterion/registration
 data, admitted journals' portable qualification objects, and deliberate test
 fixtures remain versioned. Registered generated source
 also remains versioned. Older raw receipt trees are ignored; their retained
-README summaries describe historical scopes and can link to local-only payloads.
+README summaries describe historical scopes and name local-only payloads with
+code spans; Markdown links resolve to retained version-controlled documents.
 A clean checkout does not contain those payloads, and they cannot establish a
 committed closure obligation. Removing diagnostic payloads changes no phase to
 `Done` and does not replace missing validation.
@@ -855,38 +751,66 @@ realness audit finds a contradiction between status and evidence, the audit
 finding defines status and the owning phase moves back to `Active` until its
 standing gate passes again.
 
-### O. Incremental Failure Remediation and Gate Execution
+<a id="o-incremental-failure-remediation-and-gate-execution"></a>
 
-The ultimate validation criterion of a gate is unchanged: one complete,
-uninterrupted run of the whole gate on the final source. This section governs
-how a gate is reached efficiently; it does not weaken or replace that criterion,
-and no per-test or targeted result is closure evidence by itself.
+### O. Incremental Readiness and Complete Qualification Campaigns
 
-1. **Fix one failure, then prove that one failure.** After a change that
-   addresses a failing test, rerun only that test (or the smallest selectable
-   unit containing it) first. The change is not accepted until that targeted
-   rerun passes.
-2. **Work the remaining set individually.** Once the targeted rerun passes, run
-   each other previously failing or never-run test on its own, in order, fixing
-   and re-proving each one under rule 1. Do not restart the whole gate, or a
-   whole stanza, to learn the state of one test.
-3. **Never rerun a passing test early.** A test that has already passed against
-   the current source is not rerun until every previously failing and unrun test
-   passes. A source change that could affect an already-passing test names that
-   test and the reason; only then may it be rerun, and it is recorded as such.
-4. **Full gate last.** Run the complete gate only when every individual test has
-   passed against the current source and the operator is reasonably confident the
-   whole will pass. The full gate then runs once, unmodified, from the start.
-5. **Record per test.** Keep a per-test ledger under ignored `.build/`
-   (test, source hash, outcome, log path). Narrative stays thin: the plan records
-   the failing test, the change, the targeted rerun result and the final gate.
-6. **Honest scope.** Per-test passes establish readiness only. Retained failures,
-   interrupted attempts and the complete-gate record stay literal; no prefix of
-   a failed full run, and no collection of individual passes, is adopted as the
-   complete gate or substituted for it.
-7. **No new gate lane.** Individual runs use the same lane, hardware, resource
-   limits, seeds, bars and deadlines as the full gate. A test that cannot be
-   selected individually is first made selectable as its own change.
+A complete gate proves every owned obligation on one frozen candidate. Its target
+qualification unit is a complete, authenticated campaign containing atomically
+committed whole-row cohorts, followed by full coverage, admission and consumer
+checks. Agent-session lifetime is not scientific evidence.
+
+**Implementation boundary.** Existing acquisition still requires a fresh
+uninterrupted command-owned scope and cannot recover completed row units. The
+campaign, credential, journal and consumer changes are unimplemented obligations
+of Phases `160`, `260`, `261`, `262` and `263`. Until their acceptance passes,
+no interrupted scope, diagnostic result, re-keyed review or historical prefix
+is adopted through the target protocol. A policy change cannot mint evidence.
+
+1. **Prove the fix first.** After changing a failing test or row, run that test
+   or the smallest selectable production unit first. Keep unresolved failures
+   and never-run units ahead of gratuitous repetition of passing work.
+2. **Track invalidation.** A readiness ledger under ignored `.build/` records
+   source/image/toolchain, row contract, seed cohort, criterion identity,
+   resources, deadlines, result and log location. Each change names affected
+   earlier passes and the reason for revalidation. Readiness is not qualification.
+3. **Separate diagnostics.** Experiments use the supported bounded owner and
+   an explicit diagnostic manifest. They may discriminate memory, throughput or
+   learning hypotheses, but issue no qualifying credential or row commit. No
+   uncapped native `nohup` swarm bypasses the resource contract. Revised recipes
+   or criteria need prospective review and a new qualification epoch.
+4. **Freeze before qualification.** The campaign manifest binds the full source,
+   binaries/images, toolchains, device, datasets, ordered row contracts,
+   independently reviewed acceptance policy, execution policy and runner.
+   Initially any source or semantic policy change starts a new epoch; fine-grained
+   qualifying source reuse requires separate proof and is outside this refactor.
+5. **Commit only whole units.** One row includes all prescribed outcomes and
+   seeds, authentic initial/final observations, fixed served index, counters,
+   exact Store/replay objects and completed preservation. Durable authenticated
+   commit is atomic and follows required after-state proof. Interrupted or
+   unverifiable units remain incomplete and rerun in full; there is no mid-seed
+   trainer resume, seed substitution or importing a prefix from another epoch.
+6. **Retain failures and authority.** Append-only attempts include scientific
+   refusals, infrastructure interruption and cleanup results. Recovery verifies
+   the same manifest, issuer authority and every committed object. It cannot
+   omit a failure, cherry-pick a better attempt, or turn a missing credential into
+   completion. The trusted-local-issuer boundary is explicit.
+7. **Complete the gate.** Final admission exactly joins every required row once,
+   rejects gaps/duplicates/mixed epochs and unresolved failures, rechecks physical
+   artifacts and runs full aggregate, integration, browser, preservation and
+   cleanup obligations. Completed training is not repeated merely because an
+   observer disconnected. The final result records all coverage and is admitted
+   through production APIs, never inferred from a row count or zero process exit.
+8. **Prove execution before science.** Bounded fixtures verify process ownership,
+   disconnect recovery, monitor loss, capture saturation, commit crash points,
+   foreign/stale evidence, concurrent ownership, cancellation and cleanup.
+   A real-size accumulation check validates retained results and publication fit;
+   neither fixture nor isolated row success proves a full hardware lane.
+
+The durable contracts are [validation execution](../documents/engineering/validation_execution.md)
+and [execution resources](../documents/engineering/execution_resources.md).
+Scientific failures stay in their owning phase's Remaining Work. The deletion
+ledger records deprecated mechanisms, not an alternative list of primary work.
 
 ### P. Windows-Portable Version-Controlled Paths
 
@@ -941,7 +865,8 @@ Consequences for plans, evidence and generated data:
 - Links inside `DEVELOPMENT_PLAN/` use relative paths.
 - Links to governed docs under `documents/` use repository-relative paths
   (`../documents/...`).
-- Links to project doctrine use `../README.md`.
+- Links to doctrine use its canonical engineering owner; untransferred root CLI
+  contracts continue to use `../README.md`.
 - File renames require same-change link updates everywhere the file is referenced.
 
 ## Maintenance Guidelines
@@ -952,18 +877,18 @@ Consequences for plans, evidence and generated data:
 3. Update the governed engineering docs listed in `Docs to update`.
 4. Update [legacy-tracking-for-deletion.md](legacy-tracking-for-deletion.md) whenever
    cleanup scope changes.
-5. Run the three `### M. Enforcement` deterministic scans over `phase-*.md` and
-   confirm each reports its zero-tolerance count (0 backward edges; 0
-   dual-accelerator validation gates; 0 accelerator re-runs in an aggregation
-   phase). A non-zero count blocks closure.
+5. Run the `M. Enforcement` dependency, status and hardware-affinity checks.
+   Preserve any current implementation/checker mismatch as a failure owned by
+   Sprint `221.2`; zero backward numeric edges is no longer the target predicate.
+   A non-zero contract violation blocks closure.
 6. Run `jitml check-code` inside `jitml:local` before closing the work (once Phase
    1 lands the command; until then, run `fourmolu --mode check`, `hlint`, and
    `cabal format` manually inside the container).
 7. If the change touched Mermaid, render every Mermaid block in `DEVELOPMENT_PLAN/`
    and verify the edited diagram in the target viewer before closing the work.
-8. Follow `### O. Incremental Failure Remediation and Gate Execution` for every
-   gate: targeted rerun of each fixed failure first, remaining tests one at a
-   time, passing tests not rerun early, and the complete gate only once.
+8. Follow `O. Incremental Readiness and Complete Qualification Campaigns`: prove
+   each fix first, record invalidation, then qualify complete coverage on the
+   frozen epoch only after its mechanism and readiness prerequisites pass.
 9. Run `bootstrap/check-path-lengths.sh` before closing any change that adds,
    renames or admits files, and follow `### P. Windows-Portable Version-Controlled
    Paths`: a non-zero result blocks closure.

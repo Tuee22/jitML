@@ -11,6 +11,12 @@
 
 ## Current Status
 
+**Refactor boundary.** The campaign/resource contracts below are targets. Current
+implementation does not acquire their safety or qualification authority from
+this documentation change; execution order and pending work live in the
+[validation foundation refactor](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
+
+
 **Implemented today.** Provenance is bound to one self-describing checkpoint
 envelope distinguished by payload variant: weight-only for RL, AlphaZero, and
 tuning, or supervised-graph for the exact trained `LayerGraph`. Store admission
@@ -23,6 +29,59 @@ status and validation evidence live in the development plan.
 The live RL integration scenarios bind the compiled plan's exact environment-step
 total through `rlLiveContractForSteps`; the step-free `rlLiveContract` remains for a
 caller that cannot supply a total and binds only the checkpoint's budget kind.
+
+## Qualification Campaign Target
+
+**Current implementation.** ProductScenario integration acquisition owns a fresh
+workspace and transient authorization key, executes the complete row traversal,
+and publishes its aggregate afterward. Existing journal admission remains bound
+to that command scope. It cannot recover a qualification campaign from completed
+row files. The rules below describe an unimplemented replacement owned by
+[Sprint 261.2](../../DEVELOPMENT_PLAN/phase-261-contract-driven-live-execution-integration-journal.md).
+
+**Target contract.** A refined immutable campaign manifest binds full source,
+executable/image/toolchain, ordered row contracts, substrate/device, datasets,
+independent criterion identity and execution policy. Diagnostic observations and
+readiness records have a distinct origin and never refine to qualifying evidence.
+A completed row capability requires its entire prescribed cohort, authentic
+initial/final observations, counters, fixed served index, physical artifacts,
+Store/replay and required preservation seal. A checkpoint file or child exit is
+insufficient. No partial seed or historical prefix is imported.
+
+Attempt events are append-only. Atomic authenticated row commits become durable
+only after object writes and required seals complete. Crash-before/after-commit,
+truncated writes and interrupted closing roles have distinct outcomes. Restart
+requires exclusive campaign authority and re-verifies manifest, commit history
+and every retained object; incomplete units remain incomplete and rerun in full.
+Scientific refusals cannot be erased or hidden by selecting a later successful
+attempt. Any allowed infrastructure retry has an explicit recorded classification.
+
+Persistent credentials are parent-only capabilities outside child mounts and
+logs, with verified ownership/non-link paths, atomic publication and fsync. Lost
+or unverifiable authority fails closed. Hash-named files and a caller-built
+record cannot mint completion. The trust boundary is the trusted local issuer;
+authentication does not defend against a malicious same-user issuer able to read
+its own credentials. Backward replay/rollback, foreign epochs and concurrent
+owners are explicit refusal cases.
+
+Campaign authority also binds finite retry/expiry policy and durable retention
+pins for every row object and Store snapshot. Neither observer reconnection nor
+a new run identifier resets a scientific refusal. GC/pause/restart and quota
+refusal controls verify the retention boundary; see
+[finite recovery](validation_execution.md#retention-and-finite-recovery).
+
+Final admission independently reopens immutable objects and exact-joins every
+required row once. Duplicate/missing rows, altered cohorts, unresolved failures,
+source/device/criterion mismatch or absent closing evidence reject the lane.
+Existing journals are versioned evidence, not silently reinterpreted as the new
+protocol. Consumers migrate together under Sprints 260.2, 262.2 and 263.2.
+Operational budgets remain distinct from numerical work quantities and PlanId;
+prospective execution-policy changes still invalidate campaign authority.
+
+The state machine, owner/observer boundary and failure controls are owned by
+[validation execution](validation_execution.md); host admission and measurement
+semantics are owned by [execution resources](execution_resources.md).
+
 
 ## Scope and Ownership
 
@@ -1266,3 +1325,21 @@ they do not maintain a competing implementation-status ledger.
 - [PureScript Frontend](purescript_frontend.md)
 - [Development Plan](../../DEVELOPMENT_PLAN/README.md)
 - [Legacy Tracking](../../DEVELOPMENT_PLAN/legacy-tracking-for-deletion.md)
+
+## Validation
+
+The following existing commands are run inside the explicitly admitted, bounded
+project container with real linux-cpu prerequisites. Target-specific cases are
+implemented by the owning reopened sprints before these commands can prove the
+new contract. No result from this documentation change is a passing execution.
+
+```bash
+# Example: Existing validation entrypoints inside the bounded project container
+jitml test jitml-unit --linux-cpu
+jitml test jitml-negative-controls --linux-cpu
+jitml docs check
+jitml check-code
+```
+
+Real backend, integration, browser and cohort evidence is additionally required
+where the owning sprint names it; pure controls cannot replace selected hardware.

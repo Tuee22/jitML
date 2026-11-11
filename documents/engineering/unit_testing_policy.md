@@ -15,6 +15,12 @@
 
 ## Current Status
 
+**Refactor boundary.** The campaign/resource contracts below are targets. Current
+implementation does not acquire their safety or qualification authority from
+this documentation change; execution order and pending work live in the
+[validation foundation refactor](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
+
+
 **Implemented today.** `jitml-sl-canonicals` asserts the current literal trained
 `LayerGraph`, its graph-derived parameter count, the single supervised-graph
 checkpoint envelope, Store reload parity, and row convergence/evidence.
@@ -69,7 +75,7 @@ local predicate tests from the retained-lane positives left in
 `ProductBarProvenance`. `TinyArchiveControls` and `TrpoFisherControls` retain the
 original assertion bodies and positions in their original stanzas. This sharing
 does not remove any original unit, SL or negative-control test. Coverage guards
-establish registration structure; Phase `279` separately owns behavioral truth
+establish registration structure; Phase `225` owns the reopened CPU behavioral truth
 detection, and complete training/journal evidence remains necessary.
 
 The on-policy unit controls inject distinguishable devices and failures to test
@@ -92,6 +98,55 @@ no original leaf or assertion is removed. Backend arena fixtures must execute in
 their real device lanes; registration and enumeration are not hardware passes.
 No extraction changes phase ownership, external guards or global standing gates.
 Actual source-bound validation stays in the Development Plan.
+
+## Validation Evidence Boundaries
+
+**Target; not implemented by this documentation change.**
+[Validation execution](validation_execution.md) owns diagnostic/readiness versus
+qualification authority. Sprint 221.2 first implements the status/dependency
+transition; Sprints 160.2 and 261.2 implement the actual execution and campaign
+boundaries. Current tests still include a shared complete-matrix acquisition;
+selecting one integration leaf does not establish that only one row ran.
+
+| Evidence | What it establishes | What it cannot establish |
+|---|---|---|
+| Diagnostic | A stated hypothesis and actual observation under a bounded envelope | Learning eligibility, final-source readiness or qualification |
+| Readiness | Exact selected row/control on recorded inputs and resources | Complete lane coverage or unaffected behavior after a change |
+| Engineering baseline | Actual hermetic/process/resource predicates in their proper lanes | A missing real device, trained cohort or remote service |
+| Qualified row | Whole authentic cohort and completed physical/preservation seal | A complete lane without every other required row |
+| Admitted lane | Exact full campaign join plus required consumer/closing checks | Another substrate or cross-substrate numerical parity |
+
+All existing cases and assertion bodies remain obligations. Classify current
+failures into hermetic logic, registration, stale fixtures and genuine runtime
+admission; fix their causes. No known-failure allowlist, weakened assertion or
+unavailable-lane pass is admitted. A selected substrate without its runtime
+fails; cases owned by another explicit lane are registered there rather than
+reported as skipped successes. Hermetic checks precede hardware work; checks
+consuming newly produced lane records follow those actual prerequisites.
+
+Lane-local engineering cases consume their own lane's objects or hermetic
+fixtures. Cross-lane journal/aggregate consumers have explicit CPU aggregation
+ownership and run after all producer lanes; they are not prerequisites for each
+hardware lane's local test command. Classification preserves every assertion and
+requires independently checked inventories rather than skip/allowlist behavior.
+The current registration must be changed before that target separation is claimed.
+
+The maintained runner's controls include real child-tree ownership, observer
+disconnect/reconnect, safety-owner death, silent/output-heavy children, bounded
+capture, stale/incomplete measurement, cancellation escalation and cleanup. Use
+bounded threshold injection and controlled allocations; do not exhaust the host.
+Whole-campaign retention/consumer tests exercise accumulated objects, catalogue
+publication and final joins. Isolated row success alone does not prove aggregate
+working-set fit. Enumerating or statically checking a command is not executing it.
+
+Every failing or unrun row is selectable through the production row mechanism
+before another full campaign is attempted. Readiness records name source/image,
+recipe/seeds, selected lane, actual resources, deadlines, outcome and evidence.
+A shared-path change names affected earlier greens. Gate discovery itself starts
+no training. Realness behavior belongs to reopened Phase 225; hardware execution
+witnesses remain separate proofs. Final full required suites run after their
+actual data prerequisites, even when all targeted checks passed.
+
 
 ## Doctrine Deferrals
 
@@ -1027,3 +1082,21 @@ substrates, so each substrate is validated for real within its own lane.
 - [determinism_contract.md](determinism_contract.md)
 - [run_contract.md](run_contract.md)
 - [../documentation_standards.md](../documentation_standards.md)
+
+## Validation
+
+The following existing commands are run inside the explicitly admitted, bounded
+project container with real linux-cpu prerequisites. Target-specific cases are
+implemented by the owning reopened sprints before these commands can prove the
+new contract. No result from this documentation change is a passing execution.
+
+```bash
+# Example: Existing validation entrypoints inside the bounded project container
+jitml test jitml-unit --linux-cpu
+jitml test jitml-negative-controls --linux-cpu
+jitml docs check
+jitml check-code
+```
+
+Real backend, integration, browser and cohort evidence is additionally required
+where the owning sprint names it; pure controls cannot replace selected hardware.

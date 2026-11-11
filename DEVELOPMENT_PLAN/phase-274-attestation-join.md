@@ -5,9 +5,73 @@
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [development_plan_standards.md](development_plan_standards.md)
 **Generated sections**: none
 
-> **Purpose**: Attestation Join. Single-session phase migrated from legacy Sprint 31.1 in the 2026-07-24 phase-per-session renumber; see the old→new map in [README.md](README.md).
+> **Purpose**: Attestation Join. Originally migrated from legacy Sprint 31.1 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
 ## Phase State
+
+⏸️ **Blocked** on the expanded campaign obligations below. Historical closure
+remains scoped to the execution and implementation it actually proved.
+
+The [validation foundation refactor](README.md#validation-foundation-refactor)
+owns the current execution order. Sprint `221.2` first updates the source
+catalogue/checkers for the reopened sprint graph; those source changes are not
+part of this documentation-only revision. Current machine projection still
+reflects the old catalogue and must not be reported as validating these targets.
+
+The [execution contract](../documents/engineering/validation_execution.md) and
+[resource contract](../documents/engineering/execution_resources.md) state the
+new targets. Atomic row recovery is not implemented or authorized by prose: until
+`261.2` passes, existing qualification remains non-resumable. No historical partial
+attempt, diagnostic review copy or readiness ledger is adopted as qualification.
+
+## Sprint 274.2: Exact join of independent campaigns [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprint `263.3`, Sprint `268.2`, Sprint `273.2`
+**Docs to update**: `../documents/engineering/validation_execution.md`, `../documents/engineering/execution_resources.md`, `../documents/engineering/run_contract.md`, `../documents/engineering/unit_testing_policy.md`, `README.md`, `system-components.md`
+
+### Objective
+
+Join the independently admitted CPU, CUDA and Apple campaigns on CPU without executing an accelerator.
+
+### Deliverables
+
+- Require exact row coverage, source epoch, contract/criterion identities, lane/device identities and portable qualifying objects from every input.
+- Keep within-substrate determinism obligations; an aggregate does not invent numerical parity between substrates.
+- Reject stale legacy fragments, mixed campaigns, missing objects and hand-authored pass tables.
+
+### Validation
+
+These are acceptance requirements for the target implementation. They are not
+passes from this documentation change. Targeted failing controls run first; the
+complete applicable stanzas run only after their actual evidence prerequisites
+exist. Commands use the explicit named context and task-specific approved bounds;
+cluster-running work uses the separately admitted cluster/lifecycle profile.
+
+1. Exercise positive joins of real admitted records and negatives for stale, foreign, duplicate, omitted, corrupted or mismatched inputs.
+2. Complete the CPU-only join and retain the production-reader result; no accelerator rerun is part of this validation.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-unit --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-negative-controls --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Implement the deliverables after the listed prerequisites; retain every failed or incomplete observation in its original scope.
+- Complete the listed acceptance in its declared evidence scope, retain the required records, and reconcile the source status catalogue before claiming closure.
+
+## Retained Historical Contract and Evidence
+
+The remainder records prior implementation, commands, status and failures. Its
+claims retain their original source, policy and date. Superseded launch ordering,
+resource rules and uninterrupted-process requirements do not override the current
+sprints above. Preserve these receipts; do not execute a historical recipe as a
+current authorized campaign.
+
+## Retained Historical Phase State
 
 ✅ **Done**.
 
@@ -73,7 +137,7 @@ The focused Phase `31.1` committed attestation join passed **1 / 1**, reading
 `DEVELOPMENT_PLAN/attestations/apple-silicon-report-card.md` and producing the
 expected **165** lane-row evidence records.
 
-## Documentation Requirements
+## Historical Documentation Requirements
 
 **Engineering docs to create/update:**
 
@@ -86,3 +150,23 @@ expected **165** lane-row evidence records.
 **Cross-references to add:**
 
 - None.
+
+## Documentation Requirements
+
+**Engineering docs to create/update:**
+
+- [Validation execution](../documents/engineering/validation_execution.md),
+  [execution resources](../documents/engineering/execution_resources.md),
+  [run contract](../documents/engineering/run_contract.md), and
+  [testing policy](../documents/engineering/unit_testing_policy.md).
+
+**Product docs to create/update:**
+
+- [Plan](README.md#validation-foundation-refactor), [overview](00-overview.md),
+  [component inventory](system-components.md), and the corresponding lane
+  report/portable evidence after actual qualification.
+
+**Cross-references to add:**
+
+- The current typed catalogue and [legacy removal ledger](legacy-tracking-for-deletion.md)
+  name every changed owner and deprecated active path; original evidence is retained.

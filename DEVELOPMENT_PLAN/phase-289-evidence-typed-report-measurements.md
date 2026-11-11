@@ -5,16 +5,119 @@
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [development_plan_standards.md](development_plan_standards.md)
 **Generated sections**: none
 
-> **Purpose**: Evidence-Typed Report Measurements. Single-session phase migrated from legacy Sprint 34.4 in the 2026-07-24 phase-per-session renumber; see the old→new map in [README.md](README.md).
+> **Purpose**: Evidence-Typed Report Measurements. Originally migrated from legacy Sprint 34.4 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
 ## Phase State
+
+⏸️ **Blocked** on the expanded campaign obligations below. Historical closure
+remains scoped to the execution and implementation it actually proved.
+
+The [validation foundation refactor](README.md#validation-foundation-refactor)
+owns the current execution order. Sprint `221.2` first updates the source
+catalogue/checkers for the reopened sprint graph; those source changes are not
+part of this documentation-only revision. Current machine projection still
+reflects the old catalogue and must not be reported as validating these targets.
+
+The [execution contract](../documents/engineering/validation_execution.md) and
+[resource contract](../documents/engineering/execution_resources.md) state the
+new targets. Atomic row recovery is not implemented or authorized by prose: until
+`261.2` passes, existing qualification remains non-resumable. No historical partial
+attempt, diagnostic review copy or readiness ledger is adopted as qualification.
+
+## Sprint 289.1: Evidence-Typed Report Measurements [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprint `289.2`
+**Docs to update**: `../documents/engineering/validation_execution.md`, `../documents/engineering/execution_resources.md`, `../documents/engineering/run_contract.md`, `../documents/engineering/unit_testing_policy.md`, `README.md`, `system-components.md`
+
+### Objective
+
+Retain the original unmet obligation and historical failures while completing
+its explicitly reassigned or expanded proof below. The prior numerical chain
+and old command sequence in the historical section are not current launch
+authority. No previous failure or missing closing proof is erased.
+
+### Deliverables
+
+- Preserve the original contract and evidence obligations through the named
+  current owners; qualify no obligation from diagnostic or historical data.
+- Reconcile the typed catalogue and replacement acceptance in 221.2, then admit
+  the complete current evidence without duplicate training at consumer phases.
+
+### Validation
+
+Run the applicable complete CPU unit and negative-control stanzas only after
+their real data/live prerequisites exist; the expanded sprint below specifies
+its live or production-reader acceptance.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-unit --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-negative-controls --linux-cpu
+```
+
+### Remaining Work
+
+- Complete the named prerequisites and expanded acceptance below.
+- Reconcile all original owned obligations and obtain evidence-derived status;
+  the historical text supplies no current closure claim.
+
+## Sprint 289.2: Final evidence-typed report and handoff [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprint `288.2`, Sprint `285.2`, Sprint `287.2`, Sprint `278.3`, Sprint `279.2`
+**Docs to update**: `../documents/engineering/validation_execution.md`, `../documents/engineering/execution_resources.md`, `../documents/engineering/run_contract.md`, `../documents/engineering/unit_testing_policy.md`, `README.md`, `system-components.md`
+
+### Objective
+
+Final handoff exposes only measurements and completion states supported by the exact current campaigns and all required clean gates.
+
+### Deliverables
+
+- Render immutable row/lane/source/criterion identities, all-attempt history and the limits of each measured claim.
+- Require complete current evidence, no owned pending legacy residue, clean required suites, real browser outcomes and final preservation/stop receipts.
+- Do not equate controlled containment with universal kernel-panic immunity or claim scientific generalization beyond the actual qualification design.
+
+### Validation
+
+These are acceptance requirements for the target implementation. They are not
+passes from this documentation change. Targeted failing controls run first; the
+complete applicable stanzas run only after their actual evidence prerequisites
+exist. Commands use the explicit named context and task-specific approved bounds;
+cluster-running work uses the separately admitted cluster/lifecycle profile.
+
+1. Verify report types reject declarations, absent/foreign evidence and incomplete coverage, including real browser consumer records.
+2. Pass the final complete CPU unit/negative/convergence/live-e2e stanzas and current docs/quality checks without accelerator retraining.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-unit --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-negative-controls --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-model-convergence --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-e2e --live --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Implement the deliverables after the listed prerequisites; retain every failed or incomplete observation in its original scope.
+- Complete the listed acceptance in its declared evidence scope, retain the required records, and reconcile the source status catalogue before claiming closure.
+
+## Retained Historical Contract and Evidence
+
+The remainder records prior implementation, commands, status and failures. Its
+claims retain their original source, policy and date. Superseded launch ordering,
+resource rules and uninterrupted-process requirements do not override the current
+sprints above. Preserve these receipts; do not execute a historical recipe as a
+current authorized campaign.
+
+## Retained Historical Phase State
 
 ⏸️ **Blocked**. Blocked by Phase 288 (Sprint 288.1).
 
 The evidence-typed measurements are implemented and pass on the host and in the
 `linux-cpu` container; closure waits on Sprint `288.1`.
 
-## Sprint 289.1: Evidence-Typed Report Measurements [⏸️ Blocked]
+## Historical Sprint 289.1: Evidence-Typed Report Measurements [⏸️ Blocked]
 
 **Status**: Blocked
 **Implementation**: `src/JitML/Test/Measurement.hs`,
@@ -126,7 +229,7 @@ never executes the live measurement glue in `Command.hs` that this sprint owns.
   (a deferred, port-resolving plan step that does not count as a test invocation)
   so those two fields can carry evidence instead of `not journaled`.
 
-## Documentation Requirements
+## Historical Documentation Requirements
 
 **Engineering docs to create/update:**
 
@@ -139,3 +242,23 @@ never executes the live measurement glue in `Command.hs` that this sprint owns.
 **Cross-references to add:**
 
 - None.
+
+## Documentation Requirements
+
+**Engineering docs to create/update:**
+
+- [Validation execution](../documents/engineering/validation_execution.md),
+  [execution resources](../documents/engineering/execution_resources.md),
+  [run contract](../documents/engineering/run_contract.md), and
+  [testing policy](../documents/engineering/unit_testing_policy.md).
+
+**Product docs to create/update:**
+
+- [Plan](README.md#validation-foundation-refactor), [overview](00-overview.md),
+  [component inventory](system-components.md), and the corresponding lane
+  report/portable evidence after actual qualification.
+
+**Cross-references to add:**
+
+- The current typed catalogue and [legacy removal ledger](legacy-tracking-for-deletion.md)
+  name every changed owner and deprecated active path; original evidence is retained.

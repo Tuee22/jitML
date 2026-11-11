@@ -84,6 +84,12 @@ evidence. See
 
 ## Current Status
 
+**Refactor boundary.** The campaign/resource contracts below are targets. Current
+implementation does not acquire their safety or qualification authority from
+this documentation change; execution order and pending work live in the
+[validation foundation refactor](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
+
+
 **Implemented recorded native evidence boundary.** Source `39547f58…` preserves
 neural six-element/tag-0 evidence bytes
 and historical five-element/tag-0 decoding, and adds host six-element/tag-1 with
@@ -159,6 +165,38 @@ that rides alongside the graph is slimmed to the task and the exact input/output
 transforms; serving reconstructs the graph, injects the one physical
 graph-ordered `supervised.weights` blob, runs `LayerGraph.runLayerGraph`, and
 applies the transforms outside the graph.
+
+## Campaign Retention Target
+
+**Target; existing physical checkpoint admission does not implement campaign
+recovery.** [Typed run contracts](run_contract.md#qualification-campaign-target)
+owns campaign authority and row commits; this document owns immutable checkpoint
+bytes, snapshot/object identity and Store admission.
+
+The target row commit references exact admitted artifacts, authentic complete
+cohort outcomes and completed preservation evidence. It becomes durable only
+after those objects and the required seals are durable. The campaign owns durable GC/snapshot retention pins for every committed
+weight, companion, cohort outcome and snapshot across pauses and VM restart,
+with a reserved disk budget and explicit lifetime. Pins release only after
+campaign admission and downstream portable retention duties complete, or after
+explicit recorded abandonment. GC/pause/restart and capacity-refusal controls
+verify this boundary. An artifact whose address still exists but whose
+bytes changed fails; a coherently readdressed replacement cannot inherit an old
+measurement or row authority.
+
+Recovery re-verifies physical objects and source/device/criterion bindings.
+Missing credentials or objects, failed after-state proof and partial seeds do not
+become qualified merely because training returned. A panic can invalidate work
+since the last completed seal; it cannot manufacture a seal. Historical checkpoint
+wire/journal versions keep their original readers and scope until explicitly
+migrated or rejected; no current hash is reinterpreted as a new protocol.
+
+The portable short criterion-data layout changes runtime paths, deliberate data,
+pinned identities, Docker retention and clean-checkout verification together.
+Re-keyed local diagnostic review copies never become independently reviewed
+qualification inputs. No recovery archive is removed before verified retention
+and explicit cleanup authority.
+
 
 ## Compact supervised qualification
 
@@ -1366,3 +1404,21 @@ persisted weights or manifest.
 - [Legacy Phase 10: Checkpointing and Inference](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
 - [Legacy Phase 13: No-Caveat Model Runtime](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
 - [Legacy Phase 18: No-Caveat Product Handoff](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
+
+## Validation
+
+The following existing commands are run inside the explicitly admitted, bounded
+project container with real linux-cpu prerequisites. Target-specific cases are
+implemented by the owning reopened sprints before these commands can prove the
+new contract. No result from this documentation change is a passing execution.
+
+```bash
+# Example: Existing validation entrypoints inside the bounded project container
+jitml test jitml-unit --linux-cpu
+jitml test jitml-negative-controls --linux-cpu
+jitml docs check
+jitml check-code
+```
+
+Real backend, integration, browser and cohort evidence is additionally required
+where the owning sprint names it; pure controls cannot replace selected hardware.

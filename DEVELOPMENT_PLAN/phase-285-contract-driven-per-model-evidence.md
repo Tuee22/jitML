@@ -5,9 +5,110 @@
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [development_plan_standards.md](development_plan_standards.md)
 **Generated sections**: none
 
-> **Purpose**: Contract-Driven Per-Model Evidence. Single-session phase migrated from legacy Sprint 33.3 in the 2026-07-24 phase-per-session renumber; see the old→new map in [README.md](README.md).
+> **Purpose**: Contract-Driven Per-Model Evidence. Originally migrated from legacy Sprint 33.3 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
 ## Phase State
+
+⏸️ **Blocked** on the expanded campaign obligations below. Historical closure
+remains scoped to the execution and implementation it actually proved.
+
+The [validation foundation refactor](README.md#validation-foundation-refactor)
+owns the current execution order. Sprint `221.2` first updates the source
+catalogue/checkers for the reopened sprint graph; those source changes are not
+part of this documentation-only revision. Current machine projection still
+reflects the old catalogue and must not be reported as validating these targets.
+
+The [execution contract](../documents/engineering/validation_execution.md) and
+[resource contract](../documents/engineering/execution_resources.md) state the
+new targets. Atomic row recovery is not implemented or authorized by prose: until
+`261.2` passes, existing qualification remains non-resumable. No historical partial
+attempt, diagnostic review copy or readiness ledger is adopted as qualification.
+
+## Sprint 285.1: Contract-Driven Per-Model Evidence [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprint `285.2`
+**Docs to update**: `../documents/engineering/validation_execution.md`, `../documents/engineering/execution_resources.md`, `../documents/engineering/run_contract.md`, `../documents/engineering/unit_testing_policy.md`, `README.md`, `system-components.md`
+
+### Objective
+
+Retain the original unmet obligation and historical failures while completing
+its explicitly reassigned or expanded proof below. The prior numerical chain
+and old command sequence in the historical section are not current launch
+authority. No previous failure or missing closing proof is erased.
+
+### Deliverables
+
+- Preserve the original contract and evidence obligations through the named
+  current owners; qualify no obligation from diagnostic or historical data.
+- Reconcile the typed catalogue and replacement acceptance in 221.2, then admit
+  the complete current evidence without duplicate training at consumer phases.
+
+### Validation
+
+Run the applicable complete CPU unit and negative-control stanzas only after
+their real data/live prerequisites exist; the expanded sprint below specifies
+its live or production-reader acceptance.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-unit --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-negative-controls --linux-cpu
+```
+
+### Remaining Work
+
+- Complete the named prerequisites and expanded acceptance below.
+- Reconcile all original owned obligations and obtain evidence-derived status;
+  the historical text supplies no current closure claim.
+
+## Sprint 285.2: Complete current per-model evidence [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprint `276.2`, Sprint `280.2`, Sprint `281.2`, Sprint `282.2`, Sprint `283.2`, Sprint `284.2`
+**Docs to update**: `../documents/engineering/validation_execution.md`, `../documents/engineering/execution_resources.md`, `../documents/engineering/run_contract.md`, `../documents/engineering/unit_testing_policy.md`, `README.md`, `system-components.md`
+
+### Objective
+
+Complete per-model evidence joins current scientific, inference, negative-control and integration obligations without retraining the matrix at every consumer.
+
+### Deliverables
+
+- Require all 55 rows and exact11/39/4/1 family coverage from current admitted campaigns.
+- Consume authentic measured convergence/performance and original artifact/Store provenance; retain every failure and unavailable measurement reason.
+
+### Validation
+
+These are acceptance requirements for the target implementation. They are not
+passes from this documentation change. Targeted failing controls run first; the
+complete applicable stanzas run only after their actual evidence prerequisites
+exist. Commands use the explicit named context and task-specific approved bounds;
+cluster-running work uses the separately admitted cluster/lifecycle profile.
+
+1. Reject a missing cell, stale source/criterion, substituted artifact or hand-authored completed report.
+2. Pass complete CPU unit, negative and model-convergence gates with current evidence; retain genuine live integration obligations under 280.2.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-unit --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-negative-controls --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-model-convergence --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Implement the deliverables after the listed prerequisites; retain every failed or incomplete observation in its original scope.
+- Complete the listed acceptance in its declared evidence scope, retain the required records, and reconcile the source status catalogue before claiming closure.
+
+## Retained Historical Contract and Evidence
+
+The remainder records prior implementation, commands, status and failures. Its
+claims retain their original source, policy and date. Superseded launch ordering,
+resource rules and uninterrupted-process requirements do not override the current
+sprints above. Preserve these receipts; do not execute a historical recipe as a
+current authorized campaign.
+
+## Retained Historical Phase State
 
 ⏸️ **Blocked**. Blocked by Phase 282 (Sprint 282.1).
 
@@ -15,7 +116,7 @@ The per-model evidence consumer is implemented and passes on the host and in the
 `linux-cpu` container against the retained `linux-cpu` and `linux-cuda` journals;
 closure waits on Sprint `282.1` and on the `apple-silicon` journal.
 
-## Sprint 285.1: Contract-Driven Per-Model Evidence [⏸️ Blocked]
+## Historical Sprint 285.1: Contract-Driven Per-Model Evidence [⏸️ Blocked]
 
 **Status**: Blocked
 **Implementation**: `src/JitML/Test/ModelEvidence.hs`,
@@ -110,7 +211,7 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
   a re-issue of all three lane journals. The owner decides whether this sprint
   closes on the graded-evidence scope or waits for that schema.
 
-## Documentation Requirements
+## Historical Documentation Requirements
 
 **Engineering docs to create/update:**
 
@@ -123,3 +224,23 @@ docker compose run --rm jitml jitml test jitml-unit --linux-cpu
 **Cross-references to add:**
 
 - None.
+
+## Documentation Requirements
+
+**Engineering docs to create/update:**
+
+- [Validation execution](../documents/engineering/validation_execution.md),
+  [execution resources](../documents/engineering/execution_resources.md),
+  [run contract](../documents/engineering/run_contract.md), and
+  [testing policy](../documents/engineering/unit_testing_policy.md).
+
+**Product docs to create/update:**
+
+- [Plan](README.md#validation-foundation-refactor), [overview](00-overview.md),
+  [component inventory](system-components.md), and the corresponding lane
+  report/portable evidence after actual qualification.
+
+**Cross-references to add:**
+
+- The current typed catalogue and [legacy removal ledger](legacy-tracking-for-deletion.md)
+  name every changed owner and deprecated active path; original evidence is retained.

@@ -5,9 +5,84 @@
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [development_plan_standards.md](development_plan_standards.md)
 **Generated sections**: none
 
-> **Purpose**: Scaffold Lint + Reachability. Single-session phase migrated from legacy Sprint 20.2 in the 2026-07-24 phase-per-session renumber; see the old→new map in [README.md](README.md).
+> **Purpose**: Scaffold Lint + Reachability. Originally migrated from legacy Sprint 20.2 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
 ## Phase State
+
+⏸️ **Blocked** for the expanded validation foundation in Sprint `225.2`.
+The earlier Sprint `225.1` record below is retained on its original source and
+scope; it does not validate this target or a current hardware lane. The execution
+order and transition authority are [the validation-foundation refactor](README.md#validation-foundation-refactor).
+
+The new source/catalogue, runner and hardware controls remain unimplemented.
+Sprint `221.2` owns reconciliation of the existing checker with these documented
+targets; this documentation-only change supplies no machine-validation receipt.
+
+## Sprint 225.2: Behavioral realness assurance before hardware qualification [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: Target changes to `src/JitML/Lint/ProductTruth.hs`, `src/JitML/Lint/Stack.hs`, `test/negative-controls/Main.hs`.
+**Blocked by**: Sprint `221.2`.
+**Docs to update**: `../documents/engineering/execution_resources.md`, `../documents/engineering/validation_execution.md`, `../documents/engineering/code_quality.md`, `../documents/engineering/product_completion_contract.md`, `README.md`, `system-components.md`, `legacy-tracking-for-deletion.md`.
+
+### Objective
+
+CPU assurance rejects product paths that ignore trained values before expensive lane qualification; historical source-name denylisting is not treated as a behavioral proof.
+
+The target contracts are [execution resources](../documents/engineering/execution_resources.md)
+and [validation execution](../documents/engineering/validation_execution.md).
+Their acceptance requirements below are planned work, not implemented behavior.
+
+### Deliverables
+
+- Transfer the behavioral detector obligation from Phase `279` to this CPU foundation. Mac or NVIDIA qualification is not an upstream prerequisite for this assurance work.
+- Validate a newly named constant-output fake and a trained-weight-dependent positive through direct, helper, alias and import paths; delete exemptions that make supported fake behavior invisible.
+- Keep the claim bounded: output dependence is a necessary behavioral control, not a proof that an arbitrary function is a correct learning algorithm. Preserve real backend execution and scientific criteria as separate evidence.
+- Keep measured/declared values and completion authority distinct across lint, reports and admission. A name, boolean or authored metric cannot mint measured or qualified evidence.
+
+### Validation
+
+1. Reject the renamed constant-output negative for the named behavioral reason and accept the genuine weight-dependent positive through all supported indirection forms.
+2. Change trained weight bytes and observe the positive dependence control; verify declared or fabricated completion remains rejected through production admission.
+3. Run the independently enumerated CPU behavioral/negative control group after its targeted failure passes; it consumes no Apple/CUDA journal. Complete negative-control transcript ownership remains downstream.
+
+Closure requires the owned targeted/hermetic controls listed above, with a
+nonempty independently enumerated test inventory and exact scoped transcripts.
+The implementation publishes actual selectable groups in the existing stanzas
+and uses the supported `--test-options` passthrough; no invented selector or
+unfiltered full-matrix acquisition is an acceptable substitute. A scoped result
+is recorded as scoped, never as a passing full stanza. Resource/live controls
+also require the actual owned runtime observations named above.
+
+Complete evidence-dependent unit/integration/negative-control transcripts belong
+to Sprints `277.2` and `280.2`; cross-family convergence belongs to `283.2` and
+`285.2`. Those downstream records are not prerequisites for this foundation or
+readiness closure. Every original case remains registered with an explicit owner.
+The existing documentation/code-quality commands below run after source parity
+is implemented, inside the admitted profile; they do not execute these controls.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+Cluster-running jobs use the separately admitted cluster/lifecycle overlays
+instead of the stopped-cluster build profile. A real hardware lane is never
+claimed by CPU fixtures; absent required runtime capability fails that lane.
+
+### Remaining Work
+
+- Implement and independently validate the behavior controls and remove the future-owner/name-only exemptions they replace.
+- Reconcile Phase `279` and product closure consumers with the ownership transfer; source-name checks alone cannot close the new sprint.
+
+## Retained Historical Scope
+
+The following state, commands, measurements and closure statements describe the
+original Sprint `225.1` surface only. New execution rules and acceptance
+above supersede any conflicting operational instruction; old receipts are not
+reinterpreted as current readiness.
+
+### Historical Phase State
 
 ✅ **Done**.
 
@@ -99,12 +174,15 @@ its completed source/reachability surface and does not reacquire that obligation
 
 **Engineering docs to create/update:**
 
-- None (single-session phase migrated in the 2026-07-24 renumber; evidence lives in the Validation gate above).
+- `../documents/engineering/execution_resources.md`.
+- `../documents/engineering/validation_execution.md`.
+- `../documents/engineering/code_quality.md`.
+- `../documents/engineering/product_completion_contract.md`.
 
 **Product docs to create/update:**
 
-- None.
+- [Development-plan entry](README.md#validation-foundation-refactor), [component inventory](system-components.md), and [deletion ledger](legacy-tracking-for-deletion.md).
 
 **Cross-references to add:**
 
-- None.
+- Link the target contracts, exact sprint dependencies and evidence pointers together when source implementation lands; update root summaries only in an authorized root-file change.

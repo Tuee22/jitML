@@ -5,9 +5,84 @@
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [development_plan_standards.md](development_plan_standards.md)
 **Generated sections**: none
 
-> **Purpose**: Live Cluster Lifecycle and Publication Truth. Single-session phase migrated from legacy Sprint 3.7 in the 2026-07-24 phase-per-session renumber; see the old→new map in [README.md](README.md).
+> **Purpose**: Live Cluster Lifecycle and Publication Truth. Originally migrated from legacy Sprint 3.7 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
 ## Phase State
+
+⏸️ **Blocked** for the expanded validation foundation in Sprint `43.2`.
+The earlier Sprint `43.1` record below is retained on its original source and
+scope; it does not validate this target or a current hardware lane. The execution
+order and transition authority are [the validation-foundation refactor](README.md#validation-foundation-refactor).
+
+The new source/catalogue, runner and hardware controls remain unimplemented.
+Sprint `221.2` owns reconciliation of the existing checker with these documented
+targets; this documentation-only change supplies no machine-validation receipt.
+
+## Sprint 43.2: Bounded lifecycle preservation and explicit VM retirement [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: Target changes to `src/JitML/Bootstrap.hs`, `src/JitML/Cluster/Publication.hs`, `src/JitML/Cluster/ReconcileStamp.hs`.
+**Blocked by**: Sprint `29.2`, Sprint `21.2`.
+**Docs to update**: `../documents/engineering/execution_resources.md`, `../documents/engineering/validation_execution.md`, `../documents/engineering/cluster_topology.md`, `../documents/engineering/durable_state_dsl.md`, `README.md`, `system-components.md`, `legacy-tracking-for-deletion.md`.
+
+### Objective
+
+Lifecycle operations preserve application data and publish live readiness under the admitted resource envelope, with explicit VM management and attributable retirement.
+
+The target contracts are [execution resources](../documents/engineering/execution_resources.md)
+and [validation execution](../documents/engineering/validation_execution.md).
+Their acceptance requirements below are planned work, not implemented behavior.
+
+### Deliverables
+
+- Own the state-preserving lifecycle correction formerly accumulated in Phase `278`: original-data readback, snapshot retention, fresh restore, real readiness and truthful publication after teardown.
+- Keep VM start and stop explicit operator steps. No test, build, login item, default profile fallback or observer reconnection starts a VM implicitly.
+- Bound lifecycle caller plus one serial helper within the declared client slot, verify helper limits before start, and require cached verified application images rather than implicit image builds during constrained lifecycle work.
+- Preserve original before/after data summaries and helper retirement. Missing original after-state proof remains missing; later readback does not retroactively complete a failed operation.
+
+### Validation
+
+1. Use lifecycle fixtures for helper collision, absent image, wrong resource limit, failed snapshot/readback and incomplete publication; each refuses before unsafe work.
+2. Run a separately admitted finite real lifecycle/readback sequence with known original data, verify retained identities after restoration, then verify publication invalidation and explicit named-VM stop.
+3. Confirm failure paths retain exact command errors, helper stop results, preserved recovery data and absence of stray owned processes.
+
+Closure requires the owned targeted/hermetic controls listed above, with a
+nonempty independently enumerated test inventory and exact scoped transcripts.
+The implementation publishes actual selectable groups in the existing stanzas
+and uses the supported `--test-options` passthrough; no invented selector or
+unfiltered full-matrix acquisition is an acceptable substitute. A scoped result
+is recorded as scoped, never as a passing full stanza. Resource/live controls
+also require the actual owned runtime observations named above.
+
+Complete evidence-dependent unit/integration/negative-control transcripts belong
+to Sprints `277.2` and `280.2`; cross-family convergence belongs to `283.2` and
+`285.2`. Those downstream records are not prerequisites for this foundation or
+readiness closure. Every original case remains registered with an explicit owner.
+The existing documentation/code-quality commands below run after source parity
+is implemented, inside the admitted profile; they do not execute these controls.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+Cluster-running jobs use the separately admitted cluster/lifecycle overlays
+instead of the stopped-cluster build profile. A real hardware lane is never
+claimed by CPU fixtures; absent required runtime capability fails that lane.
+
+### Remaining Work
+
+- Implement and validate the bounded lifecycle and preservation contract without deleting retained recovery data.
+- Reprove live readback/restore and publication truth under the current resource policy before campaign ownership depends on them.
+
+## Retained Historical Scope
+
+The following state, commands, measurements and closure statements describe the
+original Sprint `43.1` surface only. New execution rules and acceptance
+above supersede any conflicting operational instruction; old receipts are not
+reinterpreted as current readiness.
+
+### Historical Phase State
 
 ✅ **Done**.
 
@@ -104,12 +179,15 @@ missing, corrupt, or default-local publication data.
 
 **Engineering docs to create/update:**
 
-- None (single-session phase migrated in the 2026-07-24 renumber; evidence lives in the Validation gate above).
+- `../documents/engineering/execution_resources.md`.
+- `../documents/engineering/validation_execution.md`.
+- `../documents/engineering/cluster_topology.md`.
+- `../documents/engineering/durable_state_dsl.md`.
 
 **Product docs to create/update:**
 
-- None.
+- [Development-plan entry](README.md#validation-foundation-refactor), [component inventory](system-components.md), and [deletion ledger](legacy-tracking-for-deletion.md).
 
 **Cross-references to add:**
 
-- None.
+- Link the target contracts, exact sprint dependencies and evidence pointers together when source implementation lands; update root summaries only in an authorized root-file change.

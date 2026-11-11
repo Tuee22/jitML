@@ -11,6 +11,12 @@
 
 ## Current Status
 
+**Refactor boundary.** The campaign/resource contracts below are targets. Current
+implementation does not acquire their safety or qualification authority from
+this documentation change; execution order and pending work live in the
+[validation foundation refactor](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
+
+
 **Implemented today.** Supervised served determinism runs through the reloaded
 typed `LayerGraph` executed directly by `LayerGraph.runLayerGraph` (Phases
 `237`–`239`); the historical exact-V2 structural-operation ABI has been
@@ -91,6 +97,28 @@ that Apple's training results equal the Linux lanes'. Each lane's journal is an
 independent measurement, and each row is graded against its bar on its own lane.
 The `apple-silicon` lane accordingly stays outside any cross-substrate numeric
 claim beyond the alignment of the MLP device kernels stated above.
+
+## Campaign Identity and Revalidation Target
+
+**Target.** [Validation execution](validation_execution.md) defines immutable
+campaign identity and conservative full-source invalidation. Source, numerical
+recipe, criterion or execution-semantic changes require a new qualification epoch;
+old receipts remain truthful evidence for their original inputs. Readiness reuse
+has an explicit impact decision and never silently rebinds a qualifying receipt.
+
+The campaign refactor adds no cross-substrate numerical parity requirement.
+Each real lane retains this document's existing within-substrate determinism
+obligations and actual toolchain/device witness. Aggregate admission compares
+identity, coverage and provenance; it does not manufacture equality between
+Mac host Double arithmetic and Linux arithmetic. Current numerical tests are
+repeated where their implementation or declared inputs change.
+
+Operational resource/deadline policy is distinct from numerical work and the
+PlanId. It is still pinned in campaign authority: an under-resourced timeout
+cannot be recast as a learning measurement, nor can changing a deadline rewrite
+an existing failure. Memory repairs preserve numerical behavior or receive an
+explicit changed-recipe review before new qualifying execution.
+
 
 ## The Contract
 
@@ -919,3 +947,21 @@ current phase status remain in the owning development-plan files.
 - [../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-request-and-event-fixtures.md](../../DEVELOPMENT_PLAN/phase-280-runcontract-negative-controls-request-and-event-fixtures.md) — blocked production request/event controls
 - [../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-journal-fixtures-and-reducer-p.md](../../DEVELOPMENT_PLAN/phase-281-runcontract-negative-controls-journal-fixtures-and-reducer-p.md) — blocked journal/reducer controls
 - [../../DEVELOPMENT_PLAN/phase-282-runcontract-negative-controls-lifecycle-and-per-row-registra.md](../../DEVELOPMENT_PLAN/phase-282-runcontract-negative-controls-lifecycle-and-per-row-registra.md) — blocked lifecycle and per-row controls
+
+## Validation
+
+The following existing commands are run inside the explicitly admitted, bounded
+project container with real linux-cpu prerequisites. Target-specific cases are
+implemented by the owning reopened sprints before these commands can prove the
+new contract. No result from this documentation change is a passing execution.
+
+```bash
+# Example: Existing validation entrypoints inside the bounded project container
+jitml test jitml-unit --linux-cpu
+jitml test jitml-negative-controls --linux-cpu
+jitml docs check
+jitml check-code
+```
+
+Real backend, integration, browser and cohort evidence is additionally required
+where the owning sprint names it; pure controls cannot replace selected hardware.

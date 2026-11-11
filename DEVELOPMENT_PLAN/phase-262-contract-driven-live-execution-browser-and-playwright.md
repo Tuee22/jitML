@@ -5,9 +5,87 @@
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [development_plan_standards.md](development_plan_standards.md)
 **Generated sections**: none
 
-> **Purpose**: Contract-Driven Live Execution - Browser and Playwright. Single-session phase migrated from legacy Sprint 28.5 in the 2026-07-24 phase-per-session renumber; see the old→new map in [README.md](README.md).
+> **Purpose**: Contract-Driven Live Execution - Browser and Playwright. Originally migrated from legacy Sprint 28.5 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
 ## Phase State
+
+⏸️ **Blocked** on the expanded campaign obligations below. Historical closure
+remains scoped to the execution and implementation it actually proved.
+
+The [validation foundation refactor](README.md#validation-foundation-refactor)
+owns the current execution order. Sprint `221.2` first updates the source
+catalogue/checkers for the reopened sprint graph; those source changes are not
+part of this documentation-only revision. Current machine projection still
+reflects the old catalogue and must not be reported as validating these targets.
+
+The [execution contract](../documents/engineering/validation_execution.md) and
+[resource contract](../documents/engineering/execution_resources.md) state the
+new targets. Atomic row recovery is not implemented or authorized by prose: until
+`261.2` passes, existing qualification remains non-resumable. No historical partial
+attempt, diagnostic review copy or readiness ledger is adopted as qualification.
+
+## Sprint 262.2: Browser consumption of complete campaigns [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprint `261.2`
+**Docs to update**: `../documents/engineering/validation_execution.md`, `../documents/engineering/execution_resources.md`, `../documents/engineering/run_contract.md`, `../documents/engineering/unit_testing_policy.md`, `README.md`, `system-components.md`
+
+### Objective
+
+The browser consumes only a complete admitted campaign catalogue; browser evidence cannot upgrade a diagnostic, row-only, or mixed campaign to product completion.
+
+### Deliverables
+
+- Bind catalogue and browser evidence to the exact admitted campaign, source, substrate, immutable artifacts and expected ordered55 row identities.
+- Preserve isolated browser authority, signed fallback/NotRun evidence, read-only production inputs and exact result joins.
+- Keep capture, cancellation, diagnostics and release independent of observer lifetime; successful browser output cannot override producer, admission or cleanup failure.
+
+### Validation
+
+Closure requires the owned targeted/hermetic controls listed above, with a
+nonempty independently enumerated test inventory and exact scoped transcripts.
+The implementation publishes actual selectable groups in the existing stanzas
+and uses the supported `--test-options` passthrough; no invented selector or
+unfiltered full-matrix acquisition is an acceptable substitute. A scoped result
+is recorded as scoped, never as a passing full stanza. Resource/live controls
+also require the actual owned runtime observations named above.
+
+Complete evidence-dependent unit/integration/negative-control transcripts belong
+to Sprints `277.2` and `280.2`; cross-family convergence belongs to `283.2` and
+`285.2`. Those downstream records are not prerequisites for this foundation or
+readiness closure. Every original case remains registered with an explicit owner.
+The existing documentation/code-quality commands below run after source parity
+is implemented, inside the admitted profile; they do not execute these controls.
+
+
+These are acceptance requirements for the target implementation. They are not
+passes from this documentation change. Targeted failing controls run first; the
+complete applicable stanzas run only after their actual evidence prerequisites
+exist. Commands use the explicit named context and task-specific approved bounds;
+cluster-running work uses the separately admitted cluster/lifecycle profile.
+
+1. Reject incomplete/foreign catalogues, substituted artifacts, mixed epochs, duplicate/omitted rows and browser results with a foreign authority.
+2. Exercise actual browser interaction over a complete admitted CPU campaign in 263.3; fixture-only protocol checks here do not claim live browser qualification.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Implement the deliverables after the listed prerequisites; retain every failed or incomplete observation in its original scope.
+- Complete the listed acceptance in its declared evidence scope, retain the required records, and reconcile the source status catalogue before claiming closure.
+
+## Retained Historical Contract and Evidence
+
+The remainder records prior implementation, commands, status and failures. Its
+claims retain their original source, policy and date. Superseded launch ordering,
+resource rules and uninterrupted-process requirements do not override the current
+sprints above. Preserve these receipts; do not execute a historical recipe as a
+current authorized campaign.
+
+## Retained Historical Phase State
 
 ✅ **Done** (2026-08-11). Phase 261 (Sprint 261.1) historically closed on
 2026-08-01 and reopened on 2026-09-08 only for durable typed lane-journal
@@ -710,7 +788,7 @@ that has just rebuilt the image, `JITML_BOOTSTRAP_SKIP_IMAGE_BUILD=1` therefore
 fails until `jitml-demo:local` exists — the same retag the rollout's own
 `mirrorBuildSteps` performs.
 
-## Documentation Requirements
+## Historical Documentation Requirements
 
 **Engineering docs to create/update:**
 
@@ -743,3 +821,23 @@ fails until `jitml-demo:local` exists — the same retag the rollout's own
 
 - Add the Phase `262` backlink to `training_workloads.md`,
   `training_metrics_and_splits.md`, and `checkpoint_format.md`.
+
+## Documentation Requirements
+
+**Engineering docs to create/update:**
+
+- [Validation execution](../documents/engineering/validation_execution.md),
+  [execution resources](../documents/engineering/execution_resources.md),
+  [run contract](../documents/engineering/run_contract.md), and
+  [testing policy](../documents/engineering/unit_testing_policy.md).
+
+**Product docs to create/update:**
+
+- [Plan](README.md#validation-foundation-refactor), [overview](00-overview.md),
+  [component inventory](system-components.md), and the corresponding lane
+  report/portable evidence after actual qualification.
+
+**Cross-references to add:**
+
+- The current typed catalogue and [legacy removal ledger](legacy-tracking-for-deletion.md)
+  name every changed owner and deprecated active path; original evidence is retained.

@@ -5,9 +5,84 @@
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [development_plan_standards.md](development_plan_standards.md)
 **Generated sections**: none
 
-> **Purpose**: Workload Placement Planner and Apple Host Workload Dispatch. Single-session phase migrated from legacy Sprint 5.11 in the 2026-07-24 phase-per-session renumber; see the old→new map in [README.md](README.md).
+> **Purpose**: Workload Placement Planner and Apple Host Workload Dispatch. Originally migrated from legacy Sprint 5.11 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
 ## Phase State
+
+⏸️ **Blocked** for the expanded validation foundation in Sprint `64.2`.
+The earlier Sprint `64.1` record below is retained on its original source and
+scope; it does not validate this target or a current hardware lane. The execution
+order and transition authority are [the validation-foundation refactor](README.md#validation-foundation-refactor).
+
+The new source/catalogue, runner and hardware controls remain unimplemented.
+Sprint `221.2` owns reconciliation of the existing checker with these documented
+targets; this documentation-only change supplies no machine-validation receipt.
+
+## Sprint 64.2: Admitted native workload placement and cancellation [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: Target changes to `src/JitML/Service/Workload.hs`, `src/JitML/Service/Runtime.hs`, `src/JitML/Service/HostWorkloadRegistry.hs`.
+**Blocked by**: Sprint `9.2`, Sprint `21.2`, Sprint `29.2`.
+**Docs to update**: `../documents/engineering/execution_resources.md`, `../documents/engineering/validation_execution.md`, `../documents/engineering/daemon_architecture.md`, `../documents/engineering/apple_silicon_metal_headless_builds.md`, `README.md`, `system-components.md`, `legacy-tracking-for-deletion.md`.
+
+### Objective
+
+Native workload dispatch admits and owns the actual host process family, while preserving Apple host placement and exact cancellation identity.
+
+The target contracts are [execution resources](../documents/engineering/execution_resources.md)
+and [validation execution](../documents/engineering/validation_execution.md).
+Their acceptance requirements below are planned work, not implemented behavior.
+
+### Deliverables
+
+- Carry the validated native resource policy and owned process identity across host dispatch; a Kubernetes client limit never stands in for native enforcement.
+- Bind cancellation and observation to the exact workload handle and invocation, not a command name or arbitrary PID; cancel/drain exactly the matching work.
+- Budget native heap, footprint, CPU quota, output and finite deadlines together with the VM and observers. Bound Metal/native allocations through actual host accounting and measured retirement headroom.
+- Keep real Metal execution in the Apple lane. CPU fixture closure here proves ownership/placement logic, not GPU availability or an Apple scientific pass.
+
+### Validation
+
+1. Run finite native dispatch fixtures and verify correct process identity, wrong/stale handle refusal, observer loss, duplicate requests and owned-family cancellation.
+2. Confirm Apple plans emit host commands and no Linux training Job; actual Metal runtime proof remains required by `273.2`.
+3. Exercise cap/reader failure and stop escalation under small fixture bounds, retaining terminal and cleanup results without touching unrelated workloads.
+
+Closure requires the owned targeted/hermetic controls listed above, with a
+nonempty independently enumerated test inventory and exact scoped transcripts.
+The implementation publishes actual selectable groups in the existing stanzas
+and uses the supported `--test-options` passthrough; no invented selector or
+unfiltered full-matrix acquisition is an acceptable substitute. A scoped result
+is recorded as scoped, never as a passing full stanza. Resource/live controls
+also require the actual owned runtime observations named above.
+
+Complete evidence-dependent unit/integration/negative-control transcripts belong
+to Sprints `277.2` and `280.2`; cross-family convergence belongs to `283.2` and
+`285.2`. Those downstream records are not prerequisites for this foundation or
+readiness closure. Every original case remains registered with an explicit owner.
+The existing documentation/code-quality commands below run after source parity
+is implemented, inside the admitted profile; they do not execute these controls.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+Cluster-running jobs use the separately admitted cluster/lifecycle overlays
+instead of the stopped-cluster build profile. A real hardware lane is never
+claimed by CPU fixtures; absent required runtime capability fails that lane.
+
+### Remaining Work
+
+- Implement the admitted native process boundary and propagate its outcome through daemon dispatch.
+- Prove fixture ownership and cancellation; require genuine Apple hardware/resource evidence separately before native scientific qualification.
+
+## Retained Historical Scope
+
+The following state, commands, measurements and closure statements describe the
+original Sprint `64.1` surface only. New execution rules and acceptance
+above supersede any conflicting operational instruction; old receipts are not
+reinterpreted as current readiness.
+
+### Historical Phase State
 
 ✅ **Done**.
 
@@ -96,12 +171,15 @@ Environment` from [../README.md](../README.md).
 
 **Engineering docs to create/update:**
 
-- None (single-session phase migrated in the 2026-07-24 renumber; evidence lives in the Validation gate above).
+- `../documents/engineering/execution_resources.md`.
+- `../documents/engineering/validation_execution.md`.
+- `../documents/engineering/daemon_architecture.md`.
+- `../documents/engineering/apple_silicon_metal_headless_builds.md`.
 
 **Product docs to create/update:**
 
-- None.
+- [Development-plan entry](README.md#validation-foundation-refactor), [component inventory](system-components.md), and [deletion ledger](legacy-tracking-for-deletion.md).
 
 **Cross-references to add:**
 
-- None.
+- Link the target contracts, exact sprint dependencies and evidence pointers together when source implementation lands; update root summaries only in an authorized root-file change.

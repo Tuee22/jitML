@@ -5,9 +5,86 @@
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [development_plan_standards.md](development_plan_standards.md)
 **Generated sections**: none
 
-> **Purpose**: Per-Row Convergence and Evidence. Single-session phase migrated from legacy Sprint 25.3 in the 2026-07-24 phase-per-session renumber; see the old→new map in [README.md](README.md).
+> **Purpose**: Per-Row Convergence and Evidence. Originally migrated from legacy Sprint 25.3 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
 ## Phase State
+
+⏸️ **Blocked** for the expanded validation foundation in Sprint `249.2`.
+The earlier Sprint `249.1` record below is retained on its original source and
+scope; it does not validate this target or a current hardware lane. The execution
+order and transition authority are [the validation-foundation refactor](README.md#validation-foundation-refactor).
+
+The new source/catalogue, runner and hardware controls remain unimplemented.
+Sprint `221.2` owns reconciliation of the existing checker with these documented
+targets; this documentation-only change supplies no machine-validation receipt.
+
+## Sprint 249.2: RL convergence and runtime failure remediation [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: Target changes to `src/JitML/RL/Algorithms/ContinuousTrainer.hs`, `src/JitML/RL/Algorithms/PpoTrainer.hs`, `src/JitML/RL/Algorithms/DqnTrainer.hs`, `src/JitML/RL/Algorithms/QrDqnTrainer.hs`, `src/JitML/RL/Simulator.hs`.
+**Blocked by**: Sprint `160.2`, Sprint `225.2`.
+**Docs to update**: `../documents/engineering/execution_resources.md`, `../documents/engineering/validation_execution.md`, `../documents/engineering/training_metrics_and_splits.md`, `../documents/engineering/training_workloads.md`, `README.md`, `system-components.md`, `legacy-tracking-for-deletion.md`.
+
+### Objective
+
+Every RL row reaches measured runtime and learning readiness through bounded hypothesis-driven investigations before a hardware qualification campaign.
+
+The target contracts are [execution resources](../documents/engineering/execution_resources.md)
+and [validation execution](../documents/engineering/validation_execution.md).
+Their acceptance requirements below are planned work, not implemented behavior.
+
+### Deliverables
+
+- Own the twelve retained RL learning refusals: `PPO/mountain-car`, `PPO/key-door-grid`, `A2C/lunar-lander`, `A2C/key-door-grid`, `MaskablePPO/mountain-car`, `MaskablePPO/key-door-grid`, `RecurrentPPO/mountain-car`, `RecurrentPPO/key-door-grid`, `QR-DQN/mountain-car`, `DQN/key-door-grid`, `SAC/pendulum`, and `CrossQ/lunar-lander`. Own the distinct `TRPO/key-door-grid` timeout.
+- For SAC, first reproduce and attribute step-dependent memory growth in one capped process and determine whether it affects the qualification implementation. Verify authentic parameter/update changes before increasing steps or concurrency.
+- Diagnose TRPO timing by stage and actual progress. Operational deadline/throughput refusal is distinct from a quality result; prospective scheduling policy cannot silently change numerical work.
+- Check shared environment/action/reward/termination semantics for related key-door-grid and mountain-car failures, then investigate algorithm-specific mechanisms. Reopen Phase `248` only for defects in its owned implementations.
+- Use independently justified development/calibration studies and the prospective `278.2` criterion policy. No passing seed substitution, post-hoc floor reduction, invented evidence, or hidden budget increase is permitted.
+
+### Validation
+
+1. Target a demonstrated failure first with the existing row-selectable production path and an exact source/image/recipe/substrate/resource ledger; select one bounded experiment at a time.
+2. For each repair record initial/final per-seed values, actual updates/environment work, full cohort, served index, memory/counters and terminal result; reject scripted, unchanged and below-policy controls.
+3. Rerun previously passing shared paths only when a recorded change impact requires it; continue unresolved rows before complete-lane qualification.
+4. After all individual rows and affected owned canonical controls pass, hand the candidate to the lane owners. Complete cross-family convergence transcripts belong to 283.2/285.2 and are not this readiness closure prerequisite.
+
+Closure requires the owned targeted/hermetic controls listed above, with a
+nonempty independently enumerated test inventory and exact scoped transcripts.
+The implementation publishes actual selectable groups in the existing stanzas
+and uses the supported `--test-options` passthrough; no invented selector or
+unfiltered full-matrix acquisition is an acceptable substitute. A scoped result
+is recorded as scoped, never as a passing full stanza. Resource/live controls
+also require the actual owned runtime observations named above.
+
+Complete evidence-dependent unit/integration/negative-control transcripts belong
+to Sprints `277.2` and `280.2`; cross-family convergence belongs to `283.2` and
+`285.2`. Those downstream records are not prerequisites for this foundation or
+readiness closure. Every original case remains registered with an explicit owner.
+The existing documentation/code-quality commands below run after source parity
+is implemented, inside the admitted profile; they do not execute these controls.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+Cluster-running jobs use the separately admitted cluster/lifecycle overlays
+instead of the stopped-cluster build profile. A real hardware lane is never
+claimed by CPU fixtures; absent required runtime capability fails that lane.
+
+### Remaining Work
+
+- Root-cause and fix SAC retention/update behavior, the TRPO timeout and all twelve RL learning refusals without treating supervision as a learning fix.
+- Confirm affected regressions, current-source criteria and measured readiness before qualification; the historical all-RL convergence claim is not current readiness.
+
+## Retained Historical Scope
+
+The following state, commands, measurements and closure statements describe the
+original Sprint `249.1` surface only. New execution rules and acceptance
+above supersede any conflicting operational instruction; old receipts are not
+reinterpreted as current readiness.
+
+### Historical Phase State
 
 ✅ **Done**.
 
@@ -119,12 +196,15 @@ inference-performance floors.
 
 **Engineering docs to create/update:**
 
-- None (single-session phase migrated in the 2026-07-24 renumber; evidence lives in the Validation gate above).
+- `../documents/engineering/execution_resources.md`.
+- `../documents/engineering/validation_execution.md`.
+- `../documents/engineering/training_metrics_and_splits.md`.
+- `../documents/engineering/training_workloads.md`.
 
 **Product docs to create/update:**
 
-- None.
+- [Development-plan entry](README.md#validation-foundation-refactor), [component inventory](system-components.md), and [deletion ledger](legacy-tracking-for-deletion.md).
 
 **Cross-references to add:**
 
-- None.
+- Link the target contracts, exact sprint dependencies and evidence pointers together when source implementation lands; update root summaries only in an authorized root-file change.

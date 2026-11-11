@@ -5,9 +5,84 @@
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [development_plan_standards.md](development_plan_standards.md)
 **Generated sections**: none
 
-> **Purpose**: Real Hyperparameter Tuning Objective Executor. Single-session phase migrated from legacy Sprint 9.11 in the 2026-07-24 phase-per-session renumber; see the old→new map in [README.md](README.md).
+> **Purpose**: Real Hyperparameter Tuning Objective Executor. Originally migrated from legacy Sprint 9.11 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
 ## Phase State
+
+⏸️ **Blocked** for the expanded validation foundation in Sprint `115.2`.
+The earlier Sprint `115.1` record below is retained on its original source and
+scope; it does not validate this target or a current hardware lane. The execution
+order and transition authority are [the validation-foundation refactor](README.md#validation-foundation-refactor).
+
+The new source/catalogue, runner and hardware controls remain unimplemented.
+Sprint `221.2` owns reconciliation of the existing checker with these documented
+targets; this documentation-only change supplies no machine-validation receipt.
+
+## Sprint 115.2: Bounded tuning readiness and allocation regressions [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: Target changes to `src/JitML/Tune/Catalog.hs`, `src/JitML/SL/Architecture.hs`, `test/hyperparameter/Main.hs`.
+**Blocked by**: Sprint `160.2`, Sprint `225.2`.
+**Docs to update**: `../documents/engineering/execution_resources.md`, `../documents/engineering/validation_execution.md`, `../documents/engineering/training_workloads.md`, `../documents/engineering/training_metrics_and_splits.md`, `README.md`, `system-components.md`, `legacy-tracking-for-deletion.md`.
+
+### Objective
+
+Tuning uses measured bounded allocation and concurrency with unchanged objective semantics, and current-source targeted readiness precedes lane qualification.
+
+The target contracts are [execution resources](../documents/engineering/execution_resources.md)
+and [validation execution](../documents/engineering/validation_execution.md).
+Their acceptance requirements below are planned work, not implemented behavior.
+
+### Deliverables
+
+- Prove the feature-materialization and held-out representation corrections on the current candidate; the earlier eligible row is scoped readiness, not final-source qualification.
+- Bound trial concurrency by the admitted resource policy and effective runtime capability. Count pending/training/evaluation/publication memory together instead of using one trial heap as an aggregate ceiling.
+- Retain objective, candidate order, trial budget, seeds and artifact identity comparisons where bit-identical behavior is required. Operational fixes cannot alter measured objective provenance silently.
+- Use the prospective criterion policy owned by `278.2`; diagnostic review copies remain non-authoritative, and final independent source review is required only before qualifying execution.
+
+### Validation
+
+1. Target the feature-materialization/concurrency regression first; record live residency, fragmentation, aggregate peak, actual concurrency and unchanged output semantics.
+2. Run the single tuning row under the intended gate envelope and deadline with complete outcome/capture; rerun affected supervised paths only when impact is named.
+3. Run the full hyperparameter stanza after its individual controls pass. Qualification and fragment publication remain owned by the lane/campaign phases.
+
+Closure requires the owned targeted/hermetic controls listed above, with a
+nonempty independently enumerated test inventory and exact scoped transcripts.
+The implementation publishes actual selectable groups in the existing stanzas
+and uses the supported `--test-options` passthrough; no invented selector or
+unfiltered full-matrix acquisition is an acceptable substitute. A scoped result
+is recorded as scoped, never as a passing full stanza. Resource/live controls
+also require the actual owned runtime observations named above.
+
+Complete evidence-dependent unit/integration/negative-control transcripts belong
+to Sprints `277.2` and `280.2`; cross-family convergence belongs to `283.2` and
+`285.2`. Those downstream records are not prerequisites for this foundation or
+readiness closure. Every original case remains registered with an explicit owner.
+The existing documentation/code-quality commands below run after source parity
+is implemented, inside the admitted profile; they do not execute these controls.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+Cluster-running jobs use the separately admitted cluster/lifecycle overlays
+instead of the stopped-cluster build profile. A real hardware lane is never
+claimed by CPU fixtures; absent required runtime capability fails that lane.
+
+### Remaining Work
+
+- Confirm current-source tuning memory fit and objective behavior through the supported bounded runner.
+- Record change impact and fix any regressions before the frozen lane candidate; no larger heap or changed numerical work is adopted without a prospective policy decision.
+
+## Retained Historical Scope
+
+The following state, commands, measurements and closure statements describe the
+original Sprint `115.1` surface only. New execution rules and acceptance
+above supersede any conflicting operational instruction; old receipts are not
+reinterpreted as current readiness.
+
+### Historical Phase State
 
 ✅ **Done**.
 
@@ -85,12 +160,15 @@ None.
 
 **Engineering docs to create/update:**
 
-- None (single-session phase migrated in the 2026-07-24 renumber; evidence lives in the Validation gate above).
+- `../documents/engineering/execution_resources.md`.
+- `../documents/engineering/validation_execution.md`.
+- `../documents/engineering/training_workloads.md`.
+- `../documents/engineering/training_metrics_and_splits.md`.
 
 **Product docs to create/update:**
 
-- None.
+- [Development-plan entry](README.md#validation-foundation-refactor), [component inventory](system-components.md), and [deletion ledger](legacy-tracking-for-deletion.md).
 
 **Cross-references to add:**
 
-- None.
+- Link the target contracts, exact sprint dependencies and evidence pointers together when source implementation lands; update root summaries only in an authorized root-file change.

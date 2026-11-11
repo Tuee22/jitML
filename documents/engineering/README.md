@@ -9,10 +9,11 @@
 
 ## Index
 
-The engineering docs split into four **doctrine-overlap** docs (which defer to
-[../../README.md](../../README.md) for the patterns it owns and retain only project-specific
-elaborations), fourteen **project-specific** docs (which own their content outright), and two
-**cross-project contracts** mirrored with sister repositories.
+The index distinguishes contracts still owned by the root CLI doctrine,
+project-specific canonical owners, and an implemented cross-project contract.
+Current versus target behavior is explicit in each topic's Current Status.
+The root authority transfer remains owned by Phase `3`; new target execution
+contracts do not claim an implemented runner or replace supported CLI behavior.
 
 ### Doctrine-Overlap
 
@@ -30,6 +31,8 @@ elaborations), fourteen **project-specific** docs (which own their content outri
 | [determinism_contract.md](determinism_contract.md) | Per-substrate floating-point semantics, RNG split, per-experiment seed derivation, JIT cache content-addressing, artifact reproducibility, bit-determinism envelope, within-substrate determinism contract (no cross-substrate guarantee) |
 | [cluster_topology.md](cluster_topology.md) | Kind cluster shapes per substrate, Helm umbrella chart, Helm-values ownership, storage discipline, Envoy Gateway, route registry, no-kubeconfig-pollution invariant |
 | [daemon_architecture.md](daemon_architecture.md) | `jitml service` lifecycle, BootConfig / LiveConfig, hot reload, healthz/readyz/metrics, structured logging, recoverable vs fatal errors, at-least-once Pulsar consumer |
+| [execution_resources.md](execution_resources.md) | Whole-host/native/VM/container/helper admission, resource accounting, observer budgets, measurement uncertainty and bounded retirement (target implementation) |
+| [validation_execution.md](validation_execution.md) | Durable supervisor/observer boundary, bounded diagnostic/readiness work, immutable qualification campaigns and whole-row recovery (target implementation) |
 | [run_contract.md](run_contract.md) | Raw-to-validated run planning, unit-indexed budgets, workload protocols, pure evidence reducers, placement/terminal lifecycle, receipt-bound delivery settlement, resource-safe live interpretation, evidence journals, and truthful reporting |
 | [durable_state_dsl.md](durable_state_dsl.md) | The closed self-validating `jitml.dhall` durable-state config: the store registry (MinIO buckets + Pulsar topics), typed retention, the closed `StoreId` selector + `contractOK` assert, `jitml project init`, and the runtime projections (`bucketNames`, topology anti-drift, registry-sourced GC retention) |
 | [jit_codegen_architecture.md](jit_codegen_architecture.md) | Content-addressed cache, per-substrate compilers (Metal/oneDNN/CUDA) for the family and MLP surfaces, local kernel handle/envelope surface, Linux CPU libdnnl-linked FFI and `HasEngine` execution, guarded CUDA FFI runner boundary, Apple Silicon fixed-bridge Metal JIT, hardware auto-tuning, and live Metal/CUDA validation boundary; on Apple Silicon jitML writes `.metal.json` source metadata, calls the fixed host bridge, and the bridge JIT-compiles MSL via `MTLDevice.makeLibrary(source:)` before executing on the host GPU |
@@ -45,8 +48,12 @@ elaborations), fourteen **project-specific** docs (which own their content outri
 
 | Doc | Shared contract |
 |-----|-----------------|
-| [pulsar_ml_workflow.md](pulsar_ml_workflow.md) | Contract shared verbatim with the `infernix` sister project: the three-role split (Engine / Coordinator / Webapp), the derived topic algebra, the `Work*` envelope family covering training and inference, the artifact + `.ready` readiness contract, the websocket snapshot/patch surface, the coordination primitives, and the forward-only-DAG + single-accelerator-per-phase phasing rules |
-| [shared_host_resource_protocol.md](shared_host_resource_protocol.md) | The host resource coordination policy: kernel scopes rather than machines, an open domain algebra that conflicts by prefix at a segment boundary, one grant held by the supervising process with standing capacity declared as a reserve instead, the measured lock-mechanism results the OFD mandate rests on, and an explicit register of what is not verified |
+| [pulsar_ml_workflow.md](pulsar_ml_workflow.md) | Contract shared verbatim with the `infernix` sister project: the three-role split (Engine / Coordinator / Webapp), the derived topic algebra, the `Work*` envelope family covering training and inference, the artifact + `.ready` readiness contract, the websocket snapshot/patch surface, the coordination primitives, and its recorded phasing boundary; jitML execution order is owned by the development-plan standards |
+
+The formerly indexed `shared_host_resource_protocol.md` is absent and supplies
+no verified grant or lock contract. Resource coordination is specified in
+[execution resources](execution_resources.md) with its implementation boundary;
+recovery of a sibling protocol requires explicit ownership and validation.
 
 Each doc carries the standard `**Status**` / `**Supersedes**` / `**Referenced
 by**` / `**Generated sections**:` / `> **Purpose**:` block per

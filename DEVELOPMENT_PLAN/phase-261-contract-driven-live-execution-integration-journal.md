@@ -5,9 +5,135 @@
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [development_plan_standards.md](development_plan_standards.md)
 **Generated sections**: none
 
-> **Purpose**: Contract-Driven Live Execution - Integration Journal. Single-session phase migrated from legacy Sprint 28.4 in the 2026-07-24 phase-per-session renumber; see the old→new map in [README.md](README.md).
+> **Purpose**: Contract-Driven Live Execution - Integration Journal. Originally migrated from legacy Sprint 28.4 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
 ## Phase State
+
+⏸️ **Blocked** on the expanded campaign obligations below. Historical closure
+remains scoped to the execution and implementation it actually proved.
+
+The [validation foundation refactor](README.md#validation-foundation-refactor)
+owns the current execution order. Sprint `221.2` first updates the source
+catalogue/checkers for the reopened sprint graph; those source changes are not
+part of this documentation-only revision. Current machine projection still
+reflects the old catalogue and must not be reported as validating these targets.
+
+The [execution contract](../documents/engineering/validation_execution.md) and
+[resource contract](../documents/engineering/execution_resources.md) state the
+new targets. Atomic row recovery is not implemented or authorized by prose: until
+`261.2` passes, existing qualification remains non-resumable. No historical partial
+attempt, diagnostic review copy or readiness ledger is adopted as qualification.
+
+## Sprint 261.2: Atomic row campaign protocol and authority [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprint `160.2`, Sprint `225.2`
+**Docs to update**: `../documents/engineering/validation_execution.md`, `../documents/engineering/execution_resources.md`, `../documents/engineering/run_contract.md`, `../documents/engineering/unit_testing_policy.md`, `README.md`, `system-components.md`
+
+### Objective
+
+The production integration boundary issues an immutable campaign and commits only complete authenticated row cohorts. This protocol implementation precedes the real CPU campaign and does not require a completed Apple or CUDA lane.
+
+### Deliverables
+
+- Bind the full source stamp, executable/image/toolchain, ordered row contracts, dataset identities, substrate/device, independent criterion identity and execution policy in an immutable manifest.
+- Persist campaign authority in an owned private nonlink scope outside row-child mounts and diagnostics. Define key retention, loss, rotation refusal, atomic writes/fsync, exclusive ownership and restart verification; document the trusted local issuer boundary.
+- Commit a row only after all prescribed five outcomes, authentic initial/final evidence, fixed seeds and served index zero, measured counters, exact Store/replay and required preservation proofs pass. A completed seed or checkpoint alone is not a resumable unit.
+- Make individual-row selection exercise the same producer and admission path as the complete campaign. Selecting one row must not silently acquire/traverse 55; listing tests starts no training.
+- Append every attempt, scientific refusal and interruption. Restart verifies prior committed objects and reruns an unfinished whole row; no mid-seed trainer resume, historical prefix adoption, mixed epochs, omitted failure or favorable-seed substitution. A scientific refusal blocks admission rather than permitting a silent same-epoch retry search.
+- Own durable retention pins and a bounded disk/lifetime reservation for each row's weights, companions, outcomes, journal and Store snapshots across GC, pause and VM restart. Release only after portable/downstream retention duties or explicit recorded abandonment.
+- Bind finite infrastructure retries and absolute campaign expiry; owner classification records its predicate, ambiguous partial execution refuses retry, and reconnect/new identifiers cannot reset attempts or conceal scientific refusal.
+- Final admission reopens/rechecks every object and exactly joins all 55 rows; aggregate integration and preservation operate on admitted objects without retraining completed rows. Full-source invalidation remains conservative.
+
+### Validation
+
+Closure requires the owned targeted/hermetic controls listed above, with a
+nonempty independently enumerated test inventory and exact scoped transcripts.
+The implementation publishes actual selectable groups in the existing stanzas
+and uses the supported `--test-options` passthrough; no invented selector or
+unfiltered full-matrix acquisition is an acceptable substitute. A scoped result
+is recorded as scoped, never as a passing full stanza. Resource/live controls
+also require the actual owned runtime observations named above.
+
+Complete evidence-dependent unit/integration/negative-control transcripts belong
+to Sprints `277.2` and `280.2`; cross-family convergence belongs to `283.2` and
+`285.2`. Those downstream records are not prerequisites for this foundation or
+readiness closure. Every original case remains registered with an explicit owner.
+The existing documentation/code-quality commands below run after source parity
+is implemented, inside the admitted profile; they do not execute these controls.
+
+
+These are acceptance requirements for the target implementation. They are not
+passes from this documentation change. Targeted failing controls run first; the
+complete applicable stanzas run only after their actual evidence prerequisites
+exist. Commands use the explicit named context and task-specific approved bounds;
+cluster-running work uses the separately admitted cluster/lifecycle profile.
+
+1. Use controlled fixtures for crashes before/after row commit and final commit, truncated writes, concurrent owner, source/device/policy mismatch, foreign receipt, replay/rollback, lost authority, artifact replacement, reordered seeds and omitted failures.
+2. Verify that missing after-state proof leaves a row unqualified; earlier sealed rows survive only when their exact evidence and preservation boundary verify.
+3. Demonstrate observer disconnect/reconnect with the same owned execution, bounded capture and unchanged result; supervisor or safety-reader loss retires owned work.
+4. Exercise GC/pause/VM restart with committed row pins, disk refusal, retry exhaustion, campaign expiry and a new-identifier refusal bypass. Measure aggregate retention/publication over a complete 55 fixture; test real completed row objects through the same readers before hardware qualification. No fixture certifies scientific memory fit.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Implement the deliverables after the listed prerequisites; retain every failed or incomplete observation in its original scope.
+- Complete the listed acceptance in its declared evidence scope, retain the required records, and reconcile the source status catalogue before claiming closure.
+
+## Sprint 261.3: Current CPU qualification campaign [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprint `261.2`, Sprint `115.2`, Sprint `245.2`, Sprint `249.2`, Sprint `254.2`, Sprint `278.2`
+**Docs to update**: `../documents/engineering/validation_execution.md`, `../documents/engineering/execution_resources.md`, `../documents/engineering/run_contract.md`, `../documents/engineering/unit_testing_policy.md`, `README.md`, `system-components.md`
+
+### Objective
+
+Execute the complete current linux-cpu scientific campaign through the qualified protocol. Protocol readiness and all known scientific failures precede acquisition.
+
+### Deliverables
+
+- Freeze source/image/toolchain, independent reviews, approved recipes and acceptance predicates, resources, deadlines and dataset/Store identities before qualifying work.
+- Acquire every required CPU row with real oneDNN and full cohort evidence; sealed rows may survive observer/session changes only through the new verified campaign protocol.
+- Admit combined numerical, launcher, helper, capture and retained-result memory fit; verify final complete 55 aggregation and original data/preservation boundaries.
+- Keep the retained 40/55 mixed-source readiness result historical. It is not final-source qualification and cannot seed this campaign.
+
+### Validation
+
+These are acceptance requirements for the target implementation. They are not
+passes from this documentation change. Targeted failing controls run first; the
+complete applicable stanzas run only after their actual evidence prerequisites
+exist. Commands use the explicit named context and task-specific approved bounds;
+cluster-running work uses the separately admitted cluster/lifecycle profile.
+
+1. Complete real CPU backend, scientific matrix, full journal/readmission and accumulation checks with no known unresolved readiness failure.
+2. Retain every failure with the triggering resource sample, original streams, terminal result and stop/preservation outcome; no automatic source rebinding.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-backends --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-integration --linux-cpu --test-options='-p "Phase 261 ProductRow contract-driven integration matrix"'
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Implement 261.2 and independently bind final-source criteria under 278.2 before enabling resumable row qualification. Until then current acquisition remains non-resumable.
+- Repair every known science/resource failure through its owner, then run and admit a fresh complete CPU campaign.
+- Retain all original failed attempts literally and complete the original data, state, publication and cleanup checks.
+
+## Retained Historical Contract and Evidence
+
+The remainder records prior implementation, commands, status and failures. Its
+claims retain their original source, policy and date. Superseded launch ordering,
+resource rules and uninterrupted-process requirements do not override the current
+sprints above. Preserve these receipts; do not execute a historical recipe as a
+current authorized campaign.
+
+## Retained Historical Phase State
 
 ✅ **Done** (re-closed 2026-09-08). The `linux-cpu` integration lane derives and
 executes all 55 `ProductRow` scenarios, authenticates the version-3 aggregate
@@ -138,7 +264,7 @@ Validated 2026-09-08 against immutable image
   completion, and phase-status controls.
 - `jitml check-code`, `jitml docs check`, and `git diff --check` passed.
 
-## Documentation Requirements
+## Historical Documentation Requirements
 
 **Engineering docs to create/update:**
 
@@ -163,3 +289,23 @@ Validated 2026-09-08 against immutable image
 **Cross-references to add:**
 
 - None.
+
+## Documentation Requirements
+
+**Engineering docs to create/update:**
+
+- [Validation execution](../documents/engineering/validation_execution.md),
+  [execution resources](../documents/engineering/execution_resources.md),
+  [run contract](../documents/engineering/run_contract.md), and
+  [testing policy](../documents/engineering/unit_testing_policy.md).
+
+**Product docs to create/update:**
+
+- [Plan](README.md#validation-foundation-refactor), [overview](00-overview.md),
+  [component inventory](system-components.md), and the corresponding lane
+  report/portable evidence after actual qualification.
+
+**Cross-references to add:**
+
+- The current typed catalogue and [legacy removal ledger](legacy-tracking-for-deletion.md)
+  name every changed owner and deprecated active path; original evidence is retained.

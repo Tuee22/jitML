@@ -12,6 +12,12 @@
 
 ## Current Status
 
+**Refactor boundary.** The campaign/resource contracts below are targets. Current
+implementation does not acquire their safety or qualification authority from
+this documentation change; execution order and pending work live in the
+[validation foundation refactor](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
+
+
 **Implemented today.** Every ProductRow uses one self-describing checkpoint
 envelope with a typed payload variant: supervised-graph for the exact trained
 `LayerGraph`, or weight-only for RL, AlphaZero, and tuning. Store admission binds
@@ -19,6 +25,39 @@ the persisted envelope payload, exact snapshot commit/descriptor and scoped
 payload objects, closed execution origin, exact plan, measured completion, and
 manifest before inference, browser rendering, or report eligibility. The former V2-
 versus-V1 distinction is historical and has no current parallel wire.
+
+## Complete Campaign Qualification Target
+
+**Target; requires the reopened campaign and lane implementation.** A complete
+lane is exact coverage of every required ProductRow under one immutable source,
+criterion and execution epoch, admitted through production APIs. It is not
+inferred from a process exit, a row count or a set of unrelated readiness passes.
+The authority and recovery rules are owned by
+[typed run contracts](run_contract.md#qualification-campaign-target) and
+[validation execution](validation_execution.md).
+
+Only whole prescribed cohorts with authentic initial/final artifacts, fixed
+seeds, fixed served index, measured work, real selected-device evidence,
+Store/replay and completed preservation seals qualify. Every attempt is retained;
+interruption neither certifies unfinished work nor permits seed replacement or
+hidden scientific retries. The final exact join and required browser/integration/
+standing checks remain mandatory. The new protocol does not retrospectively
+admit old interrupted command scopes.
+
+CPU, CUDA and Apple qualification have separate execution owners and real host
+prerequisites. Aggregation consumes their admitted portable objects without
+rerunning accelerator training. A missing device blocks its own lane; no
+unrelated Mac qualification is a prerequisite for CPU behavioral assurance.
+Learned-weight dependence is a required behavioral control, not proof that an
+arbitrary algorithm implements correct learning.
+
+Learning and realness predicates are independent of operational scheduling.
+Prospectively revised recipes or criteria require independent justification and
+a new epoch. A floor fitted to a failing qualifying result is not independence;
+a repeatedly inspected evaluation is not unseen evidence. Fixed numeric constants
+are not intrinsically correct, and naming one literatureTarget proves no origin.
+See [metric and split discipline](training_metrics_and_splits.md).
+
 
 ## Status Ownership
 
@@ -41,7 +80,7 @@ that prevents raw or partial evidence from manufacturing completion is
 The current product-truth source scanner detects registered fossil names and
 forbidden reachable imports. It does not establish generic output dependence on
 trained weights; the stronger behavioral detector remains an unmet contract in
-[Phase 279](../../DEVELOPMENT_PLAN/phase-279-measured-declared-type-split-behavioral-scaffold-lint.md#remaining-work).
+[Phase 225](../../DEVELOPMENT_PLAN/phase-225-scaffold-lint-reachability.md#remaining-work).
 
 The completion bar is intentionally stricter than "a command exists" or "a row
 appears in a generated matrix". A row is complete only when the same canonical
@@ -731,3 +770,21 @@ live in [Development Plan → Closure Status](../../DEVELOPMENT_PLAN/README.md#c
 - [Checkpoint Format](checkpoint_format.md)
 - [Unit Testing Policy](unit_testing_policy.md)
 - [Development Plan](../../DEVELOPMENT_PLAN/README.md)
+
+## Validation
+
+The following existing commands are run inside the explicitly admitted, bounded
+project container with real linux-cpu prerequisites. Target-specific cases are
+implemented by the owning reopened sprints before these commands can prove the
+new contract. No result from this documentation change is a passing execution.
+
+```bash
+# Example: Existing validation entrypoints inside the bounded project container
+jitml test jitml-unit --linux-cpu
+jitml test jitml-negative-controls --linux-cpu
+jitml docs check
+jitml check-code
+```
+
+Real backend, integration, browser and cohort evidence is additionally required
+where the owning sprint names it; pure controls cannot replace selected hardware.

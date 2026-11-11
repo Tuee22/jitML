@@ -5,9 +5,84 @@
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [development_plan_standards.md](development_plan_standards.md)
 **Generated sections**: none
 
-> **Purpose**: Per-Pod Resource Limits and Right-Sized Replicas from the dhall/cluster/ Profile. Single-session phase migrated from legacy Sprint 4.8 in the 2026-07-24 phase-per-session renumber; see the old→new map in [README.md](README.md).
+> **Purpose**: Per-Pod Resource Limits and Right-Sized Replicas from the dhall/cluster/ Profile. Originally migrated from legacy Sprint 4.8 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
 ## Phase State
+
+⏸️ **Blocked** for the expanded validation foundation in Sprint `51.2`.
+The earlier Sprint `51.1` record below is retained on its original source and
+scope; it does not validate this target or a current hardware lane. The execution
+order and transition authority are [the validation-foundation refactor](README.md#validation-foundation-refactor).
+
+The new source/catalogue, runner and hardware controls remain unimplemented.
+Sprint `221.2` owns reconciliation of the existing checker with these documented
+targets; this documentation-only change supplies no machine-validation receipt.
+
+## Sprint 51.2: Effective node and pod resource fit [⏸️ Blocked]
+
+**Status**: Blocked
+**Implementation**: Target changes to `src/JitML/Cluster/Resources.hs`, `src/JitML/Cluster/Helm.hs`, `chart/values.yaml`.
+**Blocked by**: Sprint `29.2`.
+**Docs to update**: `../documents/engineering/execution_resources.md`, `../documents/engineering/validation_execution.md`, `../documents/engineering/cluster_topology.md`, `README.md`, `system-components.md`, `legacy-tracking-for-deletion.md`.
+
+### Objective
+
+Rendered and effective pod, node and helper limits agree with the admitted whole-host profile and leave a measured client slot for numerical work.
+
+The target contracts are [execution resources](../documents/engineering/execution_resources.md)
+and [validation execution](../documents/engineering/validation_execution.md).
+Their acceptance requirements below are planned work, not implemented behavior.
+
+### Deliverables
+
+- Keep requests, limits, replicas and node caps sourced from the typed profile; reject profiles whose combined allocation cannot fit the VM or that reserve the same capacity twice.
+- Compare effective cgroup ancestry, pod limits and node limits with planned values; inherited no-swap enforcement is observed explicitly instead of inferred from one redundant literal.
+- Include platform startup, steady-state services, lifecycle helpers and client peaks in profile validation. A historical multi-node count does not validate the present bounded topology.
+- Keep resource shortage an explicit operational refusal, separate from numerical quality and scientific completion.
+
+### Validation
+
+1. Test rendered/effective mismatches, missing limits, excessive replicas, inherited limits and helper overlap against independent bounded fixtures.
+2. On the selected real cluster, observe actual caps and readiness under the admitted profile, retain OOM/limit counters and check client/helper coexistence.
+3. Close the finite observation window, retire helpers and explicitly stop the named VM; CPU-idle variation alone must not refuse or stop the run.
+
+Closure requires the owned targeted/hermetic controls listed above, with a
+nonempty independently enumerated test inventory and exact scoped transcripts.
+The implementation publishes actual selectable groups in the existing stanzas
+and uses the supported `--test-options` passthrough; no invented selector or
+unfiltered full-matrix acquisition is an acceptable substitute. A scoped result
+is recorded as scoped, never as a passing full stanza. Resource/live controls
+also require the actual owned runtime observations named above.
+
+Complete evidence-dependent unit/integration/negative-control transcripts belong
+to Sprints `277.2` and `280.2`; cross-family convergence belongs to `283.2` and
+`285.2`. Those downstream records are not prerequisites for this foundation or
+readiness closure. Every original case remains registered with an explicit owner.
+The existing documentation/code-quality commands below run after source parity
+is implemented, inside the admitted profile; they do not execute these controls.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+Cluster-running jobs use the separately admitted cluster/lifecycle overlays
+instead of the stopped-cluster build profile. A real hardware lane is never
+claimed by CPU fixtures; absent required runtime capability fails that lane.
+
+### Remaining Work
+
+- Implement the profile/effective-limit checks and verify them before scientific runtime admission.
+- Reprove real profile fit and bounded lifecycle-helper coexistence; old replica measurements remain historical only.
+
+## Retained Historical Scope
+
+The following state, commands, measurements and closure statements describe the
+original Sprint `51.1` surface only. New execution rules and acceptance
+above supersede any conflicting operational instruction; old receipts are not
+reinterpreted as current readiness.
+
+### Historical Phase State
 
 ✅ **Done**.
 
@@ -100,12 +175,14 @@ Values`.
 
 **Engineering docs to create/update:**
 
-- None (single-session phase migrated in the 2026-07-24 renumber; evidence lives in the Validation gate above).
+- `../documents/engineering/execution_resources.md`.
+- `../documents/engineering/validation_execution.md`.
+- `../documents/engineering/cluster_topology.md`.
 
 **Product docs to create/update:**
 
-- None.
+- [Development-plan entry](README.md#validation-foundation-refactor), [component inventory](system-components.md), and [deletion ledger](legacy-tracking-for-deletion.md).
 
 **Cross-references to add:**
 
-- None.
+- Link the target contracts, exact sprint dependencies and evidence pointers together when source implementation lands; update root summaries only in an authorized root-file change.

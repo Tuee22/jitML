@@ -30,6 +30,12 @@ browser event cannot independently mint completion or inference eligibility.
 
 ## Current Status
 
+**Refactor boundary.** The campaign/resource contracts below are targets. Current
+implementation does not acquire their safety or qualification authority from
+this documentation change; execution order and pending work live in the
+[validation foundation refactor](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
+
+
 **Implemented today.** Supervised training, checkpointing, and serving use one
 finite-difference-validated typed `LayerGraph` IR. The literal Phase `242`–`244`
 graphs execute the Phase `241` device kernels on `linux-cpu` — spatial
@@ -43,6 +49,36 @@ single checkpoint envelope and the Store-reloaded inference path. The former
 embedded in the supervised payload are historical only. `LayerSpec` and
 `LayerState` remain as a Dense-family initialization adapter; they are not a
 parallel training or serving executor.
+
+## Bounded Investigation and Qualification Target
+
+**Target; requires the reopened execution foundations.** Every compiler,
+training experiment, evaluation and tuning task uses an owned envelope defined
+by [execution resources](execution_resources.md). There is one heavy workload
+per host. Ad-hoc background process swarms, a compiler-only heap cap and an
+unbounded multiplexer client are not campaign admission. Host Metal execution
+remains host-native and independent of a VM for the core JIT path.
+
+Progress records distinguish completed numerical work, capture liveness and
+monitor health. A quiet trainer may be healthy; a heartbeat may coexist with no
+learning progress. Operational timeouts use measured throughput and a prospective
+finite policy; they do not shorten the requested training/evaluation work or
+become fabricated learning results. Compiler scratch and retained output are
+bounded disk-backed artifacts.
+
+Readiness uses the same selected substrate, numerical recipe, cohort and resource
+contract intended for qualification. Diagnostic departures are labeled and do not
+count as readiness. Shared-path allocation fixes name affected prior passing rows;
+streaming, strict evaluation, packed storage and bounded trial concurrency must
+preserve intended numerical semantics or trigger a reviewed recipe change.
+
+Whole prescribed row cohorts, rather than individual seeds or trainer checkpoints,
+are the recoverable qualification boundary. See
+[validation execution](validation_execution.md) for final source freezing,
+attempt history, preservation seals, interruption and complete lane admission.
+This does not add a general trainer-resume implementation or replace actual
+Store/replay/browser/daemon validation.
+
 
 ## SL Training Loops
 
@@ -1278,3 +1314,21 @@ example](../../README.md#concrete-some-tuning--example).
 - [Legacy Phase 9: RL Catalog, AlphaZero, and Tuning](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
 - [Legacy Phase 13: No-Caveat Model Runtime](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
 - [Legacy Phase 14: Interactive Demo and Playwright Closure](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map)
+
+## Validation
+
+The following existing commands are run inside the explicitly admitted, bounded
+project container with real linux-cpu prerequisites. Target-specific cases are
+implemented by the owning reopened sprints before these commands can prove the
+new contract. No result from this documentation change is a passing execution.
+
+```bash
+# Example: Existing validation entrypoints inside the bounded project container
+jitml test jitml-unit --linux-cpu
+jitml test jitml-negative-controls --linux-cpu
+jitml docs check
+jitml check-code
+```
+
+Real backend, integration, browser and cohort evidence is additionally required
+where the owning sprint names it; pure controls cannot replace selected hardware.

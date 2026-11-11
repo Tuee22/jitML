@@ -233,21 +233,31 @@ transport/lifecycle smoke cannot mint completion. See
   Engine-only diagnostic and cannot be used to make Coordinator or Webapp
   inherit Engine dispatch.
 
-## Phasing rules (both repos)
+## Phasing rules
 
-These two rules govern every phase in both repos' `DEVELOPMENT_PLAN/`:
+The shared workflow protocol does not impose a cross-repository execution order.
+jitML's local phase/dependency authority is
+[plan standards M](../../DEVELOPMENT_PLAN/development_plan_standards.md#m-explicit-dependencies-hardware-affinity-and-stable-phase-ids).
+The corresponding sister-repository standard governs that repository; this local
+revision makes no claim that its implementation or doctrine changed.
 
-1. **Forward-only DAG.** Every `Blocked by` / dependency edge references an
-   equal-or-lower-numbered phase. No earlier phase is blocked by an incomplete
-   later phase. The plan is workable strictly in numerical order.
-2. **Single-accelerator per phase.** A phase that needs an accelerator validates on
-   **exactly one** of `{apple-silicon, the GPU lane}` plus `linux-cpu` (which runs
-   on both hardware sets and is the common lane). No phase's validation gate
-   requires both accelerators. Cross-accelerator aggregation is a `linux-cpu`-only
-   phase that merges committed per-lane attestations.
+For jitML, stable phase IDs name owners. Explicit sprint dependencies form an
+acyclic graph executed in deterministic topological order. A valid prerequisite
+may have a higher numeric ID. Hardware qualification closes on one declared host
+with at most one accelerator plus its CPU support; observer-session continuity
+is not a scientific prerequisite. CPU assurance does not wait for an unrelated
+Mac or CUDA qualification. Shared host admission independently serializes heavy
+work on each host.
 
-> The GPU lane is `linux-cuda` in jitML and `linux-gpu` in `infernix`; substrate
-> identifiers stay per-repo and are not renamed.
+Cross-lane aggregation is CPU-only and consumes admitted per-lane evidence; it
+does not rerun an accelerator or assert cross-substrate numerical parity.
+[Validation execution](validation_execution.md) owns the target campaign and
+[execution resources](execution_resources.md) owns its resource boundary. Source
+catalogue/checker support for this local graph remains an unimplemented target
+of Sprint `221.2`; protocol conformance alone cannot prove it.
+
+The GPU lane is `linux-cuda` in jitML and `linux-gpu` in `infernix`; substrate
+identifiers remain local to each repository.
 
 ## Conformance checklist
 
@@ -270,7 +280,7 @@ A project conforms to this contract when all hold:
       while broker delivery remains at-least-once, without claiming platform
       HA.
 - [ ] The binary emits its own (reflected) Dhall schema.
-- [ ] Every phase obeys forward-only DAG + single-accelerator-per-phase.
+- [ ] jitML phases obey the local explicit acyclic sprint graph and one-accelerator execution ownership; aggregation consumes admitted evidence only.
 
 ## Validation
 

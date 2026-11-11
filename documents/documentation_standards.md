@@ -27,6 +27,16 @@ not use.
 
 ---
 
+## Current Status
+
+The metadata, taxonomy, generated-section and existing status checks below are
+implemented. The dependency-DAG/foundation catalogue, campaign recovery and
+stronger link/authority checks are target obligations of reopened Phases `3` and
+`221`; a documentation edit does not update those source checks. The current
+root README remains the binding CLI/project entry contract until Phase `3`
+completes an explicit authority transfer. No root file is changed by this
+scoped documentation refactor.
+
 ## 1. Metadata Block
 
 Document metadata uses the metadata block below, not YAML front-matter. The
@@ -117,7 +127,11 @@ short reference page:
 - use explicit tables or matrices when ownership, substrate behavior, or a model
   summary is part of the contract;
 - answer directly, when relevant: what is the rule, what is current versus target,
-  how is it validated.
+  how is it validated;
+- execution/resource doctrine names its authority boundary, actual enforcement,
+  observation uncertainty, failure/retirement behavior and finite acceptance
+  controls. Do not equate configured limits, a dry run or a heartbeat with
+  demonstrated containment or hardware qualification.
 
 ---
 
@@ -165,6 +179,21 @@ WRONG/RIGHT (a WRONG example is always paired with the reason):
   or orientation doc.
 - jitML **consumes** `hostbootstrap` for its host/bootstrap layer; this standard
   links to that repository for the bootstrap contract rather than re-owning it.
+- An authority transfer is explicit: old section/anchor, canonical successor,
+  affected consumers, current/target boundary and validation. Root CLI contracts
+  remain binding until their consumers and root links change together. When the
+  authorized edit scope excludes root/source files, retain that migration as an
+  unmet obligation of Phase `3`, rather than claim the transfer implemented.
+- [Execution resources](engineering/execution_resources.md) owns whole-host
+  admission and measurement semantics; [validation execution](engineering/validation_execution.md)
+  owns durable campaign execution. [Run contract](engineering/run_contract.md)
+  retains typed evidence and production admission. Topic consumers link those
+  owners rather than restating configuration values or maintaining parallel
+  execution rules.
+- Cross-project contracts require a real canonical source and a named ownership
+  boundary. A missing document, unverified lock design or personal host script
+  cannot be cited as implemented resource enforcement. The Windows psmux lesson
+  is observer accounting/isolation, not a jitML Windows acceptance lane.
 
 ---
 
@@ -202,6 +231,10 @@ Rules:
   section anchors, e.g.
   `./engineering/determinism_contract.md#per-substrate-floating-point-semantics`.
 - Each governed doc links to at least one other governed source.
+- Every relative Markdown link and anchor resolves to the intended retained
+  document/section. New checker controls cover missing files, missing anchors,
+  absent canonical owners and conflicting authority. Sprint `3.2` owns this
+  stronger target; existing metadata checks alone do not prove it.
 - Module names, commands, paths, types, and binaries use backticks.
 - **Version-controlled paths stay Windows-portable.** Every path that Git tracks
   (or would track, because it is not ignored) is at most **160** characters
@@ -417,14 +450,19 @@ target, and exercised by `test/unit/Main.hs`. It verifies:
   (`status-projection.<sprint>`), a Blocked sprint whose `**Blocked by**:` line
   omits an unproven upstream sprint, and any violated structure rule
   (`plan-structure.<sprint>.<rule>`: bare-word `**Status**:` agreeing with the
-  heading and `## Phase State`, forward-only Blocked-by edges that the catalogue
-  also lists, a Blocked-by line for Blocked and none for Planned or Done, a
+  heading and `## Phase State`, the currently implemented numeric-forward
+  Blocked-by edges that the catalogue also lists, a Blocked-by line for Blocked and none for Planned or Done, a
   non-empty `### Remaining Work` for Active, a concrete `### Validation` gate that
   never names both accelerators, and every `jitml test <stanza> --<substrate>` the
   Validation block of an evidenced sprint runs being one of that sprint's
   gate-transcript obligations) are drifts, and so is a plan document from Phase
   `220` on that the catalogue does not list (`status-catalogue.unregistered-phase-<n>`),
-  which would otherwise let a phase leave every closure verdict. `jitml docs status`
+  which would otherwise let a phase leave every closure verdict. The target
+  checker additionally covers explicitly reopened foundation sprints below
+  Phase `220`, validates an acyclic sprint graph rather than numeric ordering,
+  and projects the new campaign obligations. Sprint `221.2` owns that source
+  change; this documentation-only refactor does not claim its checks pass.
+  `jitml docs status`
   prints the derived tally, the open chain, and every unmet obligation with its
   evidence pointer. `docs check` and `check-code` are computed when they run and are
   never attested by a file;
@@ -437,7 +475,9 @@ target, and exercised by `test/unit/Main.hs`. It verifies:
   and lowercase `snake_case` naming under `documents/` (`README.md` exempt).
 
 `**Referenced by**:` existence is checked; **backlink reciprocity is deliberately
-not enforced** (§1). Run `jitml docs check` after any governed-doc edit; run
+not enforced** (§1). Full relative-link/anchor and canonical-authority checks
+are target work of Phase `3`, not a claimed property of the current checker.
+Run `jitml docs check` after any governed-doc edit; run
 `jitml check-code` for the Haskell quality gate and `jitml test jitml-unit
 --linux-cpu` for the doc-validator tests.
 

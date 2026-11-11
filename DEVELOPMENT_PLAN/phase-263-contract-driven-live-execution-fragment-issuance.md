@@ -5,9 +5,126 @@
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [development_plan_standards.md](development_plan_standards.md)
 **Generated sections**: none
 
-> **Purpose**: Contract-Driven Live Execution - Fragment Issuance. Single-session phase migrated from legacy Sprint 28.6 in the 2026-07-24 phase-per-session renumber; see the old→new map in [README.md](README.md).
+> **Purpose**: Contract-Driven Live Execution - Fragment Issuance. Originally migrated from legacy Sprint 28.6 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
 ## Phase State
+
+⏸️ **Blocked** on the expanded campaign obligations below. Historical closure
+remains scoped to the execution and implementation it actually proved.
+
+The [validation foundation refactor](README.md#validation-foundation-refactor)
+owns the current execution order. Sprint `221.2` first updates the source
+catalogue/checkers for the reopened sprint graph; those source changes are not
+part of this documentation-only revision. Current machine projection still
+reflects the old catalogue and must not be reported as validating these targets.
+
+The [execution contract](../documents/engineering/validation_execution.md) and
+[resource contract](../documents/engineering/execution_resources.md) state the
+new targets. Atomic row recovery is not implemented or authorized by prose: until
+`261.2` passes, existing qualification remains non-resumable. No historical partial
+attempt, diagnostic review copy or readiness ledger is adopted as qualification.
+
+## Sprint 263.2: Common campaign fragment issuer [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprint `261.2`, Sprint `260.2`
+**Docs to update**: `../documents/engineering/validation_execution.md`, `../documents/engineering/execution_resources.md`, `../documents/engineering/run_contract.md`, `../documents/engineering/unit_testing_policy.md`, `README.md`, `system-components.md`
+
+### Objective
+
+The common fragment issuer consumes the authenticated complete-campaign capability. Its protocol proof is available to every lane without requiring prior CPU scientific admission.
+
+### Deliverables
+
+- Produce no fragment from a row count, narrative table, diagnostic ledger, partial campaign or unverified persisted receipt.
+- Bind issued fragments to exact source/criterion/contract and lane/device evidence with portable objects required for later admission.
+- Verify clean-checkout portable layout and Git/Docker retention of deliberate evidence inputs; source-keyed criterion storage is runtime-critical.
+
+### Validation
+
+Closure requires the owned targeted/hermetic controls listed above, with a
+nonempty independently enumerated test inventory and exact scoped transcripts.
+The implementation publishes actual selectable groups in the existing stanzas
+and uses the supported `--test-options` passthrough; no invented selector or
+unfiltered full-matrix acquisition is an acceptable substitute. A scoped result
+is recorded as scoped, never as a passing full stanza. Resource/live controls
+also require the actual owned runtime observations named above.
+
+Complete evidence-dependent unit/integration/negative-control transcripts belong
+to Sprints `277.2` and `280.2`; cross-family convergence belongs to `283.2` and
+`285.2`. Those downstream records are not prerequisites for this foundation or
+readiness closure. Every original case remains registered with an explicit owner.
+The existing documentation/code-quality commands below run after source parity
+is implemented, inside the admitted profile; they do not execute these controls.
+
+
+These are acceptance requirements for the target implementation. They are not
+passes from this documentation change. Targeted failing controls run first; the
+complete applicable stanzas run only after their actual evidence prerequisites
+exist. Commands use the explicit named context and task-specific approved bounds;
+cluster-running work uses the separately admitted cluster/lifecycle profile.
+
+1. Reject foreign/stale source, diagnostic authority, missing rows/objects, substituted device evidence and a manually authored green table.
+2. Round-trip the complete authenticated issuer input with exact identities and preserve prior historical fragment bytes without relabeling them current.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Implement the deliverables after the listed prerequisites; retain every failed or incomplete observation in its original scope.
+- Complete the listed acceptance in its declared evidence scope, retain the required records, and reconcile the source status catalogue before claiming closure.
+
+## Sprint 263.3: CPU lane admission and issued fragment [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprint `261.3`, Sprint `262.2`, Sprint `263.2`
+**Docs to update**: `../documents/engineering/validation_execution.md`, `../documents/engineering/execution_resources.md`, `../documents/engineering/run_contract.md`, `../documents/engineering/unit_testing_policy.md`, `README.md`, `system-components.md`
+
+### Objective
+
+Close the CPU lane by exact admission, real aggregate/browser checks and fragment issuance from the completed current campaign. This is the CPU execution result, not a prerequisite for unrelated Apple/CUDA hardware availability.
+
+### Deliverables
+
+- Reopen every retained qualifying object through production Store and campaign readers before issuing the CPU fragment.
+- Run the complete required CPU integration/browser/preservation lifecycle and retain the authenticated ordered55 journal, index-zero artifacts and all attempts.
+- Finish original data readback, safe retirement and explicit named-VM stop; a missing required closing proof blocks admission.
+
+### Validation
+
+These are acceptance requirements for the target implementation. They are not
+passes from this documentation change. Targeted failing controls run first; the
+complete applicable stanzas run only after their actual evidence prerequisites
+exist. Commands use the explicit named context and task-specific approved bounds;
+cluster-running work uses the separately admitted cluster/lifecycle profile.
+
+1. Pass the real live CPU consumer path using the current frozen campaign; establish complete coverage with no unsupported or NotRun cells.
+2. Complete unfiltered CPU integration when its catalogue and live prerequisites exist; filtered acquisition is not an unfiltered standing pass.
+
+```bash
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-integration --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-e2e --live --linux-cpu
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Implement the deliverables after the listed prerequisites; retain every failed or incomplete observation in its original scope.
+- Complete the listed acceptance in its declared evidence scope, retain the required records, and reconcile the source status catalogue before claiming closure.
+
+## Retained Historical Contract and Evidence
+
+The remainder records prior implementation, commands, status and failures. Its
+claims retain their original source, policy and date. Superseded launch ordering,
+resource rules and uninterrupted-process requirements do not override the current
+sprints above. Preserve these receipts; do not execute a historical recipe as a
+current authorized campaign.
+
+## Retained Historical Phase State
 
 ✅ **Done** (closed 2026-08-16). The committed `linux-cpu` lane fragment is issued
 only from the completed scenario journal, its `DeviceEvidence` column is the 55
@@ -168,7 +285,7 @@ components Ready) and the twelve canonical dataset objects were re-staged.
 
 *(Retained as historical evidence for the surface it exercised; superseded by the 2026-08-12 reopen above.)*
 
-## Documentation Requirements
+## Historical Documentation Requirements
 
 **Engineering docs to create/update:**
 
@@ -181,3 +298,23 @@ components Ready) and the twelve canonical dataset objects were re-staged.
 **Cross-references to add:**
 
 - None.
+
+## Documentation Requirements
+
+**Engineering docs to create/update:**
+
+- [Validation execution](../documents/engineering/validation_execution.md),
+  [execution resources](../documents/engineering/execution_resources.md),
+  [run contract](../documents/engineering/run_contract.md), and
+  [testing policy](../documents/engineering/unit_testing_policy.md).
+
+**Product docs to create/update:**
+
+- [Plan](README.md#validation-foundation-refactor), [overview](00-overview.md),
+  [component inventory](system-components.md), and the corresponding lane
+  report/portable evidence after actual qualification.
+
+**Cross-references to add:**
+
+- The current typed catalogue and [legacy removal ledger](legacy-tracking-for-deletion.md)
+  name every changed owner and deprecated active path; original evidence is retained.

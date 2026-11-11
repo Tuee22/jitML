@@ -57,6 +57,31 @@ Metal cannot be containerized.
 
 ## Status Authority
 
+Current delivery state and execution order live in
+[Closure Status](README.md#closure-status) and
+[Validation Foundation Refactor](README.md#validation-foundation-refactor).
+The refactor reopens the named foundations, scientific-readiness, campaign,
+hardware-lane and aggregation owners; historical Done counts and first-owner
+claims are not current execution authority. Source-based projection has not yet
+implemented this target graph; Sprint `221.2` owns the transition.
+
+The target separates durable process ownership, whole-host resource admission,
+scientific readiness, atomic completed-row evidence and independent real-hardware
+qualification. The canonical contracts are
+[execution resources](../documents/engineering/execution_resources.md) and
+[validation execution](../documents/engineering/validation_execution.md).
+These are target obligations, not evidence that the implemented runner is safe
+or a hardware lane qualified. The explicit named VM remains stopped at this
+refactor's read-only runtime check. Root-entry/source/tool changes are deferred
+to their owners; this change edits documentation only.
+
+### Historical status narrative before the foundation refactor
+
+The following narrative retains dated original scope and evidence. Its older
+numerical ordering, CPU-idle guards, source stamps and current-sounding statuses
+are historical, superseded by the linked current graph.
+
+
 Current phase state, blockers, remaining work, and closure evidence live only in
 [README.md → Closure Status](README.md#closure-status). This overview defines
 scope and dependency ownership and does not maintain a second current-status
@@ -1807,7 +1832,16 @@ each constraint.
 
 ## Dependency Chain
 
-Each phase is a single-session unit **blocked only by a lower-numbered phase** (forward-only DAG, standards [rule M](development_plan_standards.md)). The legacy sprint column cross-references the pre-2026-07-24 numbering (see the old→new map in [README.md](README.md)).
+The current execution graph is [Validation Foundation Refactor](README.md#validation-foundation-refactor).
+Stable IDs do not impose numerical prerequisites; [standards M](development_plan_standards.md#m-explicit-dependencies-hardware-affinity-and-stable-phase-ids)
+owns explicit acyclic sprint dependencies, independent hardware lanes and durable
+single-host campaigns. New statuses remain unprojected until Sprint `221.2`.
+
+### Historical phase inventory before the foundation refactor
+
+The following table records the original `.1` surfaces and legacy-number map.
+It is not a second current-status ledger and supplies no pass for reopened
+`.2`/`.3` obligations. Consult the owning phase and current graph for those.
 
 | Phase | Title | Status | Legacy sprint |
 |---|---|---|---|

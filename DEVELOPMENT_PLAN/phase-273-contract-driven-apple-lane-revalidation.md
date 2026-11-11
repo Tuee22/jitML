@@ -5,9 +5,76 @@
 **Referenced by**: [README.md](README.md), [00-overview.md](00-overview.md), [development_plan_standards.md](development_plan_standards.md)
 **Generated sections**: none
 
-> **Purpose**: Contract-Driven Apple Lane Revalidation. Single-session phase migrated from legacy Sprint 30.4 in the 2026-07-24 phase-per-session renumber; see the old→new map in [README.md](README.md).
+> **Purpose**: Contract-Driven Apple Lane Revalidation. Originally migrated from legacy Sprint 30.4 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
 ## Phase State
+
+⏸️ **Blocked** on the expanded campaign obligations below. Historical closure
+remains scoped to the execution and implementation it actually proved.
+
+The [validation foundation refactor](README.md#validation-foundation-refactor)
+owns the current execution order. Sprint `221.2` first updates the source
+catalogue/checkers for the reopened sprint graph; those source changes are not
+part of this documentation-only revision. Current machine projection still
+reflects the old catalogue and must not be reported as validating these targets.
+
+The [execution contract](../documents/engineering/validation_execution.md) and
+[resource contract](../documents/engineering/execution_resources.md) state the
+new targets. Atomic row recovery is not implemented or authorized by prose: until
+`261.2` passes, existing qualification remains non-resumable. No historical partial
+attempt, diagnostic review copy or readiness ledger is adopted as qualification.
+
+## Sprint 273.2: Current Apple hardware campaign [⏸️ Blocked]
+
+**Status**: Blocked
+**Blocked by**: Sprint `261.2`, Sprint `263.2`, Sprint `115.2`, Sprint `245.2`, Sprint `249.2`, Sprint `254.2`, Sprint `278.2`, Sprint `262.2`
+**Docs to update**: `../documents/engineering/validation_execution.md`, `../documents/engineering/execution_resources.md`, `../documents/engineering/run_contract.md`, `../documents/engineering/unit_testing_policy.md`, `README.md`, `system-components.md`
+
+### Objective
+
+Qualify every product row on real apple-silicon hardware through the common campaign protocol, independently of the other accelerator lane and CPU scientific admission.
+
+### Deliverables
+
+- Admit the actual apple-silicon device/toolchain and effective host/native/VM/container budgets before the corresponding work; explicit hardware absence refuses the selected lane.
+- Use the same frozen source, prospective scientific contracts, dataset identities and independently bound reviews as the campaign manifest. Do not reinterpret historical lane journals as current.
+- Retain all prescribed row cohorts, actual device witnesses, served-index-zero artifacts, authenticated journal/fragment, Store/replay and complete before/after preservation proofs.
+- Run the native Metal path on the Mac host; container quotas are not native-process limits.
+- Complete aggregate/browser/daemon and full lane checks under the admitted resource profile; restore/read back retained state and stop the explicitly owned workload/VM when finished.
+
+### Validation
+
+These are acceptance requirements for the target implementation. They are not
+passes from this documentation change. Targeted failing controls run first; the
+complete applicable stanzas run only after their actual evidence prerequisites
+exist. Commands use the explicit named context and task-specific approved bounds;
+cluster-running work uses the separately admitted cluster/lifecycle profile.
+
+1. Pass the real apple-silicon backend lane and supported complete bootstrap test path with no skipped selected-substrate tests; prepare lifecycle and datasets explicitly before these commands.
+2. Demonstrate observer-session independence and actual bounded resource behavior on this host before long qualification; finite fixtures alone supply no hardware/scientific pass.
+3. Issue and readmit complete 55 lane evidence, preserving every failed attempt and exact after-state proof. No other accelerator or Mac-first ordering is a prerequisite.
+
+```bash
+jitml test jitml-backends --apple-silicon
+./bootstrap/apple-silicon.sh test
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml docs check
+docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml check-code
+```
+
+### Remaining Work
+
+- Implement the deliverables after the listed prerequisites; retain every failed or incomplete observation in its original scope.
+- Complete the listed acceptance in its declared evidence scope, retain the required records, and reconcile the source status catalogue before claiming closure.
+
+## Retained Historical Contract and Evidence
+
+The remainder records prior implementation, commands, status and failures. Its
+claims retain their original source, policy and date. Superseded launch ordering,
+resource rules and uninterrupted-process requirements do not override the current
+sprints above. Preserve these receipts; do not execute a historical recipe as a
+current authorized campaign.
+
+## Retained Historical Phase State
 
 ✅ **Done** (2026-09-17). The real Apple lifecycle passed all ten test
 stanzas, retained the exact portable 55-row journal, admitted it through the
@@ -226,7 +293,7 @@ docker compose run --rm jitml jitml check-code
 
 - None. All phase-owned obligations are met and validated in the worktree.
 
-## Documentation Requirements
+## Historical Documentation Requirements
 
 **Engineering docs to create/update:**
 
@@ -243,3 +310,23 @@ docker compose run --rm jitml jitml check-code
 **Cross-references to add:**
 
 - None.
+
+## Documentation Requirements
+
+**Engineering docs to create/update:**
+
+- [Validation execution](../documents/engineering/validation_execution.md),
+  [execution resources](../documents/engineering/execution_resources.md),
+  [run contract](../documents/engineering/run_contract.md), and
+  [testing policy](../documents/engineering/unit_testing_policy.md).
+
+**Product docs to create/update:**
+
+- [Plan](README.md#validation-foundation-refactor), [overview](00-overview.md),
+  [component inventory](system-components.md), and the corresponding lane
+  report/portable evidence after actual qualification.
+
+**Cross-references to add:**
+
+- The current typed catalogue and [legacy removal ledger](legacy-tracking-for-deletion.md)
+  name every changed owner and deprecated active path; original evidence is retained.

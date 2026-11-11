@@ -12,23 +12,19 @@
 
 ## Current Status
 
-As of 2026-08-10, the checked-in Kind fixtures render one control-plane plus
-one worker, manual-PV cardinality is derived from the typed resource profile,
-and Phase 53's clean 135-step rollout proved the single-instance platform.
-Phases 42, 53, and 69 are Done. The Linux Engine count is profile-driven, and
-the current retained-storage repair belongs to Phase 278. See
-[DEVELOPMENT_PLAN/README.md](../../DEVELOPMENT_PLAN/README.md#closure-status)
-for the authoritative status ledger.
+**Refactor boundary.** The campaign/resource contracts below are targets. Current
+implementation does not acquire their safety or qualification authority from
+this documentation change; execution order and pending work live in the
+[validation foundation refactor](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
 
-The source implements durable node-local PV startup projection and a retained
-consumer-origin guard in
-[`JitML.Cluster.StatefulPV`](../../src/JitML/Cluster/StatefulPV.hs).
-Scoped container validation passes all 12 storage regressions and the exact
-affected integration planning case. The retained-node live rollout and
-original-data readback remain pending under
-[Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md).
-The implementation does not establish live readiness or original-data readback
-without their separate runtime evidence.
+
+The checked-in topology renders one control-plane plus one worker, with manual
+PV cardinality and replica counts derived from the selected typed profile.
+Durable node-local PV startup projection and retained consumer-origin checks are
+implemented in `JitML.Cluster.StatefulPV`; their live preservation and whole-host
+resource proof remain separate obligations of the reopened lifecycle owners.
+The [plan](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor) owns
+current statuses and dated validation evidence.
 
 The target is one control-plane, one worker, one instance of each local
 platform role, and one Linux Engine replica. The renderer continues to accept
@@ -62,6 +58,30 @@ Pulsar-topic, and measured-publication write promised by the CLI and plan
 surfaces. Linux requires clustered Engine and Coordinator rows; Apple requires
 only the clustered Coordinator and edge, never inferring its separately launched
 host Engine from the zero-replica cluster Deployment.
+
+## Whole-Host Resource Boundary
+
+**Target; resource admission is not established by the topology renderer.**
+[Execution resources](execution_resources.md) owns combined host/VM/container/
+native/observer accounting, measurement semantics and stop policy. Reopened
+Phases 29, 43, 51 and 64 own the effective implementation and live proof.
+
+A single typed selected profile generates node, pod, caller and lifecycle-helper
+limits and the expectations checked against actual runtime objects before start.
+Declared requests, a Compose dry run or a node cap alone do not prove the combined
+stack fits. Image builders/imports and native host commands receive their own
+accounting. Helpers reserve space inside the client's existing slot; overlapping
+helpers cannot each claim the whole slot. Compiler scratch and archives use
+bounded disk-backed homes with separate disk-reserve checks.
+
+The named VM is started and stopped as explicit operator steps. No implicit
+bootstrap/test/build VM start, boot/login activation or default-VM fallback is
+permitted. CPU quotas remain enforced; host idle percentage is diagnostic and
+cannot independently refuse, pause or stop a workload. Unknown measurement is
+not a healthy reserve. Actual host/native and VM/guest limits are separate facts.
+Original-data readback and retained-node identity proofs accompany lifecycle
+seals; later healthy observations cannot replace missing original closing roles.
+
 
 ## Substrates and Cluster Shapes
 

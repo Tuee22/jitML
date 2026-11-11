@@ -52,6 +52,14 @@
 
 ## Ledger Status
 
+**Validation refactor authority.** The current cleanup assignments below extend
+the retained ledger; old dated counts and numerical chains describe their original
+cutoffs. [Validation Foundation Refactor](README.md#validation-foundation-refactor)
+owns current execution order. The new removal entries remain Pending; this
+change is not a cleanup or scientific validation pass.
+
+
+
 This ledger tracks **doctrine deviations and compatibility helpers**, not
 unmet primary Exit-Definition obligations. Primary unmet obligations live in
 the owning sprint's `### Remaining Work` block per
@@ -514,7 +522,7 @@ opening event itself enqueues a row here naming the originating sprint.
 
 ## Pending Removal
 
-**Current state (2026-11-01): Pending Removal has 18 rows; Completed has 165.**
+**Historical state (2026-11-01): Pending Removal had 18 rows; Completed had 165.**
 The generic Colima VM/autostart is retired; retained offline recovery data has
 a separate cleanup row and remains protected until complete migration.
 
@@ -589,6 +597,34 @@ passes. Synthetic clients and deliberately structural fixtures remain valid
 test harnesses when their types prevent them from satisfying production
 evidence; they are not deletion rows merely because they are synthetic.
 
+
+
+### Validation refactor removals
+
+These entries record actual superseded execution/authority surfaces. Their
+replacements are targets, not completed removals. Source/root/tool edits are
+outside the documentation-only refactor; the named sprint must implement,
+validate and retire each dependency before moving a row to Completed. Scientific
+failures and missing lane evidence remain primary obligations in phase Remaining
+Work. Existing failed attempts, retained source/recovery archives, the offline VM
+data disk and original DATA are preserved until their retention duties discharge.
+
+| Legacy surface | Exact location or boundary | Why it is retired | Owner | Removal acceptance |
+|---|---|---|---|---|
+| Copied executable campaign operators | Ignored `.build/phase278-*/` launch/owner/supervisor/guardian variants; current caller bindings depend on attempt-local implementations | Independent copies drift in handoff fields, quotas, platform spawn and stop behavior | Sprint `160.2` | One maintained reviewed implementation; per-attempt manifests/receipts only; real disconnect, owner-death, capture and cleanup controls pass before active callers migrate |
+| Tool/terminal lifetime as execution authority | Codex/Claude exec handles, private-peer startup handoffs and attached tmux/psmux client assumptions in retained Phase278 operators | Agent limits or terminal loss kill healthy work; durable launch alone does not bound observers | Sprints `9.2`, `21.2`, `160.2` | Observe without owning the run; real disconnect/reconnect preserves the same execution; safety-owner loss retires only owned work with exact outcomes |
+| Independent manually repeated resource expectations | `compose.*-bounded.yaml`, `src/JitML/Cluster/Resources.hs`, and retained caller/operator quota checks | Declared/create/observed quotas have diverged; component limits do not prove aggregate fit | Sprints `29.2`, `51.2`, `64.2` | One selected typed envelope renders actual launch arguments and guard expectations; live limits, native/VM/helper fit and exclusive admission verified |
+| CPU-idle refusal and incomplete-reader-as-healthy paths | Retained Phase278 supervision variants; historical 30-percent idle policies and personal `~/bin/memguard.py` dependency | Idle CPU is diagnostic; a missing failed sample or unknown reader cannot prove a safe reserve | Sprints `29.2`, `21.2`, `160.2` | No active CPU-idle-only stop branch; failed/unknown observations and bounded stop result retained; corrected measurement semantics and owned campaign guard replace any dependence on personal scripts |
+| Diagnostic review re-keying used as a prospective qualifying path | `.build/phase278-row-runs/cr-*`; source-keyed criterion lookup in `src/JitML/Product/CriterionReviewData.hs` | Re-keying old data cannot provide independent current-source assessment | Sprints `278.2`, `261.2` | Diagnostic origins cannot mint row authority; final review binds exact source/policy and runtime files, with foreign/source mismatch negatives |
+| Long criterion-review path layout | `DEVELOPMENT_PLAN/attestations/phase278-20261015-mac-validation/criterion-reviews/`; runtime reviewRoot constant | Existing content-addressed nesting exceeds portable checkout bounds | Sprint `278.2` | Short layout, source constants, deliberate data/identities and Docker retention change together; clean checkout and path guard pass; human performs required index removal under Git policy |
+| Duplicate root/topic status diaries and parallel doctrine | Root `README.md` incident/current-state sections; duplicated status and authority in plan/topic docs | Multiple current-sounding records contradict execution order and contract ownership | Sprint `3.2` | One current plan status, canonical topic owners, metadata and live links; root/source edits occur only in a separately authorized implementation scope; historical evidence retains labeled scope |
+| Unsupported shared-resource contract reference | Former `documents/engineering/README.md` reference to absent `shared_host_resource_protocol.md`; adjacent doc-located experimental probes | A missing contract cannot establish an implemented cross-project grant/OFD protocol | Sprints `3.2`, `29.2` | Unsupported index claim removed by this refactor; actual link/anchor negatives and qualified maintained resource implementation still required; experimental probes relocated or retired only after inventory |
+| Fresh-all-rows acquisition as the sole qualifying persistence boundary | `test/integration/Main.hs` shared ProductScenario acquisition; transient authority in `src/JitML/Test/ProductScenarioAuthorization.hs` | Work completed before observer/host interruption cannot currently be sealed and independently re-admitted | Sprints `261.2`, `263.2`, `262.2` | New versioned atomic whole-cohort authority, persistent credential ownership, crash/concurrency/replay negatives and complete55 joins pass; old partial scopes are never retrospectively admitted |
+| Numerically ordered/single-session checks and stale catalogue authority | `src/JitML/Product/PhaseStatus.hs`, `StatusEvidence.hs`, `PlanDoc.hs`, `src/JitML/Docs/Check.hs`, `test/unit/JournalDerivedStatus.hs`; unchanged root entry summaries | Implemented checks still project the previous graph and cannot express the new foundations/campaign obligations | Sprints `221.2`, `3.2`, `288.2` | Explicit registered foundation and product sprint inventory; acyclic topological order, true lane obligations, shrink-only legacy class and honest current/target docs all verified; no bypass or literal status waiver |
+
+No personal safety tool or immutable receipt is deleted merely because a
+repository dependency on it is retired. Only the active dependency/duplicate
+implementation is removed after its replacement and preservation obligations pass.
 
 ## Pending Removal Notes
 
