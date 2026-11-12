@@ -839,6 +839,15 @@ Consequences for plans, evidence and generated data:
   ignored `.build/`, the data/cache homes, or an ignored `attestations/` subtree,
   and the plan cites it by a code span, never a Markdown link. Plan and doc links
   point only at tracked files.
+- Local-only does not mean Windows-portable: `bootstrap/check-path-lengths.sh`
+  excludes ignored paths. For generated outputs exposed to Windows, the target
+  includes actual root length and terminator in the applicable Windows API budget,
+  plus component/name rules; 160 relative characters is a checkout policy, not
+  an unconditional guarantee for every root. Inventory Windows-host and mounted
+  outputs separately from Linux-only container/VM filesystems. State supported
+  root budgets and handle overlong user roots, external data and third-party
+  tool output explicitly rather than assuming they fit. Sprint `3.2` owns the
+  audit, enforcement and evidence; existing portability remains unproven.
 - A phase that needs such evidence in a clean checkout first lands a layout that
   meets these limits, as its own change, before the evidence is version controlled.
   A path constant that appears in source or in hashed identities changes together

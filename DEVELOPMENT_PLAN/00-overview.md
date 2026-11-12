@@ -65,6 +65,11 @@ hardware-lane and aggregation owners; historical Done counts and first-owner
 claims are not current execution authority. Source-based projection has not yet
 implemented this target graph; Sprint `221.2` owns the transition.
 
+Sprint `3.2` also owns the unvalidated generated-path portability target,
+including ignored build and data outputs and explicit Windows root budgets.
+Sprint `278.2` retains the separate tracked criterion-tree migration. Existing
+checkout-guard results do not establish generated-output or Windows-host support.
+
 The target separates durable process ownership, whole-host resource admission,
 scientific readiness, atomic completed-row evidence and independent real-hardware
 qualification. The canonical contracts are

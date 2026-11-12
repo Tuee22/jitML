@@ -251,7 +251,19 @@ Rules:
   Docs never link to files that Git does not track. The owner of the rule and its
   rationale is
   [../DEVELOPMENT_PLAN/development_plan_standards.md](../DEVELOPMENT_PLAN/development_plan_standards.md#p-windows-portable-version-controlled-paths);
-  `bootstrap/check-path-lengths.sh` enforces it.
+  `bootstrap/check-path-lengths.sh` checks tracked and unignored paths only;
+  it does not inspect ignored generated outputs.
+- **Generated paths have an explicit portability boundary.** The target is to
+  inventory build, data, cache, test, download and runtime outputs, including
+  ignored files, and distinguish Windows-host or host-mounted paths from paths
+  confined to a Linux filesystem. Windows-exposed outputs must fit the actual
+  declared checkout/output-root budget, including the root and terminator, and
+  obey Windows component and name rules without requiring long-path opt-in.
+  Document supported root lengths and fail clearly when a chosen root or an
+  uncontrollable tool exceeds its budget; do not imply that all possible user
+  roots or arbitrary external datasets fit. This is an unvalidated target owned
+  by [Sprint 3.2](../DEVELOPMENT_PLAN/phase-3-governed-document-metadata-enforcement.md);
+  an ignored path is not itself evidence of portability.
 - **Never copy** configuration, source snippets, doctrine text, or the typed
   run-plan / delivery / lifecycle / evidence / journal shapes between docs — cite
   the owner (e.g. [engineering/run_contract.md](engineering/run_contract.md)) by

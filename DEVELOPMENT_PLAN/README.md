@@ -77,6 +77,7 @@ a new campaign. No ad-hoc wrapper, copied review or interrupted seed qualifies.
 |---|---|---|
 | Status transition | [221.2](phase-221-phase-status-registry.md) | First executable owner; explicit foundation inventory, sprint DAG, evidence obligations, legacy shrink-only status, structural negative controls |
 | Governed authority | [3.2](phase-3-governed-document-metadata-enforcement.md) | `221.2`; canonical ownership, current/target labels, real link/anchor checks and later root-entry alignment |
+| Generated path portability | [3.2](phase-3-governed-document-metadata-enforcement.md) | `221.2`; inventory and enforce Windows-exposed generated paths, declare root budgets and verify representative outputs; Linux-only paths are classified separately |
 | Process and outcomes | [9.2](phase-9-subprocess-typed-values-runstreaming-capture-interpreter.md), [21.2](phase-21-structured-subprocess-outcomes.md) | `221.2`; actual child-family/capture/cancellation controls and durable primary/cleanup outcomes |
 | Resource envelope | [29.2](phase-29-dhall-cluster-resource-profile-kind-node-cap-and-host-ram-pr.md), [43.2](phase-43-live-cluster-lifecycle-and-publication-truth.md), [51.2](phase-51-per-pod-resource-limits-and-right-sized-replicas-from-the-dh.md), [64.2](phase-64-workload-placement-planner-and-apple-host-workload-dispatch.md) | Status/process dependencies named in each sprint; actual host/VM/container/helper/native fit, reader failure and bounded retirement |
 | Durable supervisor | [160.2](phase-160-functional-core-live-workflow-interpreter.md) | Process/resource/lifecycle owners; observer disconnect leaves the same run alive, safety-owner loss retires owned work |
@@ -271,9 +272,9 @@ add none. The 29 are unclassified: eight caller-resource-limit tests (likely
 container-lane), about 17 journal/aggregation tests failing with
 `ProductLaneJournalWireStale 3 1`, and a pinned ProductRow PlanId mismatch.
 `bootstrap/check-path-lengths.sh` still reports **516** paths under
-`attestations/phase278-20261015-mac-validation/criterion-reviews/` until the
-human runs `git rm -r --cached` on that directory (already recorded in the phase
-document). The `jitml` Colima VM stays **stopped**; Docker, `jitml check-code`,
+`attestations/phase278-20261015-mac-validation/criterion-reviews/`. Sprint
+`278.2` must first migrate and verify required data and embedded identities;
+the human can then untrack the old tree. The `jitml` Colima VM stays **stopped**; Docker, `jitml check-code`,
 the linux-cpu lane, CPU55 and Apple qualification, typed admission and the final
 quality gates have **not** run. Raw receipts were in the session scratchpad and
 are not retained.

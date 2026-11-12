@@ -96,6 +96,12 @@ cluster-running work uses the separately admitted cluster/lifecycle profile.
 
 1. Use controls for missing/stale/foreign/re-keyed reviews, changed source/evaluator/recipe, unsupported provenance and a criterion fitted to observed qualifying outcomes.
 2. Verify required criterion inputs through actual production FILE readers and literal tracked/image retention. These DATA checks are necessary and do not supply scientific execution evidence.
+3. After migrating the tracked criterion tree and all embedded references and
+   identities, verify clean-checkout and image retention and run
+   `bootstrap/check-path-lengths.sh` successfully. Preserve required current and
+   historical data before the human untracks the old tree; deleting tracked data
+   alone does not close the runtime-input obligation. Generated-output coverage
+   is separately owned by Sprint `3.2`.
 
 ```bash
 docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml run --rm jitml jitml test jitml-unit --linux-cpu
@@ -107,6 +113,8 @@ docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml
 ### Remaining Work
 
 - Implement the deliverables after the listed prerequisites; retain every failed or incomplete observation in its original scope.
+- Migrate and verify the criterion data and retire the old tracked long-path tree
+  with human Git action; the existing 516 guard findings remain open.
 - Complete the listed acceptance in its declared evidence scope, retain the required records, and reconcile the source status catalogue before claiming closure.
 
 ## Sprint 278.3: Independent current qualification and provenance audit [⏸️ Blocked]

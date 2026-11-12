@@ -39,12 +39,31 @@ Their acceptance requirements below are planned work, not implemented behavior.
 - Check relative link targets and section anchors, required metadata, generated-region ownership, and portable paths. A missing shared resource protocol must fail; an index cannot mint an implemented contract.
 - Migrate root incident diaries and duplicate architecture to their canonical homes only in a subsequent change authorized to edit `README.md`, `AGENTS.md`, and `CLAUDE.md`; retain useful curated history and temporary redirect anchors with deletion owners.
 - Reconcile actual derived sprint status and the explicit dependency graph after `221.2`; no Markdown declaration is proof that the new operational contracts exist.
+- Inventory generated build, cache, data, download, test and runtime path
+  producers and their roots, including ignored outputs and third-party tools.
+  Classify Windows-host and host-mounted paths separately from Linux-only VM or
+  container filesystems. Define supported Windows root budgets and ownership for
+  generated layouts; shorten owned paths, configure external tools where possible,
+  and provide actionable failure or explicit support boundaries where not.
+  Implement a repeatable generated-output guard independent of Git ignore rules;
+  retain the tracked-path guard's separate checkout scope.
 
 ### Validation
 
 1. A missing target, broken anchor, duplicate canonical owner, generated-marker mismatch, and target phrased as implemented each fail their owned checker controls.
 2. Valid metadata, a target labeled with its implementation owner, and an intentional historical evidence section pass without manufacturing reciprocal backlinks.
 3. Check the root-authority inventory and all changed references before retiring any old binding anchor.
+4. Exercise representative real output producers for each inventoried family and
+   supported substrate/filesystem boundary, including nested and temporary files;
+   record roots, longest paths and components, units and coverage, including
+   Windows UTF-16 code units where applicable. Check actual
+   Windows-exposed paths against the declared root budget and Windows naming rules.
+   Include synthetic boundary, overlong root, ignored overlong output, invalid name
+   and third-party overflow controls; a Linux-only pass is not a Windows-host pass.
+   Verify on a Windows host with traditional path limits where that host workflow
+   is claimed supported, or leave that claim and its acceptance explicitly open.
+   Run `bootstrap/check-path-lengths.sh` separately on the clean tracked/unignored
+   inventory; a known criterion migration failure remains owned by `278.2`.
 
 Closure requires the owned targeted/hermetic controls listed above, with a
 nonempty independently enumerated test inventory and exact scoped transcripts.
@@ -74,6 +93,10 @@ claimed by CPU fixtures; absent required runtime capability fails that lane.
 
 - Implement the new link/authority checks and reconcile their source registration with the documentation targets.
 - Complete the authorized root-document migration as a separate implementation change; no root file is changed by this refactor.
+- Inventory and remediate generated path producers, implement the separate guard,
+  document supported roots and external-tool boundaries, and obtain the scoped
+  portability evidence above. Existing output coverage and Windows operation are
+  not established by the documentation change.
 
 ## Retained Historical Scope
 
