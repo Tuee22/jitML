@@ -17,21 +17,21 @@ The single fresh invocation exits **0** in **320.600 s**, publishes one eligible
 checkpoint, and admits exactly one inventory entry. No seed, budget, bar or
 architecture retune occurs.
 
-The [physical inspection](raw/source-and-runtime-packet/readmission/physical-readback.json)
-and newly compiled [production Store re-admission](raw/source-and-runtime-packet/readmission/store-readmission.json)
+The physical inspection (`raw/source-and-runtime-packet/readmission/physical-readback.json`)
+and newly compiled production Store re-admission (`raw/source-and-runtime-packet/readmission/store-readmission.json`)
 both execute and pass. The latter calls exact-address admission, completed-scope
 refinement and latest-pointer admission, and compares the actual current typed
 PlanId and training budget. The current PlanId is
 `140b0d1e6a970b0261e92119288a28cb288c7ebc99ff9aa7ac0452235b885d7e`;
 the immutable manifest address is
 `4f6735db07b4c826bde04839ac3379b4160c7a9bee0df8cb743ca01f2b4f42b9`.
-The [physical-byte copies](raw/source-and-runtime-packet/readmission/actual-physical-bytes/manifest.cbor)
+The physical-byte copies (`raw/source-and-runtime-packet/readmission/actual-physical-bytes/manifest.cbor`)
 include the original CBOR, latest pointer, learned JMW1 weights and evaluation
 trajectory, all verified against their actual addresses. The learned-weight
 JMW1 hash is `3baa6fbd80a2cd092cbad4b81135924be1eba9b88168d061ba8a30013aa5a398`.
 
-The [execution binding](raw/source-and-runtime-packet/run-binding.json) and
-[readback binding](raw/source-and-runtime-packet/readmission/readback-binding.json)
+The execution binding (`raw/source-and-runtime-packet/run-binding.json`) and
+readback binding (`raw/source-and-runtime-packet/readmission/readback-binding.json`)
 retain unchanged full private/host inventories, source/CLI/compiled-library
 identities, native binary binding and the fresh namespace preflight. The active
 process loads the actual CPU JIT MLP artifact. This lane's small MLP uses
@@ -46,7 +46,7 @@ This is **one passing current CPU row**, not a complete 55-row lane journal,
 another substrate's result, a full unit-suite pass, or Phase 278 closure. Earlier
 `4b5…` CPU **230** / Metal **219** results and the separate full-budget diagnostic
 remain historical evidence without a causal attribution or retroactive rewrite.
-The [raw narrative](raw/README.md.txt), [summary](raw/summary.json),
-[manifest](raw/manifest.json) and [retention map](retention-map.json) preserve the
+The raw narrative (`raw/README.md.txt`), summary (`raw/summary.json`),
+manifest (`raw/manifest.json`) and retention map (`retention-map.json`) preserve the
 original ignored packet byte for byte. The runtime index owns standing-gate and
 other-substrate evidence separately.

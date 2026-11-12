@@ -1,6 +1,7 @@
 # Execution Resources
 
 **Status**: Authoritative source
+**Canonical contracts**: execution-resources
 **Supersedes**: N/A
 **Referenced by**: [engineering index](README.md), [validation execution](validation_execution.md), [run contract](run_contract.md), [cluster topology](cluster_topology.md), [plan standards](../../DEVELOPMENT_PLAN/development_plan_standards.md)
 **Generated sections**: none
@@ -9,7 +10,7 @@
 
 ## TL;DR
 
-One explicit admission owns one heavy workload on a host. Admission accounts for
+**Target.** One explicit admission owns one heavy workload on a host. Admission accounts for
 its native processes, VM, containers, helpers, compilers and observers together.
 Configured limits are compared with actual runtime limits before numerical work.
 Incomplete safety observations do not count as healthy reserves. CPU idle is
@@ -30,8 +31,10 @@ below are obligations of reopened [Phase 29](../../DEVELOPMENT_PLAN/phase-29-dha
 [Phase 64](../../DEVELOPMENT_PLAN/phase-64-workload-placement-planner-and-apple-host-workload-dispatch.md)
 and [Phase 160](../../DEVELOPMENT_PLAN/phase-160-functional-core-live-workflow-interpreter.md).
 These target rules do not claim that the current runner enforces them or that
-software can prevent every kernel panic. Status and validation receipts belong
-to the [development plan](../../DEVELOPMENT_PLAN/README.md).
+software can prevent every kernel panic. The [ordered development plan](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor)
+resolves current owners and transfers from superseded phase IDs; the older
+references above retain contract provenance, not a second execution order.
+Status and validation receipts belong to that plan.
 
 ## Scope and Authority
 
@@ -132,6 +135,30 @@ image import and restoration. Recovery data is retained until its replacement
 and restoration have been verified; a documentation refactor authorizes no purge.
 After terminal queries, preservation and owned helper retirement, the VM is
 explicitly stopped. Analysis does not keep it idle.
+
+## Windows Hosts through WSL2: Linux CPU Only
+
+Windows may host Linux CPU validation through an explicitly created, dedicated
+jitML WSL2 distribution/instance. Declare and verify its CPU, RAM and storage
+allocation against the complete workload: Linux services, Docker containers,
+Kind nodes, helpers, compiler scratch, output and retained data. Include the
+Windows host's own reserve and the instance's actual memory/commit and disk
+behavior in admission. A distro name alone is not proof of exclusive resource
+ownership or effective quotas.
+
+Install and verify all needed Linux dependencies inside the instance, including
+Docker/Compose, Kind and the required toolchain. Start and stop the instance and
+owned workloads explicitly. Bind-mount the repository from the Windows host
+into WSL2 and use that mounted worktree, because agents cannot publish a detached
+clone through Git push. Preserve human-only staging, commit and push authority.
+
+Use `--linux-cpu` only. jitML performs no NVIDIA/CUDA work or GPU pass-through in
+WSL2. Keep the existing Mac and native Linux NVIDIA venues for their declared
+hardware phases. A WSL2 result proves Linux CPU behavior on that recorded venue;
+Windows-exposed checkout/output paths still need their portability checks, and
+native Windows filesystem or application acceptance needs its own declared
+Windows validation. A missing current hardware set stops its phase in numerical
+order rather than turning another venue's pass into equivalent evidence.
 
 ## Validation
 

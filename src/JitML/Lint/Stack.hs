@@ -4,6 +4,7 @@ module JitML.Lint.Stack
   ( LintFinding (..)
   , LintMode (..)
   , LintTarget (..)
+  , checkGeneratedPathGuardControls
   , renderLintFinding
   , runCheckCode
   , runLint
@@ -52,8 +53,19 @@ runCheckCode = do
     then pure domainFindings
     else do
       lintFindings <- runLintUnchecked LintAll LintCheck
+      generatedPathControlFindings <- checkGeneratedPathGuardControls
       buildFindings <- checkWarningCleanBuild
-      pure (lintFindings <> buildFindings)
+      pure (lintFindings <> generatedPathControlFindings <> buildFindings)
+
+-- | These controls exercise the standalone guard in the container-only quality
+-- lane; they do not add a Python prerequisite to native substrate tests.
+checkGeneratedPathGuardControls :: IO [LintFinding]
+checkGeneratedPathGuardControls =
+  runCommandFinding
+    "test/unit/generated_path_guard_test.py"
+    "generated-output.guard.controls"
+    "generated-output path guard controls failed"
+    (subprocess "python3" ["test/unit/generated_path_guard_test.py"])
 
 runLint :: LintTarget -> LintMode -> IO [LintFinding]
 runLint target mode = do

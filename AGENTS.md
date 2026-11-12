@@ -36,6 +36,24 @@ If the user explicitly asks you to commit or push, decline and remind them of th
 - Development plan: [`DEVELOPMENT_PLAN/README.md`](DEVELOPMENT_PLAN/README.md) — single execution-ordered plan and sprint status.
 - CLI doctrine: [README.md](README.md) — binding contract for the CLI surface.
 
+## Well-ordered phase execution
+
+Implement and validate open phases in numerical order, and sprints in their
+declared order within each phase. An earlier phase's owned validation must be
+executable using its own deliverables and completed predecessors; incomplete
+future implementations, journals, qualification records or hardware lanes
+cannot block it. A later phase extends the completed contracts and preserves
+their acceptance criteria; it must not undo them, contradict them or silently
+enlarge an earlier closure gate. If a defect disproves an earlier promise,
+reopen its actual owner and identify the affected downstream evidence.
+
+Each phase declares Linux CPU validation and at most one additional specific
+host/hardware profile, such as macOS with Apple Metal or native Linux with an
+NVIDIA GPU. Split work requiring both profiles into separately ordered phases;
+aggregation consumes retained evidence without rerunning both accelerators.
+Keep implementation scope, dependencies, hardware and validation aligned with
+[plan standards M](DEVELOPMENT_PLAN/development_plan_standards.md#m-forward-only-single-accelerator-numerically-ordered-phases).
+
 ## Local artifacts
 
 Write build outputs, raw command receipts/logs, checkpoints, downloaded datasets,
@@ -137,6 +155,34 @@ Use the project container instead:
 - `docker compose run --rm jitml jitml check-code`
 - `docker compose run --rm jitml jitml lint <target>`
 
+## Windows WSL2 Linux CPU validation
+
+Windows may host the `linux-cpu` lane through WSL2 only when all of the following
+conditions are satisfied:
+
+- Create a dedicated jitML WSL2 distribution/instance and manage its start and
+  stop explicitly. Right-size and verify its effective CPU, RAM and storage
+  budget for the admitted workload, including Docker, Kind nodes, compilers and
+  helpers, while retaining Windows host memory/commit and disk reserves.
+- Install and verify all required Linux dependencies inside that instance,
+  including Docker, Compose, Kind and the toolchain needed by the selected
+  workflow. Use the project containers for code quality and Linux tests.
+- Run `linux-cpu` only. Do not perform NVIDIA/CUDA validation or other NVIDIA
+  work in WSL2; the `linux-cuda` lane requires its declared native Linux NVIDIA
+  host. Apple Metal remains a macOS host lane.
+- Bind-mount the Windows-host repository into the WSL2 instance and expose that
+  same worktree to the project containers. Agents cannot push a separate guest
+  checkout back to the host, so a guest-only clone is not the working copy for
+  agent changes. Preserve the human-only staging, commit and push policy.
+
+Record the host path, guest mount path and container path. Host-mounted outputs
+remain subject to Windows naming/path and filesystem semantics; image-local
+Linux outputs have a separate filesystem boundary. A WSL2 Linux CPU result is
+Linux validation and does not establish Windows-native execution or portability.
+Missing dependencies, insufficient resources or an unsuitable mount fail
+readiness. Do not start WSL2 implicitly from a test/build command or enable
+automatic startup. Stop the owned instance after the authorized work finishes.
+
 ## Test execution
 
 Each substrate's tests run **for real in their own lane**, against real hardware
@@ -160,7 +206,8 @@ tasty passthrough still works.)
   `jitml test <stanza> --apple-silicon`.
 - **linux-cpu** runs in the `jitml` container, where oneDNN (`libdnnl`,
   `oneapi/dnnl/dnnl.hpp`) is present:
-  `docker compose run --rm jitml jitml test <stanza> --linux-cpu`.
+  `docker compose run --rm jitml jitml test <stanza> --linux-cpu`. A Windows host
+  may supply this lane through the dedicated WSL2 setup above.
 - **linux-cuda** runs in the `jitml-cuda` GPU container (the `jitml-cuda` service
   attaches the GPU via the NVIDIA Container Runtime); the `--linux-cuda` flag
   builds with `-fcuda` so the real cuBLAS/cuDNN bindings link and the CUDA

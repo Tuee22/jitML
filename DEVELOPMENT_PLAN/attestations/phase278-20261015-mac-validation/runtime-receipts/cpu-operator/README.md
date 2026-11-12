@@ -15,8 +15,8 @@ their separately reported scope; their optimizer counts are not inferred.
 The source is `4b5…`, current Linux ELF `064aa7c9…e6640`, native `73cd7e15…1ebbb24d`.
 Private source/executable and the host manifest stay unchanged during execution.
 
-The [original narrative](raw/README.md.txt), [original manifest](raw/manifest.json),
-and [retention map](retention-map.json) retain the exact observations, source,
+The original narrative (`raw/README.md.txt`), original manifest (`raw/manifest.json`),
+and retention map (`retention-map.json`) retain the exact observations, source,
 all four immutable attempt folders, and raw receipts. Three setup/compile
 attempts fail before any training; the fourth compiles and runs. Original
 package identities and compiled-library hashes remain available; no executable

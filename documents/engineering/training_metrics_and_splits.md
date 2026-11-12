@@ -1,6 +1,7 @@
 # Training Metrics and Data Splits
 
 **Status**: Authoritative source
+**Canonical contracts**: training-metrics-and-splits
 **Supersedes**: N/A
 **Referenced by**: [root README](../../README.md), [engineering index](README.md), [training workloads](training_workloads.md), [numerical core](numerical_core.md), [checkpoint format](checkpoint_format.md), [PureScript frontend](purescript_frontend.md), [typed run contract](run_contract.md), [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 262](../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md), [Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md), [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md)
 **Generated sections**: none
@@ -13,8 +14,10 @@
 
 **Refactor boundary.** The campaign/resource contracts below are targets. Current
 implementation does not acquire their safety or qualification authority from
-this documentation change; execution order and pending work live in the
-[validation foundation refactor](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
+this documentation change. The [ordered execution plan](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor)
+resolves current owners and transfers from superseded phase IDs. Historical
+phase references below retain their original scope; they are not an alternate
+execution order or future prerequisites of an earlier phase.
 
 
 The bar discipline below is the contract. Its anchoring invariant is enforced by

@@ -37,8 +37,8 @@ per-step GAE targets or a proven cause of the CPU **230** / Metal **219** misses
 The complete 150-point statistics and descriptive ten-iteration blocks support
 further method review without a seed, budget, threshold, or field retune.
 
-The [original narrative](raw/README.md.txt), [original manifest](raw/manifest.json),
-and [retention map](retention-map.json) preserve every reviewed original byte.
+The original narrative (`raw/README.md.txt`), original manifest (`raw/manifest.json`),
+and retention map (`retention-map.json`) preserve every reviewed original byte.
 The first setup attempt fails compilation before training; the second is the
 only full-budget execution, exits **0**, and passes all source/runtime bindings.
 All **29** raw receipt stream pairs are independently rehashed. The source-as-text,
@@ -49,7 +49,7 @@ The private source `4b5…`, CLI `064aa7c9…e6640`, compiled libraries/configur
 and complete listed private tree stay unchanged. Native `73cd7e15…1ebbb24d`
 stays untouched and the canonical checkpoint namespace remains absent. The
 thirteen separately authorized host source/documentation changes are explicitly
-listed in the [execution binding](raw/attempts/20261015T232642.850436Z/binding.json);
+listed in the execution binding (`raw/attempts/20261015T232642.850436Z/binding.json`);
 this is not an unchanged-host claim. No checkpoint, CompletedTraining,
 publication, eligibility evidence, lane journal, GateTranscript, or phase
 closure is issued by this diagnostic.

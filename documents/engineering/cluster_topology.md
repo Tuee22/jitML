@@ -14,8 +14,10 @@
 
 **Refactor boundary.** The campaign/resource contracts below are targets. Current
 implementation does not acquire their safety or qualification authority from
-this documentation change; execution order and pending work live in the
-[validation foundation refactor](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
+this documentation change. The [ordered execution plan](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor)
+resolves current owners and transfers from superseded phase IDs. Historical
+phase references below retain their original scope; they are not an alternate
+execution order or future prerequisites of an earlier phase.
 
 
 The checked-in topology renders one control-plane plus one worker, with manual
@@ -328,8 +330,10 @@ is the source of truth for node caps, per-pod requests/limits, service replica
 counts, and worker placement budgets. It also preserves single-host phase
 closeability under the project's
 [Substrate-affinity phasing](../../README.md#substrate-affinity-phasing)
-doctrine: each development phase brings its lane up on one host with at most one
-accelerator plus `linux-cpu` (bound by
+doctrine: each development phase closes in numerical order with Linux CPU and
+at most one additional specific OS/device set. Its gate uses its own
+implementation and completed earlier inputs; later campaigns do not gate an
+earlier cluster producer (bound by
 [`DEVELOPMENT_PLAN/development_plan_standards.md` rule M](../../DEVELOPMENT_PLAN/development_plan_standards.md)).
 - **Runtime admission** — the `cluster.host-memory` prerequisite and live
   bootstrap read CPU count and `MemTotal` from the selected running Docker

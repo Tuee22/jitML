@@ -17,7 +17,7 @@ The [reproduction script](calculate-archive-label-baselines.py) verifies every
 complete archive against the production SHA-256 in
 [`SL.Dataset`](../../../src/JitML/SL/Dataset.hs) before parsing any selected
 archive. It reads no trained checkpoint, score, or lane journal. The
-[result](archive-label-baselines.json) retains exact histograms, source-byte
+result (`archive-label-baselines.json`) retains exact histograms, source-byte
 hashes, ordered image-path/content digests, and all calculated controls. A
 second invocation reproduces the JSON byte for byte; its command/output/status
 receipts and the acquisition diagnostics are in
@@ -27,14 +27,14 @@ After container formatting, two complete historical invocations exit `0` and
 reproduce a 96,462-byte JSON, SHA-256
 `f6915f0d6c8398a2c7527d3af8214b2b2fbbe4432ca1cf91108536627caefbf3`.
 Those exact bytes, manifest, and report text remain in the
-[historical snapshot](archive-label-receipts/historical-before-trpo-recipe-version/).
+historical snapshot (`archive-label-receipts/historical-before-trpo-recipe-version/`).
 Their raw receipts remain unchanged.
 
 Two new complete invocations at frozen source
 `c4a42c3ae80951d5d4b33ee6d0981b64e385c0648ec6c8ae352423efba710625`
 again exit `0` and reproduce the current **96,462-byte** JSON, SHA-256
 `d0b009229c4aac7dcdd7c0102752850d873f327c478a2441346027e181c24b92`.
-The [current comparison receipt](archive-label-receipts/20261015T214353.112221Z-archive-label-final-source-comparison/result.json)
+The current comparison receipt (`archive-label-receipts/20261015T214353.112221Z-archive-label-final-source-comparison/result.json`)
 proves exact reproduction and current source pins. Only the consulted
 `Matrix.hs` hash changes after TRPO numerical recipe identity versioning; all
 archive checks, dataset statistics, remaining source pins and diagnostic

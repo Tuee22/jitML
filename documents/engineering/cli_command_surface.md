@@ -59,9 +59,10 @@ has added `jitml bootstrap`, `jitml doctor`, `internal materialize-substrate`,
 generated CLI docs for the expanded command surface, and the stage-0 script
 handoff into `jitml bootstrap --<substrate>`. Sprint `2.2` has landed typed
 toolchain/container/cluster prerequisite nodes, `jitml doctor --remediate`,
-Homebrew remediation apply with postcondition validation, and the Apple
-host-build cache-miss prerequisite root (CommandLineTools `swift`; the
-former `container.tart` node was removed by Phase 2 Sprint `2.10`). The
+Homebrew remediation apply with postcondition validation. The current Apple
+cache-miss prerequisite root uses the host Metal runtime and fixed bridge;
+`swiftc` and macOS SDK probes apply only to optional generated Swift modules.
+The former `container.tart` node was removed by Phase 2 Sprint `2.10`. The
 `bootstrap` parser leaf validates substrate selection. Later sprints have
 landed the cluster apply, daemon, training, inference, and substrate execution
 surfaces on the same `jitml` command tree.

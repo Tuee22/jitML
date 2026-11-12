@@ -7,6 +7,20 @@
 
 > **Purpose**: Reload the single supervised-graph checkpoint envelope and execute the reloaded typed `LayerGraph` for inference, with strict refinement and tamper rejection.
 
+## Current execution ownership
+
+**Historical record; no current execution gate.** Phases 1–289 retain their
+original contracts, statuses and receipts below. Their former order, dependencies
+and current-sounding statements are historical. They do not gate the new
+[numerical execution sequence](ordered-execution-plan.md). No historical failure
+is erased and no historical Done is promoted to current qualification.
+
+The original recorded scope remains historical; no new obligation or current
+closure is inferred from its prior status. A discovered defect reopens its
+current successor owner under the [plan standards](development_plan_standards.md).
+
+## Historical plan and evidence
+
 ## Phase State
 
 ✅ **Done** (closed 2026-07-30; gate-validated on the live linux-cpu cluster).

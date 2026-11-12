@@ -1,6 +1,7 @@
 # Validation Execution
 
 **Status**: Authoritative source
+**Canonical contracts**: validation-execution
 **Supersedes**: N/A
 **Referenced by**: [engineering index](README.md), [execution resources](execution_resources.md), [run contract](run_contract.md), [testing policy](unit_testing_policy.md), [product completion](product_completion_contract.md), [plan standards](../../DEVELOPMENT_PLAN/development_plan_standards.md)
 **Generated sections**: none
@@ -9,7 +10,7 @@
 
 ## TL;DR
 
-The supervisor owns execution; agents and terminal clients observe it. Every
+**Target.** The supervisor owns execution; agents and terminal clients observe it. Every
 experiment uses a bounded manifest. Readiness establishes a candidate's fit and
 behavior before qualification. The target complete gate joins authenticated
 whole-row cohorts from one immutable campaign and validates the full admitted
@@ -30,8 +31,10 @@ and [Phase 263](../../DEVELOPMENT_PLAN/phase-263-contract-driven-live-execution-
 own the consumer and fragment changes. The implementation, negative controls
 and real lane evidence must pass before this protocol can admit results.
 No current interrupted attempt or diagnostic review is promoted by this text.
-The [development plan](../../DEVELOPMENT_PLAN/README.md) owns implementation
-status, execution order, remaining work and dated evidence.
+The [ordered development plan](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor)
+resolves current execution owners and transfers from superseded phase IDs;
+older references above retain contract provenance, not a second execution order.
+The plan owns implementation status, remaining work and dated evidence.
 
 ## Scope and Authority
 
@@ -40,6 +43,24 @@ production admission. [Execution resources](execution_resources.md) owns limits,
 measurements and retirement. [Training metrics](training_metrics_and_splits.md)
 owns learning predicates and data separation. This document owns execution
 boundaries and their verification, not a new parallel CLI or result ledger.
+
+## Phase Closure and Hardware Scope
+
+Phase and sprint closure follows numerical order. Each gate uses only its own
+implementation and completed earlier producers; a future campaign, journal,
+consumer, cleanup or hardware phase cannot block an earlier owner's validation.
+The plan must move prerequisites earlier or reorder the work before execution.
+Later consumers add integration and qualification evidence while preserving the
+earlier producer's accepted contract. Discovered regressions reopen their
+actual owner and affected downstream claims explicitly.
+
+Every phase declares Linux CPU and at most one additional specific OS/device
+set. Device qualifications have separate phases; a later Linux CPU aggregation
+phase reads their already admitted objects without launching accelerators.
+Missing the current phase's hardware stops that phase. The Linux CPU WSL2 venue
+requires the dedicated bounded instance, installed Linux dependencies and
+host-repository mount in [execution resources](execution_resources.md#windows-hosts-through-wsl2-linux-cpu-only).
+It admits no NVIDIA work and establishes no native Windows validation.
 
 ## Target Owner and Observer Boundary
 
@@ -92,13 +113,61 @@ Hermetic controls precede costly qualification. Cases requiring new admitted lan
 objects run after their producer; all original cases retain explicit ownership.
 Missing selected hardware fails its lane instead of becoming a skipped pass.
 
+## Engineering Before Shared Source Freeze
+
+**Target delivery order.** Implement and validate every backend, supervisor,
+issuer, browser consumer, aggregation reader, closure predicate, status loader
+and report renderer before freezing the shared qualification source. Their
+hermetic controls exercise successful and refused inputs before real lane
+acquisition. Later qualification, registration, aggregation acceptance and
+report acceptance phases use that already implemented source; they add evidence
+and exercise consumers without editing executable source, schemas or recipes.
+This keeps a later device implementation from invalidating an earlier CPU lane.
+
+The [ordered plan](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor)
+places the common source and final independently reviewed criterion freeze
+before the CPU, NVIDIA and Apple qualification phases, then places actual
+aggregate acceptance after all required lane producers. Each phase's own
+engineering gate remains executable without future qualifying objects; the
+later acceptance gate supplies the stronger real-evidence proof.
+
+A defect discovered after the freeze reopens the earliest affected engineering
+owner. Name the affected downstream receipts, retain their original scope,
+implement and validate the correction, freeze a new source/criterion epoch and
+repeat the affected qualification and acceptance work. The initial policy
+requires a new epoch for every source change; no earlier qualifying result is
+silently retained as evidence for changed source. A documentation-only change
+records its impact explicitly and never manufactures refreshed execution.
+
 ## Immutable Qualification Campaign
 
-The campaign manifest binds full source identity, binary/image digests,
-toolchains, host/device configuration, datasets, ordered ProductRows, numerical
-recipes, seed cohorts, acceptance-review identities, execution policy and runner.
+The common epoch manifest freezes full source identity, per-lane build recipes,
+pinned toolchain requirements, datasets, ordered ProductRows, numerical recipes,
+seed cohorts, acceptance-review identities, execution policy and runner. It
+predeclares one authorized executable-seal slot for each required lane. A CPU
+freeze does not claim to build or measure a native Metal or CUDA executable.
 Initially every source change starts a new epoch. Dependency-scoped qualifying
 source reuse is a separate future contract, not an implicit optimization here.
+
+### Lane Executable Seals
+
+Before a lane's first qualifying seed, its real hardware owner builds the exact
+frozen source with that lane's predeclared recipe and toolchain, verifies the
+actual host/device configuration, and authenticates an append-only seal binding
+the epoch and lane slot to the actual executable/image digests and build/runtime
+identities. The slot is sealed once before any scientific work; an empty slot
+cannot admit a row. The common manifest remains immutable, and each row commit
+binds both the common epoch and its lane's seal. Aggregation requires every
+required seal and every corresponding complete lane result.
+
+Appending a valid previously authorized lane seal is evidence acquisition, not
+a source or recipe change, and does not invalidate an earlier lane qualified
+under the same common epoch. A replacement executable digest, changed build
+recipe/toolchain policy, slot reissuance or identity mismatch is refused; it
+requires a new epoch under the reopening rule above. A rebuild may verify the
+same sealed bytes but cannot replace the seal or silently authorize new bytes.
+These seals and refusal controls are target implementation obligations, not
+credentials supplied by this documentation change.
 
 The smallest recoverable unit is a whole row cohort. It includes all prescribed
 seeds and outcomes, authentic initial/final observations, fixed served index,
@@ -200,5 +269,8 @@ docker --context colima-jitml compose -f compose.yaml -f compose.vm-bounded.yaml
 
 Real hardware qualification uses its owner's admitted profile and substrate
 flag; these commands do not grant campaign recovery to the current implementation.
-Machine catalogue/checker reconciliation remains an obligation of Sprint
-`221.2`. No fixture or documentation pass closes the hardware gate.
+[Phase 290](../../DEVELOPMENT_PLAN/phase-290-ordered-plan-and-validation-foundation.md)
+owns machine catalogue/checker reconciliation and its scoped validation before
+dependent phases can close. A bounded
+fixture establishes its named behavior; real hardware gates require their own
+execution evidence.

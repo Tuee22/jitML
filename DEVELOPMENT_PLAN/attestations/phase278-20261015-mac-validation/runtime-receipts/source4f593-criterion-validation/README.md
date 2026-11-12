@@ -3,7 +3,7 @@
 **Status**: Governed validation evidence candidate
 **Supersedes**: N/A
 **Canonical homes**: [Mac validation](../../README.md)
-**Referenced by**: [Runtime receipt index](../manifest.json)
+**Referenced by**: Runtime receipt index (`../manifest.json`)
 **Generated sections**: none
 
 > **Purpose**: Retain the exact layout correction, scoped native validation and fresh four-scope criterion review/materialization/installation/public FILE IO evidence, without claiming current image, training or qualification.

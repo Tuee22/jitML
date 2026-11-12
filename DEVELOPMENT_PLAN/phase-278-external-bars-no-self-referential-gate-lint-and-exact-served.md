@@ -7,6 +7,26 @@
 
 > **Purpose**: External Bars, No-Self-Referential-Gate Lint, and Exact Served-Byte Provenance. Originally migrated from legacy Sprint 32.2 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
+## Current execution ownership
+
+**Historical record; no current execution gate.** Phases 1–289 retain their
+original contracts, statuses and receipts below. Their former order, dependencies
+and current-sounding statements are historical. They do not gate the new
+[numerical execution sequence](ordered-execution-plan.md). No historical failure
+is erased and no historical Done is promoted to current qualification.
+
+Unfinished scope is **transferred, not completed**:
+
+- Former sprint `278.2` → [292](phase-292-generated-output-portability.md), [301](phase-301-prospective-criteria.md), [320](phase-320-qualification-epoch-freeze.md).
+- Former sprint `278.3` → [314](phase-314-provenance-audit-machinery.md), [326](phase-326-real-provenance-audit.md).
+- Former sprint `278.1` → [301](phase-301-prospective-criteria.md), [302](phase-302-tuning-readiness.md), [303](phase-303-supervised-readiness.md), [304](phase-304-rl-readiness.md), [305](phase-305-arena-readiness.md), [318](phase-318-cuda-runtime-engineering.md), [319](phase-319-apple-runtime-engineering.md), [320](phase-320-qualification-epoch-freeze.md), [321](phase-321-cpu-qualification.md), [323](phase-323-cuda-qualification.md), [324](phase-324-apple-qualification.md), [326](phase-326-real-provenance-audit.md).
+
+The [transfer register](ordered-plan-transfers.md) assigns implementation and
+real-input acceptance separately. The complete retained contract is inherited;
+examples or wrappers do not replace its detailed unmet requirements.
+
+## Historical plan and evidence
+
 ## Phase State
 
 ⏸️ **Blocked** on the expanded campaign obligations below. Historical closure
@@ -211,6 +231,532 @@ literal failures.
 
 ## Retained Operational Evidence
 
+### Former root status narrative
+
+This text is retained from the root README as historical context. Its dates,
+source bindings and reported outcomes remain as recorded; it is not current
+execution authority or evidence that an open gate has passed.
+
+Phase `278` remains Active; the [plan's Closure Status](README.md#closure-status)
+is the current execution record. Latest CPU55 attempt V returns **1 / 7,368.5776 s**:
+the qualification CLI exits1 normally, capture writer0/fsync and guardian0 pass,
+and all eight surrounding checks pass. The caller peaks at **3,526,426,624 bytes**
+under its4-GiB limit with zero OOM events. Original12 DATA,102 cache contracts/
+three volumes and all five local preservation domains pass. The VM is explicitly
+stopped and the failed interval is sealed. A bounded guest-only inspection
+identifies **fashion-mnist-resnet** shared acquisition and **heap exhaustion**
+under the configured2-GiB Haskell heap. Bounded synthetic evaluation controls
+confirm forward-tape retention by lazy per-example scalar results; the strict
+candidate preserves exact output bits. The edited production module now passes
+container style checks, direct compilation and six synthetic regressions. The
+repaired source **bca776a5… / 617** now passes coherent library/CLI/four-test
+compilation, the canonical source-stamp API and CLI smoke checks. A distinct
+compilation seed retains the verified binaries. The current ordered110-contract
+export matches the prior export exactly; two independent reviewers accept all
+four criterion scopes. Real typed planning/materialization and production FILE
+readback of the20 installed criterion files pass. Literal Git and real Docker
+filter checks retain the selected20 and exclude all five controls. Canonical
+image **9a4e488c…** now passes the maintained build/code-quality/frontend steps,
+`jitml docs check` and source/CLI/library/four-test/criterion postproof. It is
+`jitml:local`; the previous image is retained. The repaired image now passes
+real CPU backends **43 /43** and unfiltered negative controls **2,712 /2,712**
+through the supported CLI; both exact producer records are retained. The negative
+suite uses derived runtime-cache image **dc5162f6…**, whose source617/criterion20/
+library/CLI/four-test bytes match the canonical image. Its1-CPU/6-GiB/no-swap run
+with a3-GiB heap passes in about13 minutes, peaking at2,148,438,016 bytes with zero
+limit/OOM events. Earlier1-GiB compiler-startup failures remain literal: Cabal
+still invokes GHC for an ephemeral test target even after cache preparation.
+All106 original cache users/three volumes and five local preservation domains
+verify. A new current cache volume and two owned callers yield108 users/four
+volumes; mounted canonical-image readiness passes without compilation. The
+cluster remains stopped. A verified10.05-GB image archive is retained on the Mac;
+its export consumes no observed VM disk space. Opaque retention precedes
+retirement of two owned development layers and two derived compiler-cache
+records, recovering853,331,968 bytes while retaining every image and named
+volume. Offline metadata finds38 existing image-content records and seven
+missing per node. Guest layer verification and block accounting now put the
+two-node plan above the32-GiB reserve, including128 MiB additional metadata
+allowance per node. A bounded offline check confirms both retained nodes disable
+low-disk eviction and set image-GC high threshold100%; the separate32-GiB
+operational reserve remains binding. Original12-DATA readback now passes, then
+control-plane current-image import0/71.466s verifies both aliases complete60/60
+and unpacked. The worker full-archive import crosses the32-GiB disk reserve;
+guard stop0 preserves the failed sample. Its later observed exit is2, no OOM.
+Offline metadata confirms45 required blobs on control,38 present/seven missing
+on worker, with no lingering ingests. Exact containerd2.1.3 source identifies
+size-only archive ingestion that can temporarily duplicate cached layers; this
+explains the observed transient pattern, without proving its exact live digest.
+The worker-only recovery now passes: guest-built524,963,840-byte OCI archive
+preserves manifest/index and verifies all seven new blob hashes, omitting38
+cached blobs. Worker import0/12.722s reuses the completed control-plane import.
+Both nodes verify current aliases complete60/60 and unpacked. Original12-DATA
+and fixture readbacks match before/after; final free space34,690,838,528bytes
+exceeds the unchanged32-GiB reserve. Host monitor minimum idle57.21%, available
+memory84%, swap0. All108 cache contracts/four volumes, five local domains and
+534 frozen references verify; VM explicitly stopped. The original failed
+full-archive attempt still has DATA-after NotRun and remains1. Current bootstrap,
+daemon75, CPU/Apple qualification and final maintenance remain open. A later
+startup refusal precedes bootstrap: the completed numerical pod displays its
+unchanged imageID instead of the former tag. Control-only metadata proves this
+is the sole changed field; five execution-change controls reject broader
+changes. The exact operator baseline is reconciled, with all original execution
+identities and outcomes preserved. The caller name/CID lookup is also repaired
+and contract-tested. Actual supported bootstrap then returns1/33.493s at the
+refused redundant `jitml:local` export. Docker29.5.2 reports manifest9a4e while
+CRI identifies config5cfab5ba; local results match upstream Kind issue4236.
+All15 export attempts are refused before writing. Publication is reconciling,
+DATA-after NotRun, no training. Guest-only context checks preserve kubeconfig,
+restore marker, registry credentials and the old reconcile record; private
+metadata changes are limited to publication/kubeconfig metadata and one exact
+owned lifecycle event. Cache108/four and frozen599 checks pass, VM stopped.
+A bootstrap-only adapter using real Kind's OCI-index loader is prepared to
+re-register the fully verified cached graph without transferring layer payloads.
+It remains unexecuted; current bootstrap and daemon qualification remain open. Guarded startup of the retained historical
+platform passes0/152.483s, preserving four terminal Jobs and one successful
+numerical Pod; all services reach three consecutive ready samples. This is
+preparation for current-image loading, not repaired-source qualification.
+Host idle stays at least58.0%, available memory84%, swap0; the VM is stopped.
+Two guard interventions remain literal: an initial reserve/reader
+failure lacks its exact observation, and a later900-second maintenance timer
+stops an idle VM. Improved failure logging passes three controls; the final
+metadata-only closing session passes. The VM is explicitly stopped. Daemon, full CPU/Apple qualification, exact admission and
+final maintenance checks remain open; these engineering passes close no
+scientific obligation. Pre-repair source **495822c9… / 617** retains CPU negative
+controls **2,712 / 2,712**, real CPU backends **43 / 43**, and the complete daemon
+gate **75 / 75** with all nine original operations passing. Full CPU55 remains
+incomplete: the earlier T attempt returns **125 / 30,753.2994 s** after a
+memory-cgroup OOM. The retained kernel journal identifies the exact caller and
+killed `jitml` PID: about **3.33 GiB RSS**, alongside an integration runner at
+**0.63 GiB RSS** and other caller processes, within the **4-GiB** container.
+The shared acquisition failure names **cifar10-resnet56**. Anonymous memory
+dominates; file cache is negligible and delayed-free counters are zero. RSS does not establish live Haskell heap size. Host memory remains
+**87%** available with zero swap.
+The VM is stopped, owned host processes are absent, and independent local
+preservation passes against both pre-run baselines. Later recovered original capture
+metadata proves CLI exit1 and writer0/fsync; convergence remains unverified and
+the original owner result and four after-roles remain missing. Completed finite CPU
+recovery controls retain their actual scope; they do not establish full scientific
+memory fit. A2-GiB heap candidate passes the reused production precondition
+control without compilation or training; scientific fit remains unproved. Fresh
+U passes fresh continuity, readiness, exact binding and guardian startup checks,
+but returns **125** after the auxiliary startup monitor fails to hand off and
+stops the VM. Scientific exit, convergence and memory fit remain unobserved.
+The VM is stopped, owned supervision processes are absent, and independent local
+preservation passes. The automatic handoff repair passes **37** validator controls
+and **11** observer-loop controls with local fixtures; this is not qualification.
+Successor hardware admission, complete CPU/Apple qualification, typed admissions
+and final quality gates remain open. No automatic retry is admitted.
+
+### Former root source and recovery chronology
+
+This retained root chronology records historical outcomes and source bindings.
+It does not supersede current execution order or close a reopened gate.
+
+Adopted source `8e1a0b13…` / **514** inputs adds the durable
+native producer and ARS physical admission. Its warning-free supported private
+build, formatting, HLint, docs and both focused **256 / 256** scopes pass.
+The first actual ARS/cartpole diagnostic trains seeds **42..46** at **800,000** each:
+all initial medians **8**, final medians **500**, ten matching in-memory replays
+and **48** physical objects read back. Authenticated qualification, stored replay,
+publication, current journals and other rows remain open. Native `2dc13331…`,
+helper sync, quality and CPU **42 / 42** / Metal **29 / 29** results retain
+historical `39547f58…` / **471** scope; final integrated native gates remain due.
+The forward allocation assigns CPU/Apple qualification and journals plus local,
+backend and live CPU daemon gates to Phase `278`; CUDA and its behavioral
+detector to `279`; and CPU aggregation plus unchanged full unit/integration to
+`280`. No standing obligation or evidence guard is removed.
+Source `79bbe30b…` passes its canonical container and supported Linux root
+builds, exact image/root CLI comparisons, focused CPU regression/browser-plan
+gates and unfiltered CPU negative/backend gates. Initial genuine CPU Ready and
+all twelve supported uploads and complete dataset GET/bucket checks pass.
+Original sentinel/message readback passes before down. The normal down attempt
+is interrupted and supplies no pass. Docker's exit-event rejection is confirmed;
+the underlying timestamp-order trigger remains unproved. Controllers and original
+PV data are preserved; Ready recovery and original-data readback pass. The strict
+preservation comparison fails on two Docker resource differences, so whole
+preservation remains unproved. A separate preparatory shutdown and full selected
+snapshot readback pass, leaving the cluster stopped before the upgrade. The Docker
+**29.6.1** upgrade approved on **2026-10-24** is applied and verified. The shared
+restart interrupted the unrelated validation, which returned container exit
+**143**; no foreign preservation pass is claimed. Source `79bbe30b…` CPU recovery
+passes actual Ready, pre-service restoration manifests and all original-data
+readbacks. A subsequent supported down leaves the cluster stopped with data
+retained. This is recovery scope, not a complete normal cycle. Bootstrap's
+permission-preservation repair is implemented: the old producer fails the
+metadata counterexample, and the repaired producer passes **5 / 5** Linux
+projection regressions plus **1 / 1** rollout renderer case. Four-file HLint and
+test-module formatter checks pass. Native shared state was restored and verified
+before the supported native build passed. The retained Source605 helper export
+identifies Source `576d3731…` with **605 inputs** and confirms all **110** ordered
+CPU/Apple contract objects are unchanged. Fresh scoped native controls pass
+**61 / 61**, the typed browser-plan case passes **1 / 1**, and the full Metal
+backend lane passes **30 / 30**. Post-gate native build state is preserved and
+verified. Four independently assessed prospective criterion scopes are installed
+and production FILE-captured as **60 files**; prior selections remain retained.
+The canonical successor build and independent image adoption pass for
+`4c413561…`, with all **605** sources, selected **60** files and whole installed/
+baked CLI equal. The supported Linux root build and all **10** test-stanza
+prebuilds pass, with whole root/image CLI equality after both. Independent review
+verifies the complete Linux transition and preservation. Fresh CPU focused unit
+controls pass **61 / 61**, the typed browser-plan case **1 / 1**, and unfiltered
+negative/backend gates **2,703 / 2,703** and **43 / 43**; all four return `0` within
+their stated scopes. At that earlier boundary, shared Cabal state is Linux; native backup `2d4166f3…` remains
+preserved for restoration after terminal CPU work. Supported Source `576d3731…`
+recovery completes with actual Ready, checked pre-service restoration, all twelve
+original object and sentinel/message readbacks, and the closing frame. Independent
+scoped recovery assessment passes. The complete fresh normal cycle now returns
+`0`, including public up, checked restoration, original-data and fixture readbacks,
+and strict preservation with all **11** checks true. Independent assessment accepts
+normal closure and A1's public wrong-target refusal; A1's guardian `1`/result
+`false` from an immediate-exit observer race remains literal. B's compensated STOPPING data/preservation and Ready recovery are accepted.
+The material C-only case's strict patch witness, compensation, STOPPING data and
+genuine Ready recovery, plus all three isolated snapshot component controls, are
+independently accepted. Prior B observer nonpasses and the original C timing miss
+remain literal. Current **02777** roots without xattrs show no observed loss.
+The full unfiltered CPU daemon invocation returns `0`: **64 / 64** in
+**7,326.983851 seconds**. The bounded reader verifies Source **605**, whole CLI
+`4244706c…` and integrity of **70** proof emissions. Independent semantic review
+`770e0c7e…` and the specific preservation/owned-cleanup assessment `b7381068…` are
+accepted within their stated opaque-proof limits. The literal **671-byte** daemon
+record `a9d95…` is adopted; the failed full-unit record remains unchanged.
+Original full twelve-object and normal-fixture Ready readback and closing frames
+pass. The original strict comparison **1**/whole-Docker `false` stays literal for
+removed foreign `repertoire-v42-one-r2-quality` (`5c9a90c1…`). Its owner confirms
+normal completion; no machine exit is reconstructed. The exact scoped assessment
+accepts all remaining **25** containers, **10** volumes, images, Kind nodes and
+other protected facts, plus the reviewed owned outputs; no blanket foreign waiver
+or whole-inventory pass is claimed. Corrected Source576d Linux caller compilation
+and all six preparation/preservation steps return `0`: **201,304,696 bytes**,
+SHA `3d875f4f…`, independently checked. It has not been invoked or admitted a lane.
+Old Source79 callers remain retained. Source605 CPU **55** acquisition
+`cpu55-acquisition-576d-20261025` returns **1 / 44,129.779593167 s**. Observed Tasty
+**60 / 60 failed** through one shared California resource-acquisition failure,
+not sixty independent training failures. Its fresh child returns `2`: all five
+original **10-epoch / 70,000-example** runs complete, then the strict held-out
+best-constant predicate refuses qualification. All **44** later RL/arena/tuning
+rows stay NotRun; no CPU candidate or whole qualifications directory is published. The
+**373-entry** parent remains retained and its signing key is absent. Original-data/
+fixture Ready readback, closing frame and local-after collection return `0`.
+The new strict comparison **1** has only Docker false, with all **17** other checks
+true: `repertoire:local` changes `95eb…→43d8…` and volume
+`repertoire_check-evidence` is added; all containers, prior volumes and owned nodes
+stay exact. Assessments `93b87032…`/`d6504211…` accept only jitML-protected state
+and source-bound noninterference. Selected metadata joins the changes to Compose
+project/service `repertoire`; actor, intent and mechanism remain unknown. Raw
+comparison `1`/whole-Docker `false` stays literal, without a daemon5c9 or blanket
+waiver. Source605 retains all five negative R², **0 / 5** joint successes and
+served index0 failing. Endpoint review `1ac06931…` covers **10** frozen states,
+**630** batches and **80,000** visits without identifying a concrete CPU
+forward/backward/transform defect or a causal learning failure. Pre-approval Source605 interim
+maintenance QA passes: six actual commands and scoped preservation pass
+(`74222826…`), with no full-unit, qualification or phase-closure claim.
+
+### Retained fixed-trial authorization and outcomes
+
+This text is retained from the root README. The user's recorded trial limits
+and restrictions remain as stated; source-specific results and status are
+historical observations. This relocation does not authorize another run.
+
+The user approved **one fixed California 100-epoch trial** (authorization
+`26e92ac4…`, recorded 2026-10-27 UTC): **700,000 examples / 5,500 updates per
+original seed**. Only California's epoch allocation changes. Original data/split,
+seeds **1011..1015**, model, learning rate, Adam, `reg-ord1`, report contract,
+quality bars and exact index-0 serving remain fixed. Source605 and Source9b90
+failures stay retained; the private mechanical pass establishes no efficacy.
+The approved three-file change now has actual public Source `8af7549a…` /
+**606 inputs**: **3** changed, **603** byte-identical to9b90. Supported native
+build returns `0` in **781.793632 s**, CLI **213,139,152 bytes / 5e9d886f…**.
+Native unit **86 / 86**, browser **1 / 1** and real Metal **30 / 30** pass;
+helper `ace02882…` and caller `d6e840d3…` compile `0` without admission.
+The actual **110**-contract export (**21,726 bytes / c73823ef…**) changes only
+California's CPU/Apple PlanIds (**3bdc28ad… / 572c2090…**): **108** whole objects
+and all report digests, including `13c8781d…`, remain unchanged (`7237a6f1…`).
+The literal **705-byte / a40a6736…** Apple backend record is adopted through
+one path, preserving the other four records (`20cd36c9…`). Four new-source
+prospective criterion scopes are installed: **60 files / 8,018,122 bytes**,
+profiles **15 / 6 / 15 / 16** (final manifest `4573954d…`). Root delegated the
+principal review to Terminal `012f9fa2…`, distinct from the Root draft author
+and Plan peer `9f9bd3f4…`; Root's own assessment is supplemental, not counted.
+Production FILE capture returns `0` (**3,547 bytes / 56858a02…**). Append-only
+retention `1b48fc80…` adds **12** Git exceptions and **60** literal Docker paths,
+preserving old605/9b DATA and all five canonical records. Canonical image
+attempt1 returns **1 / 5,558.483324875 s** after compile/link: `check-code` fails
+only the stale registered `web/src/Generated/Contracts.purs` catalogue.
+Supported native `docs generate` returns **0 / 0.189642083 s**, updating only
+three California catalogue budgets **10→100** and their PlanIds; the private
+preview keeps the other **37** registered outputs exact. The corrected file is
+**118,945 bytes / 77da4453…**, outside Source606; Source8af, criteria60 and native8f
+remain unchanged. The second canonical build returns **0 / 3,207.332503791 s**,
+including `check-code` and frontend checks. Actual image `.Id` **931a54cb…** has
+FILE adoption proof **0 / 21.28366 s** (`590744da…`), binding all **606** source
+inputs, current **60** criterion files, five literal records and corrected catalogue.
+Whole baked/installed Linux CLI bytes match: **234,074,528 / 504b29ae…**.
+The owned proof container was never started and was removed; the post-proof
+native/history check returns `0` at its retained cutoff. Build1 remains failed.
+Serialized Linux staging, retention, architecture-only import, supported
+configuration and Root CLI build return `0`. All **10** stanza **BUILDS** return
+**0 / 1,513.114247084 s**; these builds execute no tests. Whole Root/image CLI **504b29ae…**
+coherence passes after both Root build and all10 (`006067fb…` settlement).
+Post-all10 native **2,223 + saved14** and old-five metadata preservation return
+`0`; the native8f restoration backup remains exact at that boundary. Shared
+cache/DB/config transition to Linux for CPU work; the native restoration below
+follows terminal CPU cleanup.
+Linux helper/caller direct compiles return `0` in isolated scopes with GHC
+**9.12.4**, Source606 and **22** inputs exact before/after. Whole public110
+export **c73823ef…** and FILE capture **56858a02…** match native bytes.
+Initial read-only metadata nonpasses remain retained; private edge-whitespace/
+store-ABI corrections change no Source606 or protocol. Real unfiltered negatives
+pass **2,706 / 2,706**, CPU backends **43 / 43**; inspections and independent
+review `473a39b8…` accept current Source8af / whole Root ELF CLI **504b29ae…**.
+Post-gate native **2,223 + saved14** and old-five metadata replay returns `0`.
+Exact two-record adoption after full-five CAS installs negative **673/7976ce8a…**
+and CPU backend **685/83bc9a4f…**; the other three retain full metadata, including
+the failed **307,306-byte** unit and historical Source9b daemon record.
+The Linux-active V5 guard passes before and after genuine recovery, preserving
+native **2,223 + saved14**, all **24,894** rows, current five/60/source606 and
+both retained failed parents; Linux mutable domains remain observed. The first
+before-frame `1` on omitted dataset paths remains retained, with no UP then;
+the corrected fresh before-frame returns `0` on Source8af/image931a/CLI504b.
+Supported recovery UP, restoration, original readback and closing frame all
+return `0`: **115** steps, a new lease and owned CIDs `2d4403…` / `d3522…`,
+restoring `p1-1639220521425949` / `439bb…`. Actual **8 Ready**, readyz `200`,
+all **12 / 629,581,277 bytes** and hashes, original **140-byte** sentinel and
+**138-byte** CK8C message survive, with backlog1/ACK0/WebSocket close1000.
+Raw strict comparison remains **1**: all eight owned checks and global
+container/volume checks are true; only the image flag is false because the
+expected `jitml-demo:local` tag/digest moves `7700… → 931a…`. No image is added
+or deleted and other image fields hold; the two new owned Kind nodes and their
+two var volumes are authenticated. Independent review **a8f5ec7c… / 18,474
+bytes** accepts genuine recovery and finite protection, retaining raw `1`;
+there is no fresh Source8af normal/fault pass. The unfiltered Source8af daemon
+returns **0 / 6,759.976 s** with actual **64 / 64** (**6,751.89 s** body);
+inspector/reader return `0`, checking **70** emitted proofs for integrity.
+All nine operation roles return `0`; all **19** scoped protected checks and
+owned/global Docker equality are true. Full12+same CK8C/sentinel/backlog1/ACK0/
+WebSocket close1000 survive. The pre-adoption V5 allfive check returns `0`, preserving
+all **24,894** rows/native2,223+saved14/current60/source606 and old failures.
+The frozen broader comparison still raises/external-preservation is **false**
+on five shared Cabal cache metadata differences; build/PV-fixture changes are
+observed separately, and the raw nonpass stays literal.
+Root accepts independent semantic **69,480/12652cd0…** and finite-preservation
+**28,076/d6ed…** reviews. Exact daemon-only literal adoption returns `0`;
+canonical daemon is now Source8af **671/3b6e9670…**. The other four retain
+full bytes/mode/uid/gid/mtime, including the failed **307,306/a453…** unit;
+all five prewrite literals and prior `a84c…` five remain retained unchanged.
+Fresh V5 POST_DAEMON_ADOPTION capture/check returns `0`, replacing the stale
+pre-adoption boundary. A NEW six-copy observer obtains genuine Ready/full12/
+original CK8C readback and frame, both `0`; its POST_DAEMON_OBSERVER_EXTENSION
+capture/check returns `0` across **26,421** rows. Predecessor guard checker
+`ad5a73b3…`, scope `1e3aa187…`, baseline `39f9972d…` and check `742e3c59…`
+bind Source8af/current60/currentfive/native2,223+saved14/retained failures;
+actual post-adoption frame `33e1d52f…` and Ready `604900fc…` are now closed.
+CPU55 FILE preparation and all four before-operations return `0`. The single
+approved Source8af California100 whole-CPU55 trial returns **1 / 49,071.541401708 s**,
+completed **2026-10-28 02:06:40 UTC**. All **60** Tasty cases fail through the same
+shared-acquisition exception. The authentic child records **PPO/mountain-car
+`NativeServingLearningRefusal`**: the whole-five return median and served original
+index-0 final metric each fall below the unchanged quality floor. Serial acquisition
+reaches row **13**; the prior **12** calls returned without independently established
+partial qualification, and the later **42** are unreached. No new complete CPU
+candidate, qualification, journal or admission publishes. The one fresh attempt
+`ce1a1fff2f24386f` is preserved; no retry, search or splicing follows.
+All four original after-operations return `0`: `data-after`, `frame-after`,
+`local-after` and `compare`. Independent review accepts owned preservation:
+**25** protected/**8** owned-runtime checks, **1,527** immutables, Source8af's
+**606** inputs, currentfive, native **2,223 + saved14**, history and all original
+**12 / 629,581,277 bytes**. The original after-operations retain **8 Ready** and
+original fixtures; the comparison's global Docker booleans are true. The frozen
+`all_checks_passed` remains **false** solely for five Linux Cabal cache metadata
+rows. The predecessor **26,421**-row
+preservation guard returns `0` at **02:17:13 UTC** and again after DOWN at
+**02:44:21 UTC** on **2026-10-28**.
+Supported DOWN returns **0 / 552.294531583 s**, ending **2026-10-28 02:38:02 UTC**.
+The subsequent frozen Root/Linux full four-PV snapshot readback returns
+**0 / 10.521077 s**, selecting new generation `p1-1755076146212073`, epoch **0**,
+selected FILE **1,903,513 bytes / 72595239…**; predecessor `439bb…` is historical.
+Raw readback checks both whole archives/manifests, POSIX root metadata, the same
+pre-DOWN **2** node CIDs and **4** PV roots. Actual Root Stopped/claim readback
+returns **0 / 0.758 s**: all **8** components stopped, evidence null, no owned nodes,
+lease claim absent and permanent flock FILE present. The actual new lease
+`lease-1-1755076114397047` retains its **251**-line event stream.
+Root and independent review accept the new full snapshot/Stopped scope
+(**5,818/5ad771…**). New preservation capture/check return `0` across **27,370**
+rows, **404** roots and **389** pins, protecting the full new generation, all **3**
+failed attempts, Source606/currentfive/criteria and native **2,223 + saved14**.
+Actual native restoration returns **0 / 4.069188083 s**: **2,237** native entries,
+**14** saved, **15** retained Linux-shared and **98** development entries, with
+local Cabal config **ABSENT**. Independent current-filesystem review
+(**4,091/433142b1…**) accepts these restored/retained sets and both full native/Linux
+CLI identities. The same **27,370**-row guard returns **0 / 27.462185375 s** after
+restoration, at **2026-10-28 03:54:35 UTC**.
+The historical Source605 compatibility correction, whole-backup and inventory
+protection retain their accepted scopes. Failed full-unit evidence stays literal.
+The retained Source8af PPO/mountain-car failure supplies no CPU qualification/
+admission or fresh Apple55 pass. On **2026-10-28**, the user approves one product-only
+PPO/mountain-car **150→300-iteration** trial (**2,457,600 transitions/seed**;
+**12,288,000** across original seeds **42..46**, served index **0**) and further
+convergence investigation if it still fails. The one trial has now failed in shared
+CIFAR/ViT setup; current state is **FAILED_CPU55_RUNTIME_STOPPED**:
+Current Source **f1381784… / 606** (**3** changed/**603** same8af) retains only
+two test-file corrections from CFA; production ProductBudget **5d33151e…**, approved
+PPO300, California100 and all other recipes/bars stay fixed. Format/HLint, supported
+native build, **86 / 10 / 1 / 30** gate commands, Apple **705 / 81492319…**
+Sourcef138 **Passed / 30** adoption and native helper/caller compilation return `0`.
+The expected7-count wrapper nonpass, first CFA **85 / 86** fixture failure/Main warning/
+later **NotRun**, Source8af scientific failure and failed full-unit record stay literal.
+Actual public110 review confirms **108** unchanged whole objects and all **110**
+report digests unchanged; only two PPO/mountain-car PlanIds change. The separate
+**11** canonical C2 policy/reference source FILE pins are independently confirmed exact.
+Two distinct reviewers approve the four Sourcef138 prospective criterion scopes (local-only `criterion-reviews/f1381784c66b…`);
+final assembly, materialization, production capture and append-only retention return `0`.
+The actual closure is **60 files / 8,189,443 bytes**, profiles **15 / 6 / 15 / 16**:
+**52** artifacts, **4** receipts and **4** selectors. Exactly **12** Git exceptions and
+**60** literal Docker paths append; old prefixes/closures hold and `git check-ignore`
+returns **1** with empty streams. Generation comparisons and criterion status-doc pins retain their recorded cutoffs.
+The observed Sourcef138 native backup is **2,237 entries = 2,223 + saved14**,
+accepted by Root and independent filesystem review. Canonical native generation
+returns `0` once: `Contracts.purs` **118,945 / 8703e1a2…**, exactly three PPO
+metadata rows, **37** other whole files/metadata unchanged and all38 preview-equal.
+Canonical V2 Docker build returns `0` (**2,578.934067375 s**), including
+`check-code: ok` and the frontend build. Compose plugin verification passes;
+actual image inspection returns `0`, selecting **773e5c10…**. The first V1
+build's Phase-State-token failure stays literal. Bounded image FILE proof returns `0`
+(**35f622…**), independently accepted **f2e0eb6b…**. Stopped staging and old-Linux
+retention return `0` (**10.019608875 / 16.402652375 s**); independent **02a6…** accepts
+**2,590 entries / 3,920,052,786 bytes** and the original **504b…** CLI. V4 history
+check returns `0` (**57.257367416 s**), preserving original27370 and the exact old-CLI map.
+All **7** supported import/configuration/build/coherence operations return `0`; all
+**10** ELF test executables **build** in **1,431.422127916 s**. Two whole Root/image
+CLI checks return `0`, binding actual Root CLI **234,007,416 / fd86f0ea…**.
+**No test was executed by the Linux build preparation.** Current Linux helper/caller
+compilation returns `0`; public110 export and selected60 capture match the whole native
+outputs. Independent **87af25f2…** accepts this source606/package/metadata provenance.
+The caller remains uninvoked and its inherited **532-byte** warning stays literal.
+Finite **PRE_RECOVERY** Scope and the **34,906-row** first-frame mapping are independently
+accepted **c6418248…**; actual first capture and reference check return `0`.
+Current CPU negatives **2,706 / 2,706** and backends **43 / 43** return `0`
+(**945.477048958 / 12.561796792 s**). Corrected v3 candidate inspections return `0`,
+joining the original receipts/source606/whole fd86 CLI. Exact two-record literal
+adoption returns `0`, independently accepted **0448bd4d…**; the other three records
+and every prior-five literal remain exact, including the **Failed** full-unit.
+The accepted current Scope first capture/reference check return `0`: **34,944** rows
+with all **34,908** expected full-row assertions exact; peer **0a5e622f… / 062d5446…**
+accepts this boundary. Recovery FILE finalization, seven-file allocation and read-only
+host export/capture parity return `0`. The before-frame passes (**139.199399291 s**,
+**de0bc586…**); independent packet/allocation review **217c1539…** is accepted.
+Genuine recovery is independently accepted **21d6c392…**. Supported UP returns `0`
+(**1,415.455668083 s**), restoring selected `p1-1755076146212073` / epoch `0` /
+`72595239…` with new owned nodes and lease. Actual **8 Ready** / readyz `200`, all
+**12 HTTP 200 / 629,581,277 bytes** and the exact whole bucket pass. Original sentinel
+**140 bytes**, CK8C **138 bytes**, backlog **1**, unacked/ACK **0**, one pull permit
+and sent/peer close `1000` remain exact. Closing raw comparison retains `1` solely
+for the supported owned `jitml-demo:local`/RepoDigest move **931a→773e**; no image
+IDs were added/deleted. All **8** owned checks and unrelated container/volume checks
+pass. The current guard returns `0` over the same **34,944** rows; no rebaseline.
+Fresh current-five retention, observer DATA allocation and daemon FILE finalization
+return `0`. The unfiltered daemon target passes **64 / 64** (**7,704.399605708 s**;
+Tasty body **7,692.72 s**); all nine original roles and all four after-operations return
+`0`. Safe-reader **70** proof-integrity checks, corrected v3 candidate inspection and
+same-Scope guard replay return `0`. Comparison records **19** protected checks true and
+`jitml_owned_preservation_exact` true; broad raw external `false` and its failed marker
+stay literal. Independent semantic **28a4ff85…** and owned-preservation **d6780229…**
+reviews are accepted. One-path daemon adoption returns `0`, independently accepted
+**b8563107…**: current daemon **951526ba…** is the only delta; the other four and all
+retained prior-five literals remain exact, including **Failed** full-unit. The actual
+`POST_DAEMON_ADOPTION` first capture/reference check return `0`: Scope **73f4f17d…** /
+baseline **04eae09d…**, **36,192** rows, all **34,944** predecessor rows mapped exactly
+and the new daemon literal verified. The fresh post-adoption observer and monotonic
+`POST_DAEMON_OBSERVER_EXTENSION` capture/check return `0`, independently accepted
+**d647…**: current Scope **20c7…** / checker **72a7…** / baseline **253c…**,
+**36,500** rows. The criterion append's **423** old rows plus **71** authenticated
+additions are physically accepted. Six fresh CPU55 observer DATA copies are prepared
+at `0`; input packet **62aba…** has accepted independent binding review **3a068…**
+(**47** keys / **1,364** pins / **676** roots), and strict **1,438-FILE** preflight returns
+`0`. All **336** original history roots / **13,040** recorded rows now have accepted
+closure; the original v7 raw `1` and two-fixture addendum `0` stay literal. Final FILE
+preparation returns `0`, with distinct history **aa0ee…** / packet **386daf54…** reviews
+accepted. All four before-operations return `0`. The single wholeCPU55 returns
+**1 / 57,832.582448375 s**, finishing **2026-10-30 09:24:33 UTC**. All **60 / 60**
+assertions fail from one shared **cifar10-vit** workflow timeout. Sequential execution
+stops at supervised row **9 / 11**, before PPO300; no PPO convergence result follows.
+No complete-matrix journal, qualification or admission is established. The original
+coordinator is absent and all four closing labels/receipts are absent; no post-trial
+preservation, normal DOWN, new four-PV snapshot or native restoration pass is claimed.
+At the user's resource-stop request, Colima is stopped. Following a host kernel panic
+and reboot, its automatic startup job is disabled/unloaded and the VM is stopped again.
+The panic's initiating cause remains unresolved. The local resource/restart analysis (`.build/phase278-resource-incident-20261030-a/analysis.json`)
+records the incident's memory recovery, uncapped training and causal limits.
+The explicitly managed `jitml` VM is configured for **4 CPUs / 16 GiB**,
+with explicit startup/shutdown and no automatic context activation or Kubernetes.
+The dedicated generic Colima autostart plist and wrapper are removed after preserving
+copies; both known startup services remain disabled. Bounded startup validation now
+reuses the completed filesystem restoration; current execution state lives in
+[the plan's Closure Status](README.md#closure-status).
+The bounded Compose override
+verifies **2 CPUs / 6 GiB / zero swap** for a job using actual cgroup readback.
+The VM setup and continuation record (`.build/phase278-managed-vm-20261031-a/summary.json`)
+confirms Sourcef138 is unchanged across all **606** inputs. Retain accepted builds,
+caches, datasets and engineering evidence; do not regenerate merely for a VM change.
+The old default profile stays offline for verified data/image recovery. Retained f138
+cluster ceilings exceed this VM; the selected bounded profile requires live validation.
+No qualifying aggregate
+rerun occurred; the existing fresh-only issuer cannot resume the partial eight-row prefix.
+A later bounded host continuity check stops at its **120 CPU-second** limit
+(**136.38 s** wall, **936 MiB** maximum sampled RSS), with no preservation result.
+No original closing role is replaced. The recovery preparation record (`.build/phase278-recovery-preparation-20261031-a/summary.json`)
+retains that nonpass and the limited empty-VM Docker flag inspection; the old runtime
+has not been started or migrated.
+A separate streamed FILE check (`.build/phase278-recovery-preparation-20261031-a/final-continuation.json`)
+passes all **1,971** selected pins / **1,605,723,512 bytes** in **12.41 s**, using
+**28.1 MiB** peak RAM. The later full FILE-continuity check (`.build/phase278-runtime-recovery-20261031-a/current-status-02-frame-pass.json`)
+passes baseline **36,500** and native **2,223 + saved14** role membership before/after,
+**34,620 unique files / 26,762,668,482 bytes**, in **320.59 s / 97.8 MiB** peak RAM.
+It safely reuses **9,506** prior hashes and hashes the remaining **25,114** once.
+Original closing roles/runtime/PV health remain unverified. Bounded recovery uses an
+independent APFS data clone; the original default stays offline. The first cloned
+daemon attempt stops at a conservative summary-counter guard; its failure stays literal.
+The bounded recovery and profiling record (`.build/phase278-runtime-recovery-20261031-a/final-summary.json`)
+now verifies image **773e** and all **13** layers in the new VM, without a rebuild.
+Actual **51** stopped-container/PID and empty-task proofs precede the official image export.
+A one-update diagnostic returns `0` at **2.13 GiB** peak; a **16-update** first-epoch
+prefix returns `0` in **25.30 s / 2.03 GiB**, with no OOM/limit events. Process memory
+plateaus near **1.74 GiB**; warm 128-example updates have **0.964 s** median.
+These are bounded diagnostics, not full-cohort/qualification or historical-timeout proof.
+All VMs are stopped. The resource audit finds component CPU/memory fields unused by
+production renderers and selected explicit pod limits already **14,976 MiB**, before
+uncapped roles. Complete effective budget wiring/profile validation before full-stack
+work; changing source will require corresponding refreshed source-bound evidence.
+Qualifying runtime and original closing operations stay unexecuted; container docs QA is deferred.
+Phase278 remains **Active**. Root's
+truncated-SHA inspector invocation retains auxiliary `1`; full fd86 CLI is unchanged,
+and no test retry occurred. The original v2 APFS auxiliary nonpass stays literal.
+Recovery is no new normal, fault, scientific or qualification pass.
+Nativef138 **2,223 + saved14** remains the restoration target; shared cache/DB/config
+has deliberately transitioned to Linux. Source606/current60/policies/Purs stay unchanged;
+current five add the accepted daemon replacement after the two control replacements. Local literal-preflight
+ordering and unsuffixed-store metadata probes
+each retain `1` as preparation nonpasses. WholeCPU55 is **Failed** from the shared
+CIFAR/ViT timeout; PPO300 was not reached by this matrix. No complete-matrix
+qualification/admission or Phase278 closure is claimed; four evidence guards and
+final quality remain open. Runtime stays stopped at the user's request. Seen-benchmark adaptivity, unproven cause and lack of a
+success guarantee remain explicit.
+Fresh complete CPU55 precedes genuine Apple
+context/datasets/55 if CPU qualifies; replay/Store/lane admission, four guards
+and final quality stay open. Seen-held-out adaptivity/no guarantee applies;
+a failed trial authorizes no automatic next search, score retry or row splicing.
+Foreign Docker changes remain informational, without owner questions or actor
+inference. Phase `278` stays Active; the user handles NVIDIA after278, with no279 execution.
+Seen-held-out adaptivity/no guarantee and all other fixed budgets, seeds, split,
+model, optimizer and bars remain binding. Freeze before training, retain every failure,
+and perform no adaptive search, row reuse or splicing. Replay/Store/admission, genuine
+Apple context/datasets, typed lane admission, all four evidence guards and
+final quality remain open. Phase `278` stays Active; the
+user takes the NVIDIA handoff after it finishes. The execution owner, host
+prerequisites, validation evidence, and status counts live in
+[DEVELOPMENT_PLAN/README.md → Closure Status](README.md#closure-status).
+
+### Earlier operational record
+
 The retained O attempt passes guest artifact/cache recertification **0 /
 38.4018 s**, with all **88** inactive cache users and **three** volumes exact,
 including N's known retained environment caller. The original N preflight refusal
@@ -267,7 +813,7 @@ baseline, including **2,237** native metadata entries and **620** private roots.
 This separate check does not replace original guest/DATA-after operations.
 The original result is sealed; safe checkpoint thaw **0** verifies all **2**
 Root/RF, **70** document and **42** runtime/input pins before status edits.
-[P's local terminal summary](../.build/phase278-current4958-full55-p/attempt-summary.json)
+P's local terminal summary (`../.build/phase278-current4958-full55-p/attempt-summary.json`)
 retains the literal failed result. Completed validation remains reusable.
 Diagnose the caller's joint memory use and observation overhead before another
 scientific launch; no automatic retry, interrupted-prefix adoption or convergence
@@ -296,7 +842,7 @@ container starts. An external kernel reader and retain-before-assert decoder are
 prepared; **36** host refusal controls pass. Real reader hardware validation,
 separate orchestration/worker memory-budget admission and fresh complete CPU55
 remain open. The
-[local diagnosis](../.build/phase278-current4958-memory-diagnosis-a/diagnosis.json)
+local diagnosis (`../.build/phase278-current4958-memory-diagnosis-a/diagnosis.json`)
 supplements the sealed original attempt without reconstructing its missing
 counter reply or scientific/closing results.
 
@@ -321,7 +867,7 @@ new fixed fixture is retired and removed. Supervision passes **171** samples /
 reserve; startup admission requires70%. Explicit VM stop, all five local domains
 and all frozen Root/document/runtime/source pins pass. No training, compiler or
 Cabal starts, and source617/contracts/criteria remain unchanged.
-[The control summary](../.build/phase278-current4958-external-memory-control-a/summary.json)
+The control summary (`../.build/phase278-current4958-external-memory-control-a/summary.json`)
 records exact scopes.
 
 Source review confirms that executable freshness/pinning/revalidation reads the
@@ -351,7 +897,7 @@ cache contracts and five local domains pass again; the original native2237/
 private620 and frozen public pins remain exact at closure. The guard passes
 **325** samples / **359.8142 s**, minimum CPU idle **73.57%**. The VM is explicitly
 stopped, all six owned containers are retired/removed and no training runs.
-[The measured correction decision](../.build/phase278-current4958-precondition-memory-control-a/decision.json)
+The measured correction decision (`../.build/phase278-current4958-precondition-memory-control-a/decision.json`)
 records the actual comparisons and higher temporary peak. Bind and validate this
 correction in a fresh operator, then require current readiness/binding/baseline/
 guardian admission before complete55. Actual coupled scientific fit remains open.
@@ -365,7 +911,7 @@ metadata baseline and actual guardian probe pass. Both **52 / 52** image aliases
 are present on both original nodes, with three fresh Ready launch-reserve samples.
 Completed source617 artifact-byte certification is explicitly reused.
 
-The [original Q invocation](../.build/phase278-current4958-full55-q/attempt-summary.json)
+The original Q invocation (`../.build/phase278-current4958-full55-q/attempt-summary.json`)
 returns **125 / 10,820.5705 s**, owner-9/guardian125. All four before-roles pass;
 complete55 is `UnsafeIncomplete`, its scientific CLI/convergence outcome is
 unobserved, and the four original after-roles are `NotRun`. The trigger is
@@ -393,7 +939,7 @@ preservation pass. All **64** physical proof records, including **18** node-cont
 records, match the corrected inventory. The guardian completes **10,433** guarded
 observations, minimum CPU idle **35.17%**, with its final worker joined and no
 active owned workload. Resource limits and the **30%** CPU reserve are unchanged.
-The [complete local summary](../.build/phase278-current4958-full-daemon-j/attempt-summary.json)
+The complete local summary (`../.build/phase278-current4958-full-daemon-j/attempt-summary.json`)
 retains exact receipt scopes; the [current canonical daemon record](attestations/validation/jitml-daemon-lifecycle.linux-cpu.json)
 is guest-certified and adopted at **0**.
 
@@ -413,7 +959,7 @@ The initial full55 operator launch exits **125** before owner/test-role startup.
 Isolated native controls confirm an inherited hard-CPU-limit ordering fault and
 prove the proposed ordering with both original limits unchanged. Independent
 post-abort local preservation passes, and the named VM is verified **Stopped**.
-The [startup summary](../.build/phase278-current4958-full55-a/attempt-summary.json)
+The startup summary (`../.build/phase278-current4958-full55-a/attempt-summary.json`)
 retains every `NotRun` role and the bounded diagnostic scope. A fresh successor
 applies the same-budget correction. Its isolated positive/negative OS controls
 and actual telemetry-writer startup/shutdown pass, as do **28** integration checks
@@ -435,7 +981,7 @@ four original after-roles are `NotRun`. Owned-VM retirement returns **0 /
 post-abort local preservation proves all five domains raw-exact against this
 invocation’s original before-frame, including **2,237** native entries and **620**
 private roots. Frozen root/resume, all **70** documents and runtime source pins
-are exact before reconciliation. The [interrupted-run summary](../.build/phase278-current4958-full55-b/attempt-summary.json)
+are exact before reconciliation. The interrupted-run summary (`../.build/phase278-current4958-full55-b/attempt-summary.json`)
 retains actual scopes. Partial measured CPU intervals show News, the VM and
 Spotlight activity; they establish no sole culprit or complete accounting.
 The original B kernel-peak proposal remains unapplied to that preserved run and
@@ -458,7 +1004,7 @@ selected Cabal bindings; it executes no compiler or test. Its wrapper remains
 **1** for a receipt-name collision, and a separate metadata command remains
 **1** for raw mount-array order. The existing comparator proves all **78** saved
 users’ values and mount mappings exact; **73** arrays differ only in order. These
-scopes remain separate in the [artifact engineering certificate](../.build/phase278-current4958-full55-c/artifact-identity-certificate.json),
+scopes remain separate in the artifact engineering certificate (`../.build/phase278-current4958-full55-c/artifact-identity-certificate.json`),
 without relabelling either invocation. Both owned artifact verifiers are removed
 only after identity/terminal proof; explicit VM stop returns **0**. Fresh C
 handoff composition/refusal controls pass **16** cases. Fresh continuity returns
@@ -487,7 +1033,7 @@ roots. Both frozen checkpoints, all **70** documents and runtime **20** source
 pins are exact before reconciliation. Its genuine frame command remains **0**;
 the initial summarizer's **1** for a small-file allowance is retained, and the
 existing bounded metadata loader completes comparison without rerunning the
-frame. The [current interrupted-run summary](../.build/phase278-current4958-full55-c/attempt-summary.json)
+frame. The current interrupted-run summary (`../.build/phase278-current4958-full55-c/attempt-summary.json`)
 retains these scopes. Another training attempt requires resource-coexistence
 analysis and fresh admission; completed daemon75/cached60 remain reusable.
 The separate D candidate halves only the caller CPU to **0.5**, retaining
@@ -516,7 +1062,7 @@ bindings. Actual kernel limits are **50,000 / 100,000** CPU, **4 GiB** memory,
 remain within the five-second/one-MiB limits, minimum idle **56.34%**, memory
 availability **87%** and zero swap. No node, compiler, test listing or training
 starts. Verifier removal returns **0**, followed by explicit VM stop **0 /
-2.9691 s** and verified **Stopped**. The [current engineering certificate](../.build/phase278-current4958-full55-d/artifact-identity-certificate.json)
+2.9691 s** and verified **Stopped**. The current engineering certificate (`../.build/phase278-current4958-full55-d/artifact-identity-certificate.json`)
 retains the original refusal. These physical and identity checks do not prove
 coupled training fit or supply live launch admission; subsequent live stages
 retain their own results below.
@@ -528,7 +1074,7 @@ unchanged. The current prerequisite gate verifies the archived original bytes,
 the exact one-literal change and all current runtime pins. **15** handoff controls
 then pass, including actual missing-D-input refusals and rejection of rich or
 incorrect freeze identities. Prepared D inputs return **0** and remain unadmitted.
-The [source-coordinate correction](../.build/phase278-current4958-full55-d/source-correction-b-result.json)
+The source-coordinate correction (`../.build/phase278-current4958-full55-d/source-correction-b-result.json`)
 retains its limited scope; the real diagnostic is reused without relabelling or
 rehashing. Fresh continuity returns **0 / 15.2848 s** for all **81** current users,
 **three** volumes and exact stopped-node states, without repeating artifact
@@ -553,7 +1099,7 @@ Owned VM retirement returns **0 / 14.2694 s**, with **4 CPUs / 16 GiB / Stopped*
 rechecked and original supervisory PIDs absent. Independent local preservation
 returns **0 / 6.4257 s**, proving all five domains exact, including **2,237** native
 entries and **620** private roots. Both checkpoints, all **70** documents and
-runtime **20** pins are exact before reconciliation. The [D interrupted-run summary](../.build/phase278-current4958-full55-d/attempt-summary.json)
+runtime **20** pins are exact before reconciliation. The D interrupted-run summary (`../.build/phase278-current4958-full55-d/attempt-summary.json`)
 retains actual scopes. Halving caller CPU has not established uninterrupted fit;
 investigate coexistence before another launch and reuse daemon75/cached60.
 The subsequent stopped-VM diagnosis returns **0 / 28.3526 s** with **25** fresh
@@ -573,7 +1119,7 @@ startup, detecting the current `agentctl` coverage/pytest process. A current
 snapshot also contains four GHC compiler processes. The foreign check's exact
 PID/birth/executable identity is captured read-only for a subsequent wait; it is
 not owned or stopped. Original D runtime20 pins remain exact.
-The [current investigation](../.build/phase278-current4958-full55-d/host-only-cpu-diagnosis-a/investigation-summary-b.json)
+The current investigation (`../.build/phase278-current4958-full55-d/host-only-cpu-diagnosis-a/investigation-summary-b.json`)
 preserves all these scopes. A separate owned-container freeze/thaw primitive
 passes **26** controls covering staged resume, changed identities/caps, foreign
 membership and partial failures. Its prepared three-sentinel kernel probe uses
@@ -609,7 +1155,7 @@ counters are zero, and all owned containers are removed. Its **10** complete
 guard observations retain minimum idle **79.16%**; the observer joins cleanly.
 There are no active containers before explicit VM stop **0**, and **4 CPUs /
 16 GiB / Stopped** is verified. Original retained nodes, DATA, training and
-scientific transcripts are not acquired by this control. The [scoped kernel summary](../.build/phase278-current4958-full55-d/cpu-pause-controls-a/physical-summary.json)
+scientific transcripts are not acquired by this control. The scoped kernel summary (`../.build/phase278-current4958-full55-d/cpu-pause-controls-a/physical-summary.json`)
 retains original receipts and limits. It supplies no retained-cluster or
 scientific-supervision proof; the separate retained-cluster control below owns
 that recovery evidence. All original CPU55 and current Apple55 obligations
@@ -629,7 +1175,7 @@ commands return **0**, but the strict local-after comparison rejects the agent's
 progress update to the protected continuation checkpoint. Four complete domains
 and **619 / 620** private roots match; the sole changed file differs in inode,
 size, mtime and ctime. The prior checkpoint body was not separately retained, so
-this is not an exact before/after content proof. The [original combined result](../.build/phase278-current4958-retained-freezer-a/combined-result.json)
+this is not an exact before/after content proof. The original combined result (`../.build/phase278-current4958-retained-freezer-a/combined-result.json`)
 preserves the control0, wrapper1 and precise comparison scope. No failure is
 relabeled. A successor retains the exact core implementation, captures both
 status checkpoint bodies/metadata **before** its baseline, checks them during
@@ -647,7 +1193,7 @@ usage, then resumes with the same PID and advancing pulse before removal.
 The **56** published complete cycles stay within the existing limits: maximum
 **3.7936 s / 221,630 selected bytes**, with minimum saved main-loop CPU idle
 **68.79%**. This minimum does not reconstruct transient warmup samples.
-The [validated combined result](../.build/phase278-current4958-retained-freezer-b/validated-result.json)
+The validated combined result (`../.build/phase278-current4958-retained-freezer-b/validated-result.json`)
 retains the original A failure and literal tool exits. The named VM is verified
 **Stopped / 4 CPUs / 16 GiB**. The fresh E supervisor integrates client-only
 prospective pause below **60%** idle, while retaining the original **30%** abort
@@ -658,7 +1204,7 @@ normalization, and the entire policy remains byte-exact. Frozen checkpoints,
 same-PID ownership, per-cycle tool deadlines, constant paused CPU counters and
 bounded acknowledged telemetry remain mandatory. The stage-alias fixture
 failure and original replay-refusal diagnostic remain retained. The
-[controller preparation](../.build/phase278-current4958-full55-e/controller-preparation.json)
+controller preparation (`../.build/phase278-current4958-full55-e/controller-preparation.json`)
 admits only a finite fixed-pulse live control under the actual **0.5-CPU / 4-GiB /
 no-swap / 256-PID** caps, with unmodified real host measurements and an explicit
 manual pause trigger. The actual E invocation stops during retained-node warmup
@@ -667,13 +1213,13 @@ at **1 / 34.3953 s**, with a **29.38%** CPU-idle interval below the unchanged
 `NotRun`; only the two original nodes are active at retirement. Explicit VM stop
 returns **0**, and local-after command/wrapper **0 / 5.6607 s** proves all five
 domains raw-exact, including native2237/private620. The
-[literal combined failure](../.build/phase278-current4958-full55-e/combined-result.json)
+literal combined failure (`../.build/phase278-current4958-full55-e/combined-result.json`)
 retains control1, preservation0 and the original missing-observation scope.
 The original warmup projection saves six host summaries, so it cannot identify
 the failed interval's consuming processes. Twelve fresh stopped-VM observations
 subsequently retain minimum idle **88.08%**, memory availability **87%** and zero
 swap; these later intervals do not establish the earlier spike's cause.
-The [fresh F preparation](../.build/phase278-current4958-retained-controller-f/controller-preparation.json)
+The fresh F preparation (`../.build/phase278-current4958-retained-controller-f/controller-preparation.json`)
 reuses the exact controller/probe and all48 controls, and passes **five** new
 capture controls. It retains the full bounded selected host/process observation
 before applying the unchanged warmup reserve check. Actual F control, independent
@@ -685,14 +1231,14 @@ owner's `cpu.stat` contains `core_sched.force_idle_usec 0`; the unchanged old ta
 reproduces that refusal. The fixed caller is removed and only the original nodes
 remain active. Explicit VM stop returns **0**, and local-after command/wrapper
 **0 / 5.4962 s** proves all five domains raw-exact before thaw. The
-[combined result](../.build/phase278-current4958-retained-controller-f/combined-result.json)
+combined result (`../.build/phase278-current4958-retained-controller-f/combined-result.json`)
 preserves control1 and preservation0. All **79** full warmup host observations
 remain available; their measurements do not reconstruct E's earlier failed
 interval. A fresh H control corrects only the counter-key regular expression,
 retaining nonnegative numeric values, duplicate rejection and every required
 quota/OOM/freezer/constant-CPU invariant. Its **12** actual-schema regression
 controls and the original **34 + 11 + three** operator controls pass. The
-[fresh preparation](../.build/phase278-current4958-retained-controller-h/controller-preparation.json)
+fresh preparation (`../.build/phase278-current4958-retained-controller-h/controller-preparation.json`)
 retains both original failures and admits only another finite fixed-pulse
 control. H live operation, independent scientific guardian and full55 qualification
 remain `NotRun` at preparation. H's actual corrected finite control returns
@@ -711,11 +1257,11 @@ serialize in a different order, with complete mappings and every other selected
 field exact. The caller is removed, only the original nodes remain active, and
 explicit VM stop returns **0**. Local-after command/wrapper **0 / 5.3468 s** proves
 all five domains raw-exact, including native2237/private620, before validated
-status thaw. The [combined H result](../.build/phase278-current4958-retained-controller-h/combined-result.json)
+status thaw. The combined H result (`../.build/phase278-current4958-retained-controller-h/combined-result.json`)
 retains the original E/F failures and literal operator exits.
 The fresh G scientific supervisor source passes **28** source/coordinate checks
 and **14** prerequisite/handoff controls, reusing actual H0 and the original
-daemon75/cached60 evidence. The [operator preparation](../.build/phase278-current4958-full55-g/operator-preparation.json)
+daemon75/cached60 evidence. The operator preparation (`../.build/phase278-current4958-full55-g/operator-preparation.json`)
 keeps every fresh artifact/readiness/binding/guardian requirement unmet until
 its actual evidence exists. Current G artifact certification, readiness,
 independent guardian and full55 qualification remain `NotRun`; launch admission
@@ -730,12 +1276,12 @@ false. Retained warmup returns **0 / 169.7387 s**, three Ready launch-reserve
 samples and both **52 / 52** aliases on both nodes. Its six additional driver
 controls require fresh exact node/active-roster verification before error-path
 whole-VM retirement; uncertain or foreign ownership refuses that retirement.
-The [current certificate](../.build/phase278-current4958-full55-g/artifact-identity-certificate.json)
-and [actual readiness](../.build/phase278-current4958-full55-g/warm-start-a/result.json)
+The current certificate (`../.build/phase278-current4958-full55-g/artifact-identity-certificate.json`)
+and actual readiness (`../.build/phase278-current4958-full55-g/warm-start-a/result.json`)
 retain these operational scopes. At this prelaunch checkpoint, final binding,
 independent guardian and scientific full55 remain `NotRun`. During the protected
 qualifying interval, actual handles and live state stay only in the
-[G operator record](../.build/phase278-current4958-full55-g/operator-live.json);
+G operator record (`../.build/phase278-current4958-full55-g/operator-live.json`);
 frozen checkpoint/document values retain their captured prelaunch scope.
 No changed scientific acceptance criterion or completed scientific result is admitted.
 G final binding returns **0**, and the actual no-owner guardian probe returns
@@ -762,7 +1308,7 @@ the VM verified **Stopped / 4 CPUs / 16 GiB** and original supervisory PIDs abse
 Independent local preservation returns **0 / 5.7861 s**, all five domains
 raw-exact, including native2237/private620 and frozen checkpoints/docs/runtime
 before thaw. It supplies none of the missing guest/DATA closings. The
-[sealed G summary](../.build/phase278-current4958-full55-g/attempt-summary.json)
+sealed G summary (`../.build/phase278-current4958-full55-g/attempt-summary.json`)
 retains all literal exits, original failure, scope and missing authority.
 No scientific qualification, missing guest/DATA closing pass or phase closure is claimed.
 
@@ -773,7 +1319,7 @@ fixture's assertion requiring exit1 fails. The operator's unpause post-inspectio
 also refuses the already-exited fixture. Retain both literal failures. The owned
 fixture is removed, original cluster nodes stay stopped, explicit VM stop returns0,
 and all five local preservation domains remain raw-exact (native2237/private620).
-The [I result](../.build/phase278-current4958-stream-pause-controls-i/combined-result.json)
+The I result (`../.build/phase278-current4958-stream-pause-controls-i/combined-result.json`)
 and safe status thaw establish those scopes only. Fresh fixture J adds writer
 exception logging and an explicit fixture-exit release; original IPC waits and
 scientific deadlines remain unchanged. Its actual control returns **0 /
@@ -784,7 +1330,7 @@ writer did not record its exact exception. J peaks at **38,400,000 bytes**, with
 zero OOM events, at least **89.04%** host CPU idle, **87%** memory availability
 and zero swap. The fixture is removed and original cluster nodes remain stopped.
 Explicit VM stop and strict local preservation pass, including native2237/private620.
-The [J combined result](../.build/phase278-current4958-stream-pause-controls-j/combined-result.json)
+The J combined result (`../.build/phase278-current4958-stream-pause-controls-j/combined-result.json`)
 and status thaw retain the actual diagnostic/preservation scope. Qualification-
 supervisor integration of numerical-process suspension remains open, and the
 full scientific attempt remains unqualified.
@@ -808,7 +1354,7 @@ availability **87%** and swap0. The numerical group, socket directory and fixtur
 are removed. Explicit VM stop and independent strict preservation pass across all
 five domains, including native2237/private620. No numerical memory peak was
 exported; the unchanged4-GiB limit supplies no peak measurement. The
-[K combined result](../.build/phase278-current4958-numerical-freezer-controls-k/combined-result.json)
+K combined result (`../.build/phase278-current4958-numerical-freezer-controls-k/combined-result.json`)
 and safe status thaw retain those scopes. Real Ready-node/supervisor integration
 and scientific admission remain open.
 L's offline ownership preparation identifies G's three original stopped cache
@@ -843,7 +1389,7 @@ swap0 and the original runtime30 reserve remains satisfied. Preserve literal1:
 the complete fixture/retirement handshake, DATA-after, cache-after and native
 telemetry fsync terminal remain absent. The fixture/socket are removed, explicit
 VM stop and all five strict local preservation domains pass (native2237/private620).
-The [L combined refusal](../.build/phase278-current4958-retained-numerical-controller-l/combined-result.json)
+The L combined refusal (`../.build/phase278-current4958-retained-numerical-controller-l/combined-result.json`)
 and safe thaw retain these boundaries. Fresh M changes only the control driver
 to defer a manual trigger below70, clear a pending trigger after either pause
 path and refuse if its finite generated workload ends before the requested
@@ -867,7 +1413,7 @@ pass across all five domains, including native2237/private620. The initial
 operator closure validator refuses a stopped-summary entry without a live-frame
 receipt; the corrected validator uses distinct acquired frames and preserves
 that refusal. No test invocation is rerun. The
-[M combined result](../.build/phase278-current4958-retained-numerical-controller-m/combined-result.json)
+M combined result (`../.build/phase278-current4958-retained-numerical-controller-m/combined-result.json`)
 and safe status thaw retain these operational scopes. Raw controller counter36
 counts invariant rechecks; the curated distinct-acquisition count is17. Current
 compiled-artifact certification, binding/readiness and an actual independent
@@ -880,13 +1426,13 @@ the original guest artifact-certification core returns **0 / 38.7455 s**, with
 all87 inactive cache users/three volumes exact before/after and source617/image09
 unchanged. The CLI/library/four executable/package/plan checks pass with the cache
 read-only, no compiler/Cabal/test listing/training and minimum host idle **83.84%**.
-The [N artifact certificate](../.build/phase278-current4958-full55-n/artifact-identity-certificate.json)
+The N artifact certificate (`../.build/phase278-current4958-full55-n/artifact-identity-certificate.json`)
 and derived continuity come from that same actual invocation. An initial warm
 wrapper omits its required mode and returns2 before node startup; retain that
 refusal. The corrected supported `run` invocation is warming original nodes;
 readiness, binding, actual guardian and scientific acquisition remain `NotRun`
 at this checkpoint. Progress is recorded in the
-[N live operator record](../.build/phase278-current4958-full55-n/operator-live.json).
+N live operator record (`../.build/phase278-current4958-full55-n/operator-live.json`).
 N readiness subsequently returns **0 / 169.1072 s**, with original nodes Ready,
 three fresh launch-reserve samples and both52/52 image aliases on both nodes.
 Binding returns0. Its independent guardian probe returns **0 / 8.0106 s**, with
@@ -902,7 +1448,7 @@ training; the scientific CLI,55 training rows and other original roles remain
 Independent local preservation returns **0 / 5.8901 s** against the actual
 preowner baseline, all five domains raw-exact. It supplies no missing original
 guest/DATA closing operation. The
-[N sealed refusal](../.build/phase278-current4958-full55-n/attempt-summary.json)
+N sealed refusal (`../.build/phase278-current4958-full55-n/attempt-summary.json`)
 and safe checkpoint thaw retain those literal scopes.
 Fresh O replaces the fixed suffix with the exact expected caller name carried
 in read-only prepared metadata, preserving role/prefix and inspected-label
@@ -969,7 +1515,7 @@ successor. Final binding and every original nine-role before/body/after
 obligation remain required. These idle admission proofs are no new test body,
 complete55, qualification or phase pass; resource limits remain unchanged.
 
-[The actual attempt summary](../.build/phase278-current4958-full-daemon-i/attempt-summary.json)
+The actual attempt summary (`../.build/phase278-current4958-full-daemon-i/attempt-summary.json`)
 retains literal outcomes and diagnostic scope. That failed invocation is not
 restarted or adopted. The separately checked successor retains the same CPU
 reserve and hard limits. Current compiled artifacts, complete controls, focused
@@ -1124,14 +1670,14 @@ availability **89%** and swap **0**, then joins its post-DONE observer. The OOM
 toy records one actual child kill while PID1 survives; no training is involved.
 Post original-node/volume/source/native checks return **0** and explicit normal
 VM stop returns **0 / 2.6296 s**, with **4-CPU / 16-GiB / Stopped** verified.
-[Actual isolated calibration review](../.build/cpu55-role-owner-calibration-current656-e/calibration-e-review.json)
+Actual isolated calibration review (`../.build/cpu55-role-owner-calibration-current656-e/calibration-e-review.json`)
 links exact primary results; earlier failures are retained without pooling.
 Its ten cases retain
 **0.25 CPU / 256 MiB / no swap / 32 PIDs**, one at a time, with both original
 nodes stopped and no original-data/cache/socket/network mounts. Earlier reviews
 and isolated checks grant no numerical, production or full55 admission.
 
-[Current recovery review](../.build/phase278-resource-helm-live-fit-b/live-recovery-review.json)
+Current recovery review (`../.build/phase278-resource-helm-live-fit-b/live-recovery-review.json`)
 retains exact primary references and scope. Source490's bootstrap1/readbackNotRun
 and Source J's failed daemon/original fourNotRun closings are not reconstructed.
 
@@ -1182,7 +1728,7 @@ remain open. This phase closes on the Apple Silicon Mac plus its Docker CPU
 lane; NVIDIA validation belongs to Phase `279` after this phase closes.
 
 Saved guest-decoded findings are retained in
-[the local failure review](../.build/phase278-daemon-failure-diagnosis-b/findings.json).
+the local failure review (`../.build/phase278-daemon-failure-diagnosis-b/findings.json`).
 No failed gate is promoted and no training is repeated by this diagnosis.
 
 ## Historical Sourcef138 State
@@ -1363,7 +1909,7 @@ Build peak is **2,583,048,192 bytes**; regression peak is **1,463,222,272 bytes*
 Both have zero memory-limit/OOM events and host swap `0`. The original
 **2,237** native metadata entries still match after development. Earlier
 argument-migration compile failures remain literal in the local receipts.
-[Development evidence](../.build/phase278-numerical-job-resource-fix-a/development-review.json)
+Development evidence (`../.build/phase278-numerical-job-resource-fix-a/development-review.json`)
 binds the candidate, exact compiled library/CLI and actual test results.
 Canonical generation/image, fresh standing gates and live validation remain open.
 The final explicit VM stop returns `0`; both original nodes stay stopped.
@@ -1517,7 +2063,7 @@ It compares every raw byte and path of all **604** source inputs and the closed
 **60-file / 8,208,100-byte** selected criterion set. The installed and baked
 Linux CLIs are whole-file equal: **234,048,288** bytes, SHA-256
 `b9829fe55d08efd3209ff4bcd98724adb3c1322b676ab57c2390d1b49ae78542`.
-The [actual FILE proof](../.build/phase278-current/image-adoption-proof-format-fixed-point/proof.json)
+The actual FILE proof (`../.build/phase278-current/image-adoption-proof-format-fixed-point/proof.json`)
 and original build/adoption streams remain under ignored `.build/`.
 The supported Linux root CLI build returns **0 / 30.705054375 seconds**; its
 strict whole-file comparison to the installed image CLI returns
@@ -2139,12 +2685,12 @@ coordinator is absent and all four closing labels/receipts are absent; no post-t
 preservation, normal DOWN, new four-PV snapshot or native restoration pass is claimed.
 At the user's resource-stop request, Colima is stopped. Following a host kernel panic
 and reboot, its automatic startup job is disabled/unloaded and the VM is stopped again.
-The panic's initiating cause remains unresolved. The [local resource/restart analysis](../.build/phase278-resource-incident-20261030-a/analysis.json)
+The panic's initiating cause remains unresolved. The local resource/restart analysis (`../.build/phase278-resource-incident-20261030-a/analysis.json`)
 records the incident's memory recovery, uncapped training and causal limits.
 The explicitly managed `jitml` VM is now prepared and **Stopped**: **4 CPUs / 16 GiB**,
 no automatic startup/context activation or Kubernetes. The bounded Compose override
 verifies **2 CPUs / 6 GiB / zero swap** for a job using actual cgroup readback.
-The [VM setup and continuation record](../.build/phase278-managed-vm-20261031-a/summary.json)
+The VM setup and continuation record (`../.build/phase278-managed-vm-20261031-a/summary.json`)
 confirms Sourcef138 is unchanged across all **606** inputs. Retain accepted builds,
 caches, datasets and engineering evidence; do not regenerate merely for a VM change.
 The old default profile stays offline for verified data/image recovery. Current cluster
@@ -2152,19 +2698,19 @@ ceilings do not fit this VM and must not be started unchanged. No qualifying agg
 rerun occurred; the existing fresh-only issuer cannot resume the partial eight-row prefix.
 A later bounded host continuity check stops at its **120 CPU-second** limit
 (**136.38 s** wall, **936 MiB** maximum sampled RSS), with no preservation result.
-No original closing role is replaced. The [recovery preparation record](../.build/phase278-recovery-preparation-20261031-a/summary.json)
+No original closing role is replaced. The recovery preparation record (`../.build/phase278-recovery-preparation-20261031-a/summary.json`)
 retains that nonpass and the limited empty-VM Docker flag inspection; the old runtime
 has not been started or migrated.
-A separate [streamed FILE check](../.build/phase278-recovery-preparation-20261031-a/final-continuation.json)
+A separate streamed FILE check (`../.build/phase278-recovery-preparation-20261031-a/final-continuation.json`)
 passes all **1,971** selected pins / **1,605,723,512 bytes** in **12.41 s**, using
-**28.1 MiB** peak RAM. The later [full FILE-continuity check](../.build/phase278-runtime-recovery-20261031-a/current-status-02-frame-pass.json)
+**28.1 MiB** peak RAM. The later full FILE-continuity check (`../.build/phase278-runtime-recovery-20261031-a/current-status-02-frame-pass.json`)
 passes baseline **36,500** and native **2,223 + saved14** role membership before/after,
 **34,620 unique files / 26,762,668,482 bytes**, in **320.59 s / 97.8 MiB** peak RAM.
 It safely reuses **9,506** prior hashes and hashes the remaining **25,114** once.
 Original closing roles/runtime/PV health remain unverified. Bounded recovery uses an
 independent APFS data clone; the original default stays offline. The first cloned
 daemon attempt stops at a conservative summary-counter guard; its failure stays literal.
-The [bounded recovery and profiling record](../.build/phase278-runtime-recovery-20261031-a/final-summary.json)
+The bounded recovery and profiling record (`../.build/phase278-runtime-recovery-20261031-a/final-summary.json`)
 now verifies image **773e** and all **13** layers in the new VM, without a rebuild.
 Actual **51** stopped-container/PID and empty-task proofs precede the official image export.
 A one-update diagnostic returns `0` at **2.13 GiB** peak; a **16-update** first-epoch
@@ -4769,9 +5315,9 @@ five-run qualification, complete journal, registration or phase closure follows.
   passed local containment, low-idle handoff, automatic handoff, namespace
   and stream controls. Post-interruption recovery confirms the original twelve
   application objects and eight components match the pre-run summary
-  ([readback](../.build/phase278-bca-f-recovery-readback-a/result.json)); the
+  (readback (`../.build/phase278-bca-f-recovery-readback-a/result.json`)); the
   original 120 cache users are unchanged and three known stopped users from the
-  interrupted attempt are retained ([inventory](../.build/phase278-bca-f-recovery-cache-a/result.json)).
+  interrupted attempt are retained (inventory (`../.build/phase278-bca-f-recovery-cache-a/result.json`)).
   The local preservation frame also matches. Historical CPU thresholds
   below describe past attempts, not current authorization. The latest CPU55
   attempt ended after **3,160.8 s** with supervisor/guardian exit **125** and
@@ -4781,9 +5327,9 @@ five-run qualification, complete journal, registration or phase closure follows.
 
   The successor obtained live binding and ran the complete CPU55 subtree for
   **52,357.9 s**; its CLI exited **1**, while the guardian exited **0** and
-  reported no safety failure ([supervisor](../.build/phase278-bca-full55-g/runtime/result.json),
-  [guardian](../.build/phase278-bca-full55-g/runtime/guardian-result.json),
-  [owner](../.build/phase278-bca-full55-g/result-a.json)). The test record reports
+  reported no safety failure (supervisor (`../.build/phase278-bca-full55-g/runtime/result.json`),
+  guardian (`../.build/phase278-bca-full55-g/runtime/guardian-result.json`),
+  owner (`../.build/phase278-bca-full55-g/result-a.json`)). The test record reports
   60 failures and identifies a timeout in `cifar100-wide-resnet`. Those tests
   share the matrix aggregate acquisition; the failures do not establish 60
   independent row failures. The workflow timeout is four hours; the record does
@@ -4808,41 +5354,41 @@ five-run qualification, complete journal, registration or phase closure follows.
   approved hashes, records, criterion identities, native metadata and private
   trees. A subsequent bounded metadata-only cache inventory confirmed all
   **123** previously retained users unchanged and four inactive users from this
-  run, for **127** total ([inventory](../.build/phase278-bca-g-recovery-cache-a/result.json));
+  run, for **127** total (inventory (`../.build/phase278-bca-g-recovery-cache-a/result.json`));
   it started no nodes or training, and stopped the named VM. Investigate the
   timeout and remaining retained state before selecting any subsequent qualification.
-  A separate [operator draft](../.build/phase278-bca-full55-h/DRAFT_NOT_RUNNABLE)
+  A separate operator draft (`../.build/phase278-bca-full55-h/DRAFT_NOT_RUNNABLE`)
   explores the existing one-CPU numerical client slot while retaining the
   half-CPU lifecycle helpers. Its Python files parse, and synthetic checks pass
   **47** caller/host containment cases and **16** numerical quota/decoder and
   helper-isolation cases, plus **37** handoff, **11** automatic handoff,
   **6** compact-admission, **32** namespace and **5** stream-capture cases,
   without starting a VM or training. Bounded output checks cover six variants
-  and four refusals. A [prepared proposal](../.build/phase278-bca-full55-h/preparation-result.json)
+  and four refusals. A prepared proposal (`../.build/phase278-bca-full55-h/preparation-result.json`)
   pins the current source, original contracts, local controls and 127-user
-  baseline; the separate static [binding preparation](../.build/phase278-bca-full55-h/binding-preparation-a/result.json)
+  baseline; the separate static binding preparation (`../.build/phase278-bca-full55-h/binding-preparation-a/result.json`)
   passed without starting a VM. A subsequent guarded startup found a missing
   execution-binding manifest before starting cluster nodes; the startup guard
   stopped the explicitly started VM successfully, and no training started
-  ([guard](../.build/phase278-bca-full55-h/startup-guard-result.json)).
+  (guard (`../.build/phase278-bca-full55-h/startup-guard-result.json`)).
   A fresh successor repeats the local controls, has **70** verified execution
   bindings and a successful local prelaunch frame matching the prior post-stop
-  source and protected metadata ([preparation](../.build/phase278-bca-full55-i/binding-preparation-a/result.json)).
+  source and protected metadata (preparation (`../.build/phase278-bca-full55-i/binding-preparation-a/result.json`)).
   Its live readiness, binding and guardian probe passed, but the owner refused
   the numerical container before start: its creation command still requested
   **0.5 CPU** while the new guard expected **1 CPU**. The observed container
   remained in `created` state with no start timestamp. The guardian stopped
-  the VM ([supervisor](../.build/phase278-bca-full55-i/runtime/result.json),
-  [guardian](../.build/phase278-bca-full55-i/runtime/guardian-result.json));
+  the VM (supervisor (`../.build/phase278-bca-full55-i/runtime/result.json`),
+  guardian (`../.build/phase278-bca-full55-i/runtime/guardian-result.json`));
   no numerical training started. The post-stop local frame matches the
   preowner source, image and protected metadata. Correct the actual creation
   command and test it before preparing a fresh successor. The subsequent
-  metadata-only [cache inventory](../.build/phase278-bca-i-recovery-cache-a/result.json)
+  metadata-only cache inventory (`../.build/phase278-bca-i-recovery-cache-a/result.json`)
   retained all **127** prior users unchanged and identified **3** inactive users
   from that attempt, for **130** total; the VM was stopped. A fresh operator
   now requests **1 CPU** in the actual numerical container creation arguments;
   its namespace control checks those arguments for all six roles and passes.
-  The [new static binding](../.build/phase278-bca-full55-j/binding-preparation-a/result.json)
+  The new static binding (`../.build/phase278-bca-full55-j/binding-preparation-a/result.json`)
   passes with the 130-user baseline, and the local prelaunch frame matches the
   preceding post-stop protected metadata. No live binding or training is claimed.
   Fresh live bindings and admission are not yet validated; it has no launch inputs and
@@ -4922,7 +5468,7 @@ five-run qualification, complete journal, registration or phase closure follows.
   the ledger. This is readiness evidence only, not gate evidence. The remaining
   54 rows now run individually (two single-CPU lanes, skipping any row already
   passed) from the ignored per-row ledger
-  [`.build/phase278-row-runs/ledger.jsonl`](../.build/phase278-row-runs/ledger.jsonl);
+  `.build/phase278-row-runs/ledger.jsonl`;
   the complete gate runs once afterward.
 
 - **Record the `full55-j` interruption (9 November).** The CPU55 body ran
@@ -4931,8 +5477,8 @@ five-run qualification, complete journal, registration or phase closure follows.
   session was torn down (14:09Z). The guardian saw private peer EOF, exited
   **125**, and stopped the VM. This is an operator-session loss, not a test
   verdict: the last sample showed 86% host memory available, zero swap and zero
-  node OOM events ([result](../.build/phase278-bca-full55-j/result-a.json),
-  [guardian](../.build/phase278-bca-full55-j/runtime/guardian-result.json)).
+  node OOM events (result (`../.build/phase278-bca-full55-j/result-a.json`),
+  guardian (`../.build/phase278-bca-full55-j/runtime/guardian-result.json`)).
   No outcome files from the run are present on the host, the issuer cannot resume
   a partial prefix, and no partial result is adopted. Qualification requires a
   fresh attempt launched from a session that survives the full duration.
@@ -4941,11 +5487,11 @@ five-run qualification, complete journal, registration or phase closure follows.
   attempt's supervisor and guardian exit **125** after a host CPU sample of
   **24.55% idle** breached the 30% running reserve while numerical work was
   already paused. The owner was retired; no full CPU55 result or partial
-  qualification is admitted. The [local review](../.build/phase278-bca-full55-b/postretirement-local-review.json)
+  qualification is admitted. The local review (`../.build/phase278-bca-full55-b/postretirement-local-review.json`)
   verifies the selected local preservation frame. A later bounded original-data
   readback returned **12 objects / 629,581,277 bytes**, eight components, no
   rebaseline, and the same structured summary as before; the named VM was
-  explicitly stopped. The [subsequent guest runtime comparison](../.build/phase278-bca-postinterrupt-frame-b/comparison.json)
+  explicitly stopped. The subsequent guest runtime comparison (`../.build/phase278-bca-postinterrupt-frame-b/comparison.json`)
   verifies source, compiler artifacts, criteria, canonical records, context,
   images, volume identities and node configurations; node process timestamps
   changed during recovery, and the documented plan update is not claimed equal.
@@ -4958,7 +5504,7 @@ five-run qualification, complete journal, registration or phase closure follows.
   `jitml test jitml-daemon-lifecycle --linux-cpu`: **75/75**, CLI0 in
   **14,367.0353s**. All nine original environment/local/frame/DATA/body/closing
   roles pass0, with owner/guardian/supervisor0. The
-  [actual bounded closure](../.build/phase278-bca-full-daemon-b/closure.json)
+  actual bounded closure (`../.build/phase278-bca-full-daemon-b/closure.json`)
   binds these completed invocations; the fresh post-stop frame and safe thaw
   verify all eight selected local domains,975 frozen references and two Root
   metadata files. Original before/after DATA summaries are identical:
@@ -4981,13 +5527,13 @@ five-run qualification, complete journal, registration or phase closure follows.
   verifier's strict whole-metadata equality fails on that intentional record
   replacement; the completed successor proves exactly that one path and its
   approved bytes/metadata changed. Source, criteria, native2237 and all remaining
-  private metadata stay exact. The [certification closure](../.build/phase278-bca-post-daemon-certification-a/closure.json)
-  and [adoption closure](../.build/phase278-bca-post-daemon-certification-a/adoption-closure.json)
+  private metadata stay exact. The certification closure (`../.build/phase278-bca-post-daemon-certification-a/closure.json`)
+  and adoption closure (`../.build/phase278-bca-post-daemon-certification-a/adoption-closure.json`)
   retain these actual scopes. All96 host samples preserve at least72.892% CPU
   idle,85% memory availability and zero swap; VM stop and safe thaw pass.
   The current run reuses the verified cached image, compiled artifacts and
   original capped nodes. Prior startup/disk/metadata/cache refusals remain literal
-  in the [continuation](../.build/phase278-ppo-retention-fix-a/resume.json),
+  in the continuation (`../.build/phase278-ppo-retention-fix-a/resume.json`),
   including the original pre-body failure and its exact retained helpers. The
   approved disk resize changes no CPU/RAM limit; original108 cache users remain
   represented in the certified115-user/four-group successor baseline, with
@@ -5004,7 +5550,7 @@ five-run qualification, complete journal, registration or phase closure follows.
   64PIDs. Current source/artifact/criterion/canonical dependencies and cache115/
   four groups are explicit. The initial control-result filename and source-shape
   assertions remain retained refusals. This is
-  [source/control preparation](../.build/phase278-bca-full55-a/preparation-result.json),
+  source/control preparation (`../.build/phase278-bca-full55-a/preparation-result.json`),
   with no runnable inputs, VM startup, training or full working-set-fit claim.
   Current metadata prerequisite validation and48 direct containment controls now
   pass. They detect and correct the inherited owner-directory and DATA-observer
@@ -5409,7 +5955,7 @@ remaining obligations are listed above.
   nested mountpoints; a fresh invocation passes after creating empty mountpoints.
   Source **617**, native **2,237** metadata and original stopped nodes/volumes
   remain exact; explicit VM shutdown returns **0 / 3.1961 s**, with `Stopped`
-  verified. The [current continuation](../.build/phase278-pulsar-stateful-init-fix-a/resume.json)
+  verified. The current continuation (`../.build/phase278-pulsar-stateful-init-fix-a/resume.json`)
   records the completed reviews/DATA rather than leaving reviews pending.
   Canonical image **d64edf86…** now builds **0 / 254.4716 s**, reusing the saved
   compiled-cache layer. All three canonical stages complete; guest-decoded
@@ -5502,7 +6048,7 @@ remaining obligations are listed above.
   deadline and strict ownership/mode checks. Corrected actual tool preflight
   returns **0 / 6.7820 s**; both prior failures remain literal. Original failing
   invocation metadata values were not captured and no old pass is reconstructed.
-  [Current recovery](../.build/phase278-currentdc00-live-recovery-c/preparation.json)
+  Current recovery (`../.build/phase278-currentdc00-live-recovery-c/preparation.json`)
   reuses the completed CPU gates/current image. Explicit original-node start
   passes **0 / 50.3826 s**; cached bootstrap is interrupted at **130 / 166.2488 s**
   when guest Docker free disk reaches **34,018,377,728 bytes**, below the unchanged
@@ -5530,7 +6076,7 @@ remaining obligations are listed above.
   and retains the same claim inode/exact owner file in ignored quarantine, leaving
   the permanent lock and all data/selectors intact. Both supervisor and guest
   return **0**; no PID-only automatic reclaim or original pass is reconstructed.
-  [Latest recovery](../.build/phase278-currentdc00-live-recovery-e/preparation.json)
+  Latest recovery (`../.build/phase278-currentdc00-live-recovery-e/preparation.json`)
   adds canonical-claim absence to the pre-node tool checks. Its actual preflight
   passes **0 / 6.8918 s**; original-node settling and supported cached recovery/
   original-data readback precede numerical admission and training.
@@ -5556,7 +6102,7 @@ remaining obligations are listed above.
   running container. Exact interrupted E claim recovery again retains the same
   inode/owner in quarantine under both host and guest locks, after proving the old
   whole VM and exact owner container terminated; supervisor and guest return **0**.
-  The [running-node successor](../.build/phase278-currentdc00-running-recovery-a/preparation.json)
+  The running-node successor (`../.build/phase278-currentdc00-running-recovery-a/preparation.json`)
   reuses the current running originals instead of restarting them. Fresh source/
   native preflight and its actual tool preflight **0 / 6.5627 s** pass. Its disk
   admission requires complete/unpacked current images on both nodes, a full
@@ -5568,7 +6114,7 @@ remaining obligations are listed above.
   sample has **56,639,401,984 bytes** guest free, **54.2%** CPU idle, memory-pressure
   indicator **86%** and zero swap. This attempt establishes an observation timeout;
   no CPU/RAM/disk reserve breach is recorded. Readback remains `NotRun`.
-  [Observer recovery](../.build/phase278-currentdc00-observer-recovery-a/observer-preparation.json)
+  Observer recovery (`../.build/phase278-currentdc00-observer-recovery-a/observer-preparation.json`)
   reuses the already validated native CPU-counter observer, overlapping its fresh
   CPU interval with independent checks without changing the common deadline or
   any reserve. Three actual complete quiet cycles return **0**, maximum
@@ -5583,7 +6129,7 @@ remaining obligations are listed above.
   The first four-step native-observer wrapper refuses its binder before child
   launch because a copied task-directory constant still names E. Its **0.5499-s**
   failure and emergency VM stop **0** remain literal. The corrected
-  [successor](../.build/phase278-currentdc00-native-recovery-b/operator-preparation.json)
+  successor (`../.build/phase278-currentdc00-native-recovery-b/operator-preparation.json`)
   derives that directory from its actual script, validates the watcher/binder/
   receipt home before launch and repeats no passed test suite. Fresh pre-start
   admission has **92.29%** CPU idle, memory-pressure indicator **86%**, zero swap;
@@ -5607,7 +6153,7 @@ remaining obligations are listed above.
   coverage remains incomplete. No workload physical-fit or scientific pass follows.
   Fresh production Ready settlement passes **0 / 4.9476 s** over three complete
   observations, minimum idle **75.93%**, memory-pressure indicator **83%**.
-  [Actual both-node admission](../.build/phase278-production-caller-currentdc00-a/actual-both-node-admission-a.json)
+  Actual both-node admission (`../.build/phase278-production-caller-currentdc00-a/actual-both-node-admission-a.json`)
   passes **0 / 1.1864 s**, including assigned terminating/surge Pods and ordinary
   init maxima. Exactly one nonterminal Ready current-image frontend runs on the
   control plane with the intended selector; the unchanged numerical request
@@ -5760,7 +6306,7 @@ remaining obligations are listed above.
   container or build remains; explicit VM stop returns **0**. Full-size memory
   fit, original-data recovery/readback, convergence, full daemon75, current CPU55/
   Apple55 and remaining standing/final gates remain open.
-  [Current continuation](../.build/phase278-ppo-retention-fix-a/resume.json)
+  Current continuation (`../.build/phase278-ppo-retention-fix-a/resume.json`)
   records the active container and result locations. Live validation remains open.
   Current-source recovery subsequently binds the exact completed image, two CPU
   gates, criterion data, native observer and original-data consumer. Its first
@@ -6300,7 +6846,7 @@ remaining obligations are listed above.
   hashes, native **2,237** metadata, criterion identities, canonical-five metadata
   and private trees. Frozen root/resume copies and all **70** bound documents are
   exact before thaw. Guest/DATA-after and complete invocation success remain
-  absent. The [literal terminal summary](../.build/phase278-current4958-full-daemon-i/attempt-summary.json)
+  absent. The literal terminal summary (`../.build/phase278-current4958-full-daemon-i/attempt-summary.json`)
   is authoritative; no failed receipt is adopted. Keep the VM stopped and
   investigate the CPU event before any new attempt. Future full55 preparation
   remains unadmitted; its **28** integrated and **17** diagnostic/identity
@@ -6520,7 +7066,7 @@ remaining obligations are listed above.
   cases, at **3,013,693,440 bytes / 2.81 GiB** peak with zero limit/OOM events,
   zero host swap and no watcher fault. Full **617** source rows, current CLI
   (**237,824,128 bytes / f9419915…**) and actual mounts are verified. The
-  [current engineering checkpoint](../.build/phase278-stateful-pv-fix-20261101-a/focused-f-terminal.json)
+  current engineering checkpoint (`../.build/phase278-stateful-pv-fix-20261101-a/focused-f-terminal.json`)
   retains that scope. The actual current-F stage-one continuation passes
   **0 / 25.11179 s**, at **2,067,865,600 bytes / 1.93 GiB** peak: exact integration
   **1 / 1**, four-file bundle export, current consumer and direct two-argument
@@ -6536,8 +7082,8 @@ remaining obligations are listed above.
   **6 / 6** signal checks under exact component dependencies. The entire public
   chart tar and all **32** rendered documents differ by only the intended
   `BOOKIE_MEM` → `PULSAR_MEM` word. The
-  [V6 engineering result](../.build/phase278-normal-rollout-20261031-a/pulsar-focused-v6/focused-output-v6/focused-summary.json)
-  and [independent comparison](../.build/phase278-normal-rollout-20261031-a/pulsar-focused-v6/independent-compare-a-result.json)
+  V6 engineering result (`../.build/phase278-normal-rollout-20261031-a/pulsar-focused-v6/focused-output-v6/focused-summary.json`)
+  and independent comparison (`../.build/phase278-normal-rollout-20261031-a/pulsar-focused-v6/independent-compare-a-result.json`)
   retain those scopes. The retained canonical Source-F build passes
   **0 / 2,273.20052 s** (**37.89 min**), selecting immutable image **4058012e…**.
   The same Dockerfile reuses all seven toolchain RUNs; source code-quality,
@@ -6558,12 +7104,12 @@ remaining obligations are listed above.
   **cold-pv-20261031-c** and normal fresh-CID filesystem restoration already
   pass. Reuse the same **6dd5… / c1c9…** nodes and completed **78cd…** restore
   marker; do not recapture, recreate or restore them again. The
-  [fresh-restore checkpoint](../.build/phase278-cold-recovery-20261031-a/fresh-restore-summary.json)
+  fresh-restore checkpoint (`../.build/phase278-cold-recovery-20261031-a/fresh-restore-summary.json`)
   is filesystem evidence, not application health. The bounded rollout exits
   **1 / 1,238.89 s** at Pulsar's **900-second** readiness wait. The corrected broker
   init uses its bounded heap, but the running ZooKeeper Pod reads the separate
   host-backed home rather than the populated restored node-local home. The
-  [actual mount inspection](../.build/phase278-normal-rollout-20261031-a/normal-execution-d/zookeeper-live-mount-inspection-c-result.json)
+  actual mount inspection (`../.build/phase278-normal-rollout-20261031-a/normal-execution-d/zookeeper-live-mount-inspection-c-result.json`)
   retains both identities and directory inventories; original metadata remains
   retained. Project storage before node containerd/kubelet startup and verify
   actual consumer-root identity before reuse/convergence. The four generated
@@ -6618,7 +7164,7 @@ remaining obligations are listed above.
   memory availability **97%**, zero host swap and no observer fault. All **617**
   source rows remain equal before/after/at Root; the private CLI is
   **237,824,584 bytes / d937a756…**, and all **14** actual mounts are verified.
-  The [focused G result](../.build/phase278-stateful-pv-fix-20261101-a/focused-g-terminal.json)
+  The focused G result (`../.build/phase278-stateful-pv-fix-20261101-a/focused-g-terminal.json`)
   retains this engineering scope. The G canonical build now passes
   **0 / 2,289.0563 s**, selecting image **29f0d143…**; code-quality, frontend and
   Compose-plugin steps finish, with all seven toolchain RUNs cached. Whole
@@ -6814,7 +7360,7 @@ remaining obligations are listed above.
   OOM/restart observations. Inspect actual public Helm history before any
   conditional pending-install repair. The Service-proxy observer must retain
   unknown or late backlog observations; inherited broker traffic may replay.
-  The [guarded rollout plan](../.build/phase278-normal-rollout-20261031-a/normal-execution-d/plan.json)
+  The guarded rollout plan (`../.build/phase278-normal-rollout-20261031-a/normal-execution-d/plan.json`)
   preserves the required image proofs and ordinary CLI sequence.
 
   **Complete original application-data readback after current-image Ready.**
@@ -6836,7 +7382,7 @@ remaining obligations are listed above.
   **Preserve evidence boundaries and the remaining qualification order.**
   Keep full-unit OOM, failed cache-image/stream preservation, ownership and
   prefix-preparation nonpasses literal in the
-  [local continuation checkpoint](../.build/phase278-current/continuation-checkpoint.json).
+  local continuation checkpoint (`../.build/phase278-current/continuation-checkpoint.json`).
   Earlier source-specific passes remain historical. The focused **37 / 37**
   result does not replace a full-unit result or this phase's unfiltered
   standing gates; the existing full-unit failure remains literal. Refresh required engineering, criterion and
@@ -6883,7 +7429,7 @@ remaining obligations are listed above.
   four missing historical closing operations.
 
   Do not repeat the completed prefix or this standalone child. The subsequent
-  [genuine production-path cohort diagnostic](../.build/phase278-stateful-pv-fix-20261101-a/full5-current-diagnostic-summary-a.json)
+  genuine production-path cohort diagnostic (`../.build/phase278-stateful-pv-fix-20261101-a/full5-current-diagnostic-summary-a.json`)
   completes all five original runs, report refinement, publication and an
   authenticated reread at **0 / 2,847.1074 s**. The production-scenario interval
   is **2,808.0429 s**; authenticated reread takes **25.1319 s**, followed by
@@ -6980,7 +7526,7 @@ remaining obligations are listed above.
   remain unverified.
   Colima is stopped and its automatic startup job is disabled/unloaded. The later
   host panic's initiating cause remains unresolved; retain the measured resource and
-  diagnostic limits in the [local analysis](../.build/phase278-resource-incident-20261030-a/analysis.json).
+  diagnostic limits in the local analysis (`../.build/phase278-resource-incident-20261030-a/analysis.json`).
   The named `jitml` profile is created/verified and stopped (**4 CPUs / 16 GiB**);
   the diagnostic job override enforces **2 CPUs / 6 GiB / zero swap** with the cluster
   stopped. The full-stack candidate uses a separate **4 GiB** client limit. Sourcef138
@@ -7000,8 +7546,8 @@ remaining obligations are listed above.
   Fit the explicit node/pod/client budgets within the named **4-CPU / 16-GiB** VM;
   the old two-node **12-GiB per node** configuration must not be started unchanged.
   Retain the completed 16-update diagnostic and
-  [driver analysis](../.build/phase278-cold-recovery-20261031-a/fresh-restore/bounded-driver-next-analysis.json).
-  The later [admission decision](../.build/phase278-stateful-pv-fix-20261101-a/full55-current-j-next-admission-path-a.json)
+  driver analysis (`../.build/phase278-cold-recovery-20261031-a/fresh-restore/bounded-driver-next-analysis.json`).
+  The later admission decision (`../.build/phase278-stateful-pv-fix-20261101-a/full55-current-j-next-admission-path-a.json`)
   selects one genuinely fresh complete55 attempt after current engineering,
   original-DATA, preservation and operational prerequisites; do not repeat
   standalone training diagnostics solely to investigate memory. The current
@@ -7024,7 +7570,7 @@ remaining obligations are listed above.
   change the SourceStamp; do not treat saved artifacts alone as completed rows. The
   CPU guard also correctly refused a second stop when numerical work was already
   paused: weakening the 30-percent host reserve is not an acceptable retry fix.
-  A subsequent bounded, metadata-only cache inventory ([result](../.build/phase278-bca-postinterrupt-cache-a/result.json))
+  A subsequent bounded, metadata-only cache inventory (result (`../.build/phase278-bca-postinterrupt-cache-a/result.json`))
   verified all four protected volume records and all **115** original cache-user
   records unchanged and inactive. Four additional users of the current-source cache
   are the interrupted run’s preflight, before-frame and CPU caller plus the recovery
@@ -7032,29 +7578,29 @@ remaining obligations are listed above.
   and the explicitly started named VM was stopped. This is cache continuity evidence,
   not a new qualification or authorization to ignore later changes. A separate
   attempt to capture a new 119-user baseline did not complete its startup checks
-  ([result](../.build/phase278-bca-successor-cache-a/result.json)); it started no
+  (result (`../.build/phase278-bca-successor-cache-a/result.json`)); it started no
   nodes or training and stopped the VM. It supplies no successor baseline. A
-  subsequent separately bounded capture ([result](../.build/phase278-bca-successor-cache-b/result.json),
-  [baseline](../.build/phase278-bca-successor-cache-b/cache-baseline.json))
+  subsequent separately bounded capture (result (`../.build/phase278-bca-successor-cache-b/result.json`),
+  baseline (`../.build/phase278-bca-successor-cache-b/cache-baseline.json`))
   succeeded with all **119** expected users inactive and the same four volume
   records; no nodes or training started and the VM was stopped. This is a
   point-in-time baseline, not a substitute for live checks at launch. A separate
-  successor preparation ([result](../.build/phase278-bca-full55-c/binding-preparation-a/result.json))
+  successor preparation (result (`../.build/phase278-bca-full55-c/binding-preparation-a/result.json`))
   now passes static binding against that baseline, after retaining and correcting
   an initial missing baseline-schema flag. Local controls pass for containment
   (48), handoff (37), automatic observer (11), namespace construction (32),
   output interpretation and stream capture. No live binding, guardian admission,
   training or qualification is claimed; the unchanged reserve and fresh readiness
   checks still apply before any real attempt. A fresh local preservation frame
-  ([result](../.build/phase278-bca-full55-c/prelaunch-local-before.json))
+  (result (`../.build/phase278-bca-full55-c/prelaunch-local-before.json`))
   passes and matches the post-interruption frame for approved hashes, canonical
   records, criterion identities, native metadata and all checked private trees;
   it reads no private bodies. The successor subsequently passed retained-cluster
   readiness, live binding, preowner preservation, the guardian probe and final
   launch admission. Its guardian then observed **21.32%** host CPU idle during
   environment preflight, below the unchanged **30%** running reserve, and retired
-  the VM successfully ([supervisor](../.build/phase278-bca-full55-c/runtime/result.json),
-  [guardian](../.build/phase278-bca-full55-c/runtime/guardian-result.json)).
+  the VM successfully (supervisor (`../.build/phase278-bca-full55-c/runtime/result.json`),
+  guardian (`../.build/phase278-bca-full55-c/runtime/guardian-result.json`)).
   Only the environment-preflight container had been permitted; the CPU55 numerical
   acquisition did not start. A post-retirement local frame matches the preowner
   frame for approved hashes, canonical records, criterion identities, native
@@ -7065,8 +7611,8 @@ remaining obligations are listed above.
   interval had **336 unavailable endpoints** and cannot account for the entire
   host-wide idle drop or establish those processes’ ownership; do not attribute
   the whole dip to either source. Available memory was **84%**, with zero swap.
-  A subsequent bounded cache inventory ([result](../.build/phase278-bca-successor-cache-c/result.json),
-  [baseline](../.build/phase278-bca-successor-cache-c/cache-baseline.json))
+  A subsequent bounded cache inventory (result (`../.build/phase278-bca-successor-cache-c/result.json`),
+  baseline (`../.build/phase278-bca-successor-cache-c/cache-baseline.json`))
   found the prior **119** cache-user records unchanged and the single new
   preflight user inactive, for **120** total. No cluster nodes or training
   started during this check; the explicitly started VM was stopped. A further
@@ -7079,7 +7625,7 @@ remaining obligations are listed above.
   existing **70%** initial-idle assertion; no VM, live binding or qualification
   started. A later stopped-host admission passed, but the independent startup
   monitor observed **26.15%** idle during VM startup and successfully stopped
-  the VM ([result](../.build/phase278-bca-full55-d/startup-guard-result.json)).
+  the VM (result (`../.build/phase278-bca-full55-d/startup-guard-result.json`)).
   Cluster startup and training did not begin. The post-stop local frame matches
   the prelaunch frame for approved hashes, records, criterion identities, native
   metadata and private trees. A later 30-sample host-only observation with the
@@ -7089,8 +7635,8 @@ remaining obligations are listed above.
   binding and the **30 consecutive** high-headroom observations, but a later
   preowner frame observed **15.45%** CPU idle and the independent startup guard
   saw **18.11%**, stopped the VM successfully, and admitted no qualification
-  ([guard](../.build/phase278-bca-full55-e/startup-guard-result.json),
-  [preowner](../.build/phase278-bca-full55-e/preowner-baseline-result.json)).
+  (guard (`../.build/phase278-bca-full55-e/startup-guard-result.json`),
+  preowner (`../.build/phase278-bca-full55-e/preowner-baseline-result.json`)).
   Post-stop local approved hashes and checked metadata match the prelaunch frame.
   This demonstrates that even the longer admission window cannot guarantee
   sustained reserve; no scientific run was started.

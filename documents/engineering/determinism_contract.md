@@ -13,8 +13,10 @@
 
 **Refactor boundary.** The campaign/resource contracts below are targets. Current
 implementation does not acquire their safety or qualification authority from
-this documentation change; execution order and pending work live in the
-[validation foundation refactor](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
+this documentation change. The [ordered execution plan](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor)
+resolves current owners and transfers from superseded phase IDs. Historical
+phase references below retain their original scope; they are not an alternate
+execution order or future prerequisites of an earlier phase.
 
 
 **Implemented today.** Supervised served determinism runs through the reloaded
@@ -714,9 +716,11 @@ asserted.
 This within-substrate-only contract is the numerical rationale for the project's
 [Substrate-affinity phasing](../../README.md#substrate-affinity-phasing)
 doctrine: because cross-substrate equivalence is out of contract, no development
-phase gates on two accelerators at once — each accelerator lane's
-within-substrate reproducibility is validated on its own host, and the
-development plan binds this as
+phase requires more than one specific OS/device set alongside Linux CPU. Each
+accelerator lane's within-substrate reproducibility is validated on its own host
+in numerical phase order; later CPU-only aggregation consumes the earlier
+lane evidence. An earlier producer's gate does not depend on a future lane or
+aggregation implementation. The development plan binds this as
 [`DEVELOPMENT_PLAN/development_plan_standards.md` rule M](../../DEVELOPMENT_PLAN/development_plan_standards.md).
 
 ## Same-Substrate Bit-Equality (RL Caveat)

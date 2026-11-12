@@ -17,8 +17,10 @@
 
 **Refactor boundary.** The campaign/resource contracts below are targets. Current
 implementation does not acquire their safety or qualification authority from
-this documentation change; execution order and pending work live in the
-[validation foundation refactor](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
+this documentation change. The [ordered execution plan](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor)
+resolves current owners and transfers from superseded phase IDs. Historical
+phase references below retain their original scope; they are not an alternate
+execution order or future prerequisites of an earlier phase.
 
 
 **Implemented today.** `jitml-sl-canonicals` asserts the current literal trained
@@ -103,9 +105,10 @@ Actual source-bound validation stays in the Development Plan.
 
 **Target; not implemented by this documentation change.**
 [Validation execution](validation_execution.md) owns diagnostic/readiness versus
-qualification authority. Sprint 221.2 first implements the status/dependency
-transition; Sprints 160.2 and 261.2 implement the actual execution and campaign
-boundaries. Current tests still include a shared complete-matrix acquisition;
+qualification authority. [Phase 290](../../DEVELOPMENT_PLAN/phase-290-ordered-plan-and-validation-foundation.md)
+places status/dependency machinery and scoped gates before their first consumer;
+the ordered plan assigns actual execution and campaign boundaries to later
+owners after their prerequisites have closed. Current tests still include a shared complete-matrix acquisition;
 selecting one integration leaf does not establish that only one row ran.
 
 | Evidence | What it establishes | What it cannot establish |
@@ -122,7 +125,10 @@ admission; fix their causes. No known-failure allowlist, weakened assertion or
 unavailable-lane pass is admitted. A selected substrate without its runtime
 fails; cases owned by another explicit lane are registered there rather than
 reported as skipped successes. Hermetic checks precede hardware work; checks
-consuming newly produced lane records follow those actual prerequisites.
+consuming newly produced lane records follow those actual prerequisites. An
+earlier phase closes with the tests and inputs available at its own boundary.
+Later production campaigns and cross-lane consumers are stronger obligations
+of their later owners, and cannot retroactively gate the earlier producer.
 
 Lane-local engineering cases consume their own lane's objects or hermetic
 fixtures. Cross-lane journal/aggregate consumers have explicit CPU aggregation
@@ -130,6 +136,9 @@ ownership and run after all producer lanes; they are not prerequisites for each
 hardware lane's local test command. Classification preserves every assertion and
 requires independently checked inventories rather than skip/allowlist behavior.
 The current registration must be changed before that target separation is claimed.
+The plan orders all producer phases before these consumers; an unavailable
+current hardware lane stops numerical execution at its owner. It does not permit
+later phases to bypass that owner.
 
 The maintained runner's controls include real child-tree ownership, observer
 disconnect/reconnect, safety-owner death, silent/output-heavy children, bounded
@@ -448,8 +457,10 @@ This one-real-lane-per-substrate model is the test-stanza instance of the
 project's [Substrate-affinity phasing](../../README.md#substrate-affinity-phasing)
 doctrine: each accelerator lane is exercised on its own host with no
 cross-substrate cohort. The development plan generalizes it to whole phases —
-each closure phase validates at most one of `{linux-cuda, apple-silicon}` plus
-`linux-cpu`, and cross-lane evidence is aggregated on `linux-cpu` — bound, with
+each closure phase validates Linux CPU and at most one additional specific
+OS/device set, and a later Linux CPU phase aggregates already admitted lane
+evidence. Phase and sprint gates follow numerical order and use no future
+implementation or evidence — bound, with
 deterministic enforcement, by
 [`DEVELOPMENT_PLAN/development_plan_standards.md` rule M](../../DEVELOPMENT_PLAN/development_plan_standards.md).
 Phase order, blockers, and closure status live in the development plan, not here.

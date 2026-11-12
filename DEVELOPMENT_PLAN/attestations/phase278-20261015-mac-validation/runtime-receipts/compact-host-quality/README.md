@@ -8,7 +8,7 @@
 > **Purpose**: Preserve actual strict container quality after the reviewed
 > compact implementation/documentation application, with exact source scope.
 
-The [actual terminal summary](objects/53919df81334af01032db9daa62eb613d2e7d0f0596dd8813c0d7bddf84e8cfb.txt) binds source
+The actual terminal summary (`objects/53919df81334af01032db9daa62eb613d2e7d0f0596dd8813c0d7bddf84e8cfb.txt`) binds source
 `46a79d627c22f73139df44dd5b9bad55610024599c15a26e01ca2f80256019f6`,
 **403** inputs, native `30f87d…` and actual CPU CLI `a4528d…` with exact compiled
 libraries/package. `jitml docs check` passes, actual/orchestration exits **0**,
@@ -39,6 +39,6 @@ transfer or phase closure. The factual receipt/index extension follows the
 frozen quality invocation and is verified separately; earlier checks are never
 relabelled as invocations on later source or full manifests.
 
-[retention-map.json](retention-map.json) maps all selected original paths to exact
+retention-map.json (`retention-map.json`) maps all selected original paths to exact
 SHA/length-preserved text objects or independently verified prior objects.
-[MANIFEST.json](MANIFEST.json) covers this packet; no executable is canonicalized.
+MANIFEST.json (`MANIFEST.json`) covers this packet; no executable is canonicalized.

@@ -32,8 +32,10 @@ browser event cannot independently mint completion or inference eligibility.
 
 **Refactor boundary.** The campaign/resource contracts below are targets. Current
 implementation does not acquire their safety or qualification authority from
-this documentation change; execution order and pending work live in the
-[validation foundation refactor](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
+this documentation change. The [ordered execution plan](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor)
+resolves current owners and transfers from superseded phase IDs. Historical
+phase references below retain their original scope; they are not an alternate
+execution order or future prerequisites of an earlier phase.
 
 
 **Implemented today.** Supervised training, checkpointing, and serving use one
@@ -1298,7 +1300,7 @@ asserted. Numerical values are never committed as fixtures.
 
 The `Some Tuning::{ … }` Dhall constructor matches the worked example in
 [../README.md → Concrete `Some Tuning::{ … }`
-example](../../README.md#concrete-some-tuning--example).
+example](../../README.md#concrete-some-tuning---example).
 
 ## Cross-References
 

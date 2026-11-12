@@ -10,8 +10,8 @@
 
 | Real current-private-CLI invocation | Actual / orchestration exit | Output and elapsed time |
 |---|---:|---|
-| [Docs check](steps/20261015T231139.718537Z-linux-cpu-docs/result.json) | 0 / 0 | `docs check: ok`, 0.352312 s |
-| [Check-code](steps/20261015T231146.910304Z-linux-cpu-check-code/result.json) | 0 / 0 | `check-code: ok`, 148.075926 s |
+| Docs check (`steps/20261015T231139.718537Z-linux-cpu-docs/result.json`) | 0 / 0 | `docs check: ok`, 0.352312 s |
+| Check-code (`steps/20261015T231146.910304Z-linux-cpu-check-code/result.json`) | 0 / 0 | `check-code: ok`, 148.075926 s |
 
 Both stderr streams are empty. Their exact source bindings require the complete
 host and private listed tree to remain unchanged, with no receipt-only exception:
@@ -20,11 +20,11 @@ The code source is `4b5…`, current Linux ELF `064aa7c9…e6640`, and pinned na
 binary `73cd7e15…1ebbb24d`. The helper resolves the actual private build through
 read-only `cabal list-bin`, records its identity, and invokes it directly.
 
-The [independent checks](verification.json), raw command/stdout/stderr/result
-files, before/after bindings, [source manifest](snapshot-manifest.json),
-[state](state-at-passing-checkpoint.json), and
-[helper snapshot](runner-at-quality-checkpoint.py.txt) retain this exact
-checkpoint. The [retention script](retain-passing-quality-checkpoint.py.txt)
+The independent checks (`verification.json`), raw command/stdout/stderr/result
+files, before/after bindings, source manifest (`snapshot-manifest.json`),
+state (`state-at-passing-checkpoint.json`), and
+helper snapshot (`runner-at-quality-checkpoint.py.txt`) retain this exact
+checkpoint. The retention script (`retain-passing-quality-checkpoint.py.txt`)
 checks terminal exits, exact outputs, stream hashes, complete manifest equality,
 and code/native identities. No gate result is synthesized.
 

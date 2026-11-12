@@ -20,7 +20,7 @@ width `256`, vector environments `16`, rollout `512`, minibatch `64`, ten CG
 iterations, damping `0.1`, ten backtracking candidates with coefficient `0.8`,
 ten complete critic passes, critic learning rate `0.001`, and KL bound `0.01`.
 
-The [standalone harness source](trpo-prefix-probe.hs.txt) links against the
+The standalone harness source (`trpo-prefix-probe.hs.txt`) links against the
 existing native library; it edits no production module and publishes no
 checkpoint. Its independent Float32 forward and parameter-gradient operations
 round parameters, inputs and upstream gradients at the device ABI boundary,
@@ -37,18 +37,18 @@ the independent Float32 device. Every batched operation retains its ordinal,
 kind, batch size, parameter/input/upstream/output hashes in both Double and
 Float byte representations, and the shadow comparison. Full-batch records also
 retain parameter, output and upstream values for CG reconstruction. The
-[manifest](manifest.json) identifies all four exact ignored raw traces by path,
+manifest (`manifest.json`) identifies all four exact ignored raw traces by path,
 byte count and SHA-256; their bytes remain under `.build/phase278-mac-validation/`.
 Small summaries, complete returned parameter vectors, raw command receipts and
 the source snapshots are retained here. The receipt runner snapshot is
-[available](run-command.py.txt).
+available (`run-command.py.txt`).
 
-The exact [baseline PpoTrainer source](baseline-PpoTrainer.hs.txt) is recovered
+The exact baseline PpoTrainer source (`baseline-PpoTrainer.hs.txt`) is recovered
 with read-only `git show HEAD:src/JitML/RL/Algorithms/PpoTrainer.hs`.
 Its `89,151` bytes have SHA-256
 `c70c20e38719dfa0d74744c7fe1a46bef5a5eec54ffdcef8056f175897754b7e`,
 which exactly matches the source identity captured before both probes.
-The [recovery record](baseline-source-recovery.json) retains the command and
+The recovery record (`baseline-source-recovery.json`) retains the command and
 comparison. Other consulted production modules are identified by their captured
 hashes; their complete source contents are not retained in this package.
 
@@ -57,8 +57,8 @@ hashes; their complete source contents are not retained in this package.
 | One iteration | `26.802 s` | `12.824 s` | `8,192 / 1,281` each | Exact: `76db3466072914a66a50bd792237b29edfa5b979b8f3f4fc8b94dc5cf1ee4277` |
 | Three iterations | `80.218 s` | `38.086 s` | `24,576 / 3,843` each | Exact: `27ae5e6144725d36e2b5c673b92b997445ad38dc7ea7d515437a0a6a4c493135` |
 
-Both invocations exit `0`. The [one-iteration analysis](one-analysis.json) covers
-`3,110` operations per device; the [three-iteration analysis](three-analysis.json)
+Both invocations exit `0`. The one-iteration analysis (`one-analysis.json`) covers
+`3,110` operations per device; the three-iteration analysis (`three-analysis.json`)
 covers `9,330`. All operation, batch-size, parameter, input and upstream hashes
 agree at every ordinal. All Metal shadow comparisons have zero numerical
 difference. Gradient output bits differ only in the sign of zero in `50` and
@@ -74,7 +74,7 @@ and native executable SHA-256
 `cb1806720ebd99fecf9660732956a9e112c1becc3bb9c19daf207f9ea0ee147a`
 are stable before and after both probes. The diagnostic executable is SHA-256
 `4230c5837589cda7a5a7cd358fd75f0975974aae00fff10cd7d833671052adf2`.
-The [one-iteration](one-summary.json) and [three-iteration](three-summary.json)
+The one-iteration (`one-summary.json`) and three-iteration (`three-summary.json`)
 summaries retain exact UTC intervals, consulted source-file hashes, the real
 Metal witness and the initial parameter identity.
 
@@ -89,7 +89,7 @@ round to identical Float32 bytes, SHA-256
 and produce identical outputs. The returned operator is then damping only:
 the active `W2` component is `1e-9`, whereas scaling the unscaled operator
 predicts `1.2059482224285604e-9` plus nonzero cross-coordinate contributions.
-The exact [minimal measurement](one-fisher-minimal.json) retains both parameter
+The exact minimal measurement (`one-fisher-minimal.json`) retains both parameter
 hash representations, all outputs and the homogeneity discrepancy.
 
 That loss of Float32 perturbation resolution occurs during the actual canonical
@@ -113,7 +113,7 @@ repair candidate. These measurements alone do not attribute the full Metal
 `188` versus retained CPU/CUDA `500` reward difference to that defect.
 
 Exact compile and execution argv, raw stdout/stderr, UTC start/end, actual exit
-codes and stream hashes are under [receipts](receipts/). The two execution
+codes and stream hashes are under receipts (`receipts/`). The two execution
 commands are:
 
 ```bash

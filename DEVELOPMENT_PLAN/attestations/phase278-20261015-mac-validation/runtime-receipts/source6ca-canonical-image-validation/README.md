@@ -3,7 +3,7 @@
 **Status**: Governed validation evidence candidate
 **Supersedes**: N/A
 **Canonical homes**: [Mac validation](../../README.md)
-**Referenced by**: [Runtime receipt index](../manifest.json)
+**Referenced by**: Runtime receipt index (`../manifest.json`)
 **Generated sections**: none
 
 > **Purpose**: Retain the actual canonical universal image build and immutable image-owned coherence within their Source6ca/Gov58 scope.

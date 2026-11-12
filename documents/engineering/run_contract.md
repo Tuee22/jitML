@@ -13,8 +13,10 @@
 
 **Refactor boundary.** The campaign/resource contracts below are targets. Current
 implementation does not acquire their safety or qualification authority from
-this documentation change; execution order and pending work live in the
-[validation foundation refactor](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
+this documentation change. The [ordered execution plan](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor)
+resolves current owners and transfers from superseded phase IDs. Historical
+phase references below retain their original scope; they are not an alternate
+execution order or future prerequisites of an earlier phase.
 
 
 **Implemented today.** Provenance is bound to one self-describing checkpoint
@@ -39,10 +41,15 @@ to that command scope. It cannot recover a qualification campaign from completed
 row files. The rules below describe an unimplemented replacement owned by
 [Sprint 261.2](../../DEVELOPMENT_PLAN/phase-261-contract-driven-live-execution-integration-journal.md).
 
-**Target contract.** A refined immutable campaign manifest binds full source,
-executable/image/toolchain, ordered row contracts, substrate/device, datasets,
-independent criterion identity and execution policy. Diagnostic observations and
-readiness records have a distinct origin and never refine to qualifying evidence.
+**Target contract.** A refined immutable common epoch manifest binds full source,
+predeclared per-lane build recipes/toolchains and executable-seal slots, ordered
+row contracts, required substrate/device configuration, datasets, independent
+criterion identity and execution policy. Each actual executable/image digest is
+bound through its lane's authenticated append-only seal before that lane's first
+qualifying seed; the shared CPU freeze does not claim an unavailable native
+build. Empty, replaced or mismatched seals refuse admission. Diagnostic
+observations and readiness records have a distinct origin and never refine to
+qualifying evidence.
 A completed row capability requires its entire prescribed cohort, authentic
 initial/final observations, counters, fixed served index, physical artifacts,
 Store/replay and required preservation seal. A checkpoint file or child exit is
@@ -77,6 +84,19 @@ Existing journals are versioned evidence, not silently reinterpreted as the new
 protocol. Consumers migrate together under Sprints 260.2, 262.2 and 263.2.
 Operational budgets remain distinct from numerical work quantities and PlanId;
 prospective execution-policy changes still invalidate campaign authority.
+
+All backend and execution implementations, issuer/browser/aggregate consumers,
+closure and status predicates, and report renderers complete their engineering
+controls before one shared source and final criterion freeze. Subsequent lane
+qualification and evidence-acceptance phases execute that source without source
+edits. Each lane builds and seals its actual binary once from that same frozen
+source under the predeclared recipe before scientific work, following
+[lane executable seals](validation_execution.md#lane-executable-seals). A later
+defect reopens the earliest affected engineering owner and
+invalidates the named downstream source-bound receipts; correction and a new
+frozen epoch precede rerunning affected qualification. Earlier results keep
+their original source/scope and cannot be promoted to the corrected candidate.
+See [engineering before shared source freeze](validation_execution.md#engineering-before-shared-source-freeze).
 
 The state machine, owner/observer boundary and failure controls are owned by
 [validation execution](validation_execution.md); host admission and measurement

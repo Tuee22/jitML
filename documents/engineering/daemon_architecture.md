@@ -46,6 +46,15 @@ host execution and Linux RunConfig rendering share one pure `StartRLRun` plan
 adapter whose vector-environment input is explicit, not read from host process
 environment.
 
+## Worker Publication
+
+`WorkerPublication.resolveWorkerLiveContext` uses a mounted service BootConfig
+when present; otherwise it consults the host's cluster-publication file. A
+present but unreadable or invalid source fails instead of falling back to an
+offline or different endpoint. Only absence of both sources permits local-only
+operation. These resolved coordinates identify configured services; they do
+not prove live readiness, source identity or device execution.
+
 ## Service Daemon Model
 
 There is **one CLI verb for the daemon — `jitml service` — parameterised

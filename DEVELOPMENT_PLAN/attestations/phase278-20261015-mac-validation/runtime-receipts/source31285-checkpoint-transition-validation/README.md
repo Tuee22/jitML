@@ -3,7 +3,7 @@
 **Status**: Governed validation evidence candidate
 **Supersedes**: N/A
 **Canonical homes**: [Mac validation](../../README.md)
-**Referenced by**: [Runtime receipt index](../manifest.json)
+**Referenced by**: Runtime receipt index (`../manifest.json`)
 **Generated sections**: none
 
 > **Purpose**: Retain accepted historical CPU setup and datasets, both genuine ARS failures, the canonical metric-order diagnosis and actual three-file source application without claiming new-source validation.

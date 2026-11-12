@@ -3,6 +3,10 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
+-- The unit entry point collects thousands of tests; compiling this harness at
+-- the library's aggressive optimisation level exceeds the bounded GHC heap.
+-- Product library modules retain their own optimisation flags.
+{-# OPTIONS_GHC -O1 -fno-specialise-aggressively -fno-expose-all-unfoldings #-}
 
 module Main where
 
@@ -4298,6 +4302,104 @@ unitTestMain =
                 ]
             )
             @?= []
+      , testCase "canonical owner registry detects missing and conflicting owners" $
+          withSystemTempDirectory "jitml-canonical-owner" $ \root -> do
+            Text.IO.writeFile (root </> "owner.md") "**Status**: Authoritative source\n"
+            Text.IO.writeFile (root </> "other.md") "**Status**: Authoritative source\n"
+            Text.IO.writeFile (root </> "draft.md") "**Status**: Draft\n"
+            let check = DocsCheck.checkCanonicalOwners root ["resource"]
+            check [("resource", "owner.md")] >>= (@?= [])
+            missing <- check []
+            fmap DocsCheck.driftReason missing @?= ["contract has no registered owner"]
+            duplicate <- check [("resource", "owner.md"), ("resource", "other.md")]
+            fmap DocsCheck.driftReason duplicate @?= ["contract has multiple registered owners"]
+            absent <- check [("resource", "absent.md")]
+            fmap DocsCheck.driftReason absent @?= ["registered canonical owner cannot be read"]
+            draft <- check [("resource", "draft.md")]
+            fmap DocsCheck.driftReason draft @?= ["registered canonical owner is not an authoritative source"]
+            unexpected <- check [("resource", "owner.md"), ("other", "other.md")]
+            fmap DocsCheck.driftReason unexpected @?= ["contract is not in the required inventory"]
+      , testCase "canonical owner declarations expose conflicting claims" $ do
+          let owners = [("resource", "owner.md")]
+              owner = "**Canonical contracts**: resource\n> **Purpose**: owner\n"
+              other = "**Canonical contracts**: resource\n> **Purpose**: other\n"
+              check = DocsCheck.checkCanonicalDeclarations owners
+          check [("owner.md", owner), ("other.md", "> **Purpose**: other\n" <> other)] @?= []
+          fmap DocsCheck.driftReason (check [("owner.md", owner), ("other.md", other)])
+            @?= ["canonical contract is claimed outside its registered owner"]
+          fmap DocsCheck.driftReason (check [("owner.md", "> **Purpose**: owner\n")])
+            @?= ["registered canonical owner does not declare its contract"]
+          fmap DocsCheck.driftReason (check [("owner.md", "**Canonical contracts**: resource, resource\n")])
+            @?= ["canonical contract is declared more than once"]
+          fmap DocsCheck.driftReason (check [("owner.md", "**Canonical contracts**: resource, unknown\n")])
+            @?= ["canonical contract is claimed outside its registered owner"]
+      , testCase "execution target boundary requires labeled summary and owning phase" $ do
+          let document summary targetLine =
+                Text.unlines
+                  [ "# Contract"
+                  , "## TL;DR"
+                  , summary
+                  , "## Current Status"
+                  , "**Implemented boundary.** Existing scoped guard."
+                  , ""
+                  , targetLine
+                  , "## History"
+                  , "```markdown"
+                  , "## TL;DR"
+                  , "An intentional historical example."
+                  , "```"
+                  ]
+              check = DocsCheck.checkExecutionTargetBoundary "fixture.md"
+              target = "**Target.** Owned by [Phase 29](../DEVELOPMENT_PLAN/phase-29-resources.md)."
+          check (document "**Target.** Unified admission." target) @?= []
+          fmap DocsCheck.driftKey (check (document "Unified admission." target))
+            @?= ["target-boundary.summary"]
+          fmap DocsCheck.driftKey (check (document "**Target.** Unified admission." "**Target.** No owner."))
+            @?= ["target-boundary.owner"]
+          fmap DocsCheck.driftKey (check (document "**Target.** Unified admission." "Already implemented."))
+            @?= ["target-boundary.target"]
+          fmap
+            DocsCheck.driftKey
+            (check (document "**Target.** Unified admission." ("```markdown\n" <> target <> "\n```")))
+            @?= ["target-boundary.target"]
+          fmap
+            DocsCheck.driftKey
+            ( check
+                ( document
+                    "**Target.** Unified admission."
+                    "`**Target.**` [Phase 29](../DEVELOPMENT_PLAN/phase-29-resources.md)"
+                )
+            )
+            @?= ["target-boundary.target"]
+          fmap
+            DocsCheck.driftKey
+            ( check
+                ( document
+                    "**Target.** Unified admission."
+                    "**Target.** No owner.\n\n[Phase 29](../DEVELOPMENT_PLAN/phase-29-resources.md)"
+                )
+            )
+            @?= ["target-boundary.owner"]
+      , testCase "execution boundary registration does not apply to documentation standards" $ do
+          DocsCheck.checkRegisteredTargetBoundary ("documents/documentation_standards.md", "# Standards\n")
+            @?= []
+          DocsCheck.checkRegisteredTargetBoundary
+            ("DEVELOPMENT_PLAN/development_plan_standards.md", "# Plan standards\n")
+            @?= []
+          traverse_
+            (\path -> DocsCheck.checkRegisteredTargetBoundary (path, "# Topic\n") @?= [])
+            [ "documents/engineering/durable_state_dsl.md"
+            , "documents/engineering/checkpoint_format.md"
+            , "documents/engineering/product_completion_contract.md"
+            , "documents/engineering/training_metrics_and_splits.md"
+            ]
+          assertBool "execution owner still receives its boundary checks" $
+            not
+              ( null
+                  ( DocsCheck.checkRegisteredTargetBoundary
+                      ("documents/engineering/execution_resources.md", "# Resources\n")
+                  )
+              )
       , testCase "docs metadata check rejects missing required headers" $ do
           let drifts =
                 DocsCheck.checkDocumentMetadataText
@@ -4311,6 +4413,48 @@ unitTestMain =
                   )
           fmap DocsCheck.driftKey drifts
             @?= ["metadata.supersedes", "metadata.referenced-by", "metadata.purpose"]
+      , testCase "docs metadata ignores fenced and nested example headers" $ do
+          let example =
+                Text.unlines
+                  [ "# Docs"
+                  , "```markdown"
+                  , "**Status**: Authoritative source"
+                  , "**Supersedes**: N/A"
+                  , "**Referenced by**: README.md"
+                  , "**Generated sections**: none"
+                  , "> **Purpose**: example"
+                  , "```"
+                  , "> **Status**: Authoritative source"
+                  ]
+          fmap DocsCheck.driftKey (DocsCheck.checkDocumentMetadataText "docs.md" example)
+            @?= [ "metadata.status"
+                , "metadata.supersedes"
+                , "metadata.referenced-by"
+                , "metadata.generated-sections"
+                , "metadata.purpose"
+                ]
+          let owners = [("resource", "owner.md")]
+              fenced = "```markdown\n**Canonical contracts**: resource\n```\n"
+          fmap DocsCheck.driftReason (DocsCheck.checkCanonicalDeclarations owners [("owner.md", fenced)])
+            @?= ["registered canonical owner does not declare its contract"]
+      , testCase "docs metadata rejects empty and duplicate required fields" $ do
+          let document status purpose =
+                Text.unlines
+                  [ "# Docs"
+                  , status
+                  , "**Supersedes**: N/A"
+                  , "**Referenced by**: README.md"
+                  , "**Generated sections**: none"
+                  , purpose
+                  ]
+              check = DocsCheck.checkDocumentMetadataText "docs.md"
+          fmap DocsCheck.driftKey (check (document "**Status**:" "> **Purpose**:"))
+            @?= ["metadata.status", "metadata.purpose"]
+          fmap
+            DocsCheck.driftKey
+            (check (document "**Status**: Draft\n**Status**: Authoritative source" "> **Purpose**: Test."))
+            @?= ["metadata.status"]
+          check (document " **Status**: Authoritative source" "> **Purpose**: Test.") @?= []
       , testCase "docs metadata check reconciles generated-section markers" $ do
           let good =
                 DocsCheck.checkDocumentMetadataText
@@ -4353,6 +4497,127 @@ unitTestMain =
             @?= [ "metadata.generated-sections.cluster.routes"
                 , "metadata.generated-sections.cluster.routes"
                 ]
+      , testCase "docs metadata rejects duplicate and reversed generated markers" $ do
+          let header =
+                Text.unlines
+                  [ "# Cluster"
+                  , "**Status**: Authoritative source"
+                  , "**Supersedes**: N/A"
+                  , "**Referenced by**: README.md"
+                  , "**Generated sections**: cluster.routes"
+                  , ""
+                  , "> **Purpose**: Test document."
+                  , ""
+                  ]
+              start = "<!-- jitml:cluster.routes:start -->\n\n"
+              end = "<!-- jitml:cluster.routes:end -->\n\n"
+              reasons markers =
+                DocsCheck.driftReason
+                  <$> DocsCheck.checkDocumentMetadataText "documents/engineering/cluster_topology.md" (header <> markers)
+          assertBool "duplicate start is rejected" $
+            "generated-section start marker appears more than once" `elem` reasons (start <> start <> end)
+          assertBool "duplicate end is rejected" $
+            "generated-section end marker appears more than once" `elem` reasons (start <> end <> end)
+          assertBool "reversed markers are rejected" $
+            "generated-section end marker precedes its start marker" `elem` reasons (end <> start)
+      , testCase "docs metadata check ignores generated markers inside Markdown examples" $ do
+          let document =
+                Text.unlines
+                  [ "# Docs"
+                  , "**Status**: Authoritative source"
+                  , "**Supersedes**: N/A"
+                  , "**Referenced by**: README.md"
+                  , "**Generated sections**: none"
+                  , "> **Purpose**: Test document."
+                  , ""
+                  , "````markdown"
+                  , "~~~"
+                  , "<!-- jitml:example:start -->"
+                  , "<!-- jitml:example:end -->"
+                  , "```"
+                  , "<!-- jitml:also-example:start -->"
+                  , "<!-- jitml:also-example:end -->"
+                  , "````"
+                  ]
+          DocsCheck.checkDocumentMetadataText "docs.md" document @?= []
+          let outside = document <> "\n<!-- jitml:unowned:start -->\n<!-- jitml:unowned:end -->\n"
+          fmap DocsCheck.driftKey (DocsCheck.checkDocumentMetadataText "docs.md" outside)
+            @?= ["metadata.generated-sections.unowned"]
+      , testCase "generated sections reject repeated markers before replacement" $ do
+          let rule = GeneratedSectionRule "fixture" "fixture.md" "rendered"
+              start = "<!-- jitml:" <> ruleKey rule <> ":start -->"
+              end = "<!-- jitml:" <> ruleKey rule <> ":end -->"
+              document = Text.unlines
+          DocsCheck.replaceGeneratedSection rule (document [start, "old", end, start, "other", end])
+            @?= Left "start marker appears more than once"
+          DocsCheck.replaceGeneratedSection rule (document [start, "old", end, end])
+            @?= Left "end marker appears more than once"
+          case DocsCheck.replaceGeneratedSection rule (document [start, "old", end]) of
+            Right _ -> pure ()
+            Left reason -> assertFailure (Text.unpack reason)
+      , testCase "generated sections reject nested and crossing regions" $ do
+          let rule = GeneratedSectionRule "fixture" "fixture.md" "rendered"
+              start = "<!-- jitml:fixture:start -->"
+              end = "<!-- jitml:fixture:end -->"
+              otherStart = "<!-- jitml:other:start -->"
+              otherEnd = "<!-- jitml:other:end -->"
+              nested = Text.unlines [start, "outer", otherStart, "inner", otherEnd, "outer", end]
+              crossing = Text.unlines [start, "outer", otherStart, "inner", end, "other", otherEnd]
+              separate = Text.unlines [start, "old", end, "", otherStart, "other", otherEnd]
+          DocsCheck.replaceGeneratedSection rule nested @?= Left "generated sections overlap"
+          DocsCheck.replaceGeneratedSection rule crossing @?= Left "generated sections overlap"
+          DocsCheck.replaceGeneratedSection rule (Text.unlines [start, "old", otherStart, end])
+            @?= Left "another generated section has invalid markers"
+          DocsCheck.replaceGeneratedSection rule (Text.unlines [otherEnd, start, "old", end, otherStart])
+            @?= Left "another generated section has invalid markers"
+          DocsCheck.replaceGeneratedSection
+            rule
+            (Text.unlines [otherStart, start, "old", end, otherStart, otherEnd])
+            @?= Left "another generated section has invalid markers"
+          DocsCheck.replaceGeneratedSection rule separate
+            @?= Right (Text.unlines [start, "rendered", end, "", otherStart, "other", otherEnd])
+          let metadata =
+                Text.unlines
+                  [ "# Docs"
+                  , "**Status**: Authoritative source"
+                  , "**Supersedes**: N/A"
+                  , "**Referenced by**: README.md"
+                  , "**Generated sections**: fixture, other"
+                  , "> **Purpose**: Test document."
+                  , ""
+                  ]
+              reasons body = fmap DocsCheck.driftReason (DocsCheck.checkDocumentMetadataText "docs.md" (metadata <> body))
+          assertBool "nested regions are rejected by the metadata gate" $
+            "generated section overlaps other" `elem` reasons nested
+          assertBool "crossing regions are rejected by the metadata gate" $
+            "generated section overlaps other" `elem` reasons crossing
+      , testCase "pinned generated source rejects missing and altered bytes" $
+          withSystemTempDirectory "jitml-generated-source" $ \root -> do
+            let expected = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+                check = DocsCheck.checkPinnedGeneratedSource root "table.hs" expected
+            missing <- check
+            fmap DocsCheck.driftReason missing @?= ["generated source cannot be read"]
+            writeFile (root </> "table.hs") "abc"
+            check >>= (@?= [])
+            writeFile (root </> "table.hs") "abd"
+            changed <- check
+            fmap DocsCheck.driftReason changed @?= ["generated source differs from its pinned digest"]
+      , testCase "generated sections do not replace fenced examples" $ do
+          let rule = GeneratedSectionRule "fixture" "fixture.md" "rendered"
+              start = "<!-- jitml:fixture:start -->"
+              end = "<!-- jitml:fixture:end -->"
+          DocsCheck.replaceGeneratedSection rule (Text.unlines ["````", "~~~", start, "example", end, "````"])
+            @?= Left "start marker is missing outside Markdown examples"
+          DocsCheck.replaceGeneratedSection rule (Text.unlines [start, "old", "```", end, "```"])
+            @?= Left "end marker is missing outside Markdown examples"
+          DocsCheck.replaceGeneratedSection
+            rule
+            (Text.unlines ["```", start, "example", end, "```", "> " <> start, "> " <> end])
+            @?= Left "start marker is missing outside Markdown examples"
+          DocsCheck.replaceGeneratedSection
+            rule
+            (Text.unlines ["```", start, "example", end, "```", "", start, "old", end])
+            @?= Right (Text.unlines ["```", start, "example", end, "```", "", start, "rendered", end])
       , testCase "phase link scan reads markdown link destinations only" $ do
           -- A renumber rewrites prose and moves files; a citation it misses stays
           -- valid markdown pointing at nothing, which metadata validation cannot
@@ -4378,6 +4643,178 @@ unitTestMain =
                 ]
             )
             @?= []
+      , testCase "phase link scan ignores fenced examples" $ do
+          DocsCheck.phaseLinkTargets
+            ( Text.unlines
+                [ "[real](phase-1-real.md)"
+                , "````markdown"
+                , "[example](phase-2-example.md)"
+                , "```"
+                , "[still fenced](phase-3-example.md)"
+                , "````"
+                , "~~~"
+                , "[other example](phase-4-example.md)"
+                , "~~~"
+                , "    ```"
+                , "[not fenced](phase-6-real.md)"
+                , "```bad`info"
+                , "[also not fenced](phase-7-real.md)"
+                , "[later](phase-5-real.md)"
+                ]
+            )
+            @?= ["phase-1-real.md", "phase-5-real.md", "phase-6-real.md", "phase-7-real.md"]
+      , testCase "phase link scan parses references tables and inline code" $ do
+          DocsCheck.phaseLinkTargets
+            ( Text.unlines
+                [ "`[example](phase-8-example.md)` [real](phase-9-real.md)"
+                , "[referenced][phase-ref] and [with `code`](phase-10-real.md#heading)"
+                , ""
+                , "[phase-ref]: phase-11-real.md \"title\""
+                , ""
+                , "| Phase |"
+                , "| --- |"
+                , "| [table](phase-12-real.md) |"
+                , ""
+                , "\\` [literal](phase-13-real.md)"
+                ]
+            )
+            @?= ["phase-10-real.md", "phase-11-real.md", "phase-12-real.md", "phase-13-real.md", "phase-9-real.md"]
+      , testCase "relative documentation links resolve files directories and encoded names" $
+          withSystemTempDirectory "jitml-local-links" $ \root -> do
+            let docs = root </> "docs"
+            createDirectoryIfMissing True (docs </> "assets")
+            writeFile (docs </> "file with spaces.md") "content"
+            writeFile (docs </> "assets" </> "image.png") "image"
+            drifts <-
+              DocsCheck.checkLocalLinkTargets
+                root
+                "docs/source.md"
+                ( Text.unlines
+                    [ "[file](file%20with%20spaces.md#heading)"
+                    , "[directory](assets/) and ![image](assets/image.png)"
+                    , "[missing](missing.md) and [missing image](assets/missing.png)"
+                    , "[remote](https://example.com/missing.md) [anchor](#local)"
+                    , "[absolute web path](/not-a-relative-file)"
+                    , "`[example](not-a-link.md)`"
+                    , "[reference][missing-ref]"
+                    , ""
+                    , "[missing-ref]: another-missing.md"
+                    ]
+                )
+            fmap DocsCheck.driftKey drifts
+              @?= ["local-link.another-missing.md", "local-link.assets/missing.png", "local-link.missing.md"]
+      , testCase "relative documentation links reject malformed percent escapes" $
+          withSystemTempDirectory "jitml-local-links" $ \root -> do
+            drifts <- DocsCheck.checkLocalLinkTargets root "source.md" "[bad](bad%zz.md)"
+            fmap DocsCheck.driftKey drifts @?= ["local-link.bad%zz.md"]
+            assertBool "malformed percent escape is explained" $
+              any (Text.isInfixOf "invalid percent escape" . DocsCheck.driftReason) drifts
+      , testCase "documentation anchors resolve headings duplicates and explicit HTML" $
+          withSystemTempDirectory "jitml-local-anchors" $ \root -> do
+            createDirectoryIfMissing True (root </> "docs")
+            Text.IO.writeFile
+              (root </> "docs" </> "target.md")
+              (Text.unlines ["# Intro", "## Repeated", "## Repeated", "<a id=\"manual-anchor\"></a>"])
+            let source =
+                  Text.unlines
+                    [ "# Own Heading"
+                    , "[same](#own-heading) [first](target.md#intro)"
+                    , "[duplicate](target.md#repeated-1) [explicit](target.md#manual-anchor)"
+                    , "<a href=\"target.md#intro\">raw HTML link</a>"
+                    , "[missing](target.md#not-present)"
+                    ]
+            Text.IO.writeFile (root </> "docs" </> "source.md") source
+            drifts <- DocsCheck.checkLocalLinkAnchors root "docs/source.md" source
+            fmap DocsCheck.driftKey drifts @?= ["local-anchor.target.md#not-present"]
+      , testCase "documentation anchors resolve Unicode and contextual casing" $
+          withSystemTempDirectory "jitml-local-anchors" $ \root -> do
+            Text.IO.writeFile (root </> "target.md") "# Café\n# 東京\n# ΟΣ\n"
+            drifts <-
+              DocsCheck.checkLocalLinkAnchors
+                root
+                "source.md"
+                "[accent](target.md#café) [CJK](target.md#東京) [sigma](target.md#ος)"
+            drifts @?= []
+            DocsCheck.githubHeadingSlug "ΟΣΑ" @?= Right "οσα"
+            DocsCheck.githubHeadingSlug "AΣʰ" @?= Right "aςʰ"
+            DocsCheck.githubHeadingSlug "ʰΣ" @?= Right "ʰσ"
+            DocsCheck.githubHeadingSlug "İ" @?= Right "i\x0307"
+      , testCase "documentation anchors resolve HTML and SVG IDs" $
+          withSystemTempDirectory "jitml-local-anchors" $ \root -> do
+            Text.IO.writeFile (root </> "diagram.svg") "<svg><g id=\"shape\"></g></svg>"
+            Text.IO.writeFile (root </> "page.HTML") "<h2 id=\"section\">Section</h2><a name=\"legacy\"></a>"
+            Text.IO.writeFile (root </> "opaque.pdf") "opaque"
+            drifts <-
+              DocsCheck.checkLocalLinkAnchors
+                root
+                "source.md"
+                ( Text.unlines
+                    [ "[svg](diagram.svg#shape) [html](page.HTML#section) [legacy](page.HTML#legacy)"
+                    , "[missing](diagram.svg#missing) [unsupported](opaque.pdf#section)"
+                    ]
+                )
+            fmap DocsCheck.driftKey drifts
+              @?= ["local-anchor.diagram.svg#missing", "local-anchor.opaque.pdf#section"]
+      , testCase "documentation anchor batches observe shared targets and later changes" $
+          withSystemTempDirectory "jitml-local-anchors" $ \root -> do
+            let target = root </> "target.md"
+                sources =
+                  [ ("one.md", "[present](target.md#first)")
+                  , ("two.md", "[absent](target.md#second)")
+                  ]
+            Text.IO.writeFile target "# First\n"
+            first <- DocsCheck.checkLocalLinkAnchorsBatch root sources
+            fmap DocsCheck.driftKey first @?= ["local-anchor.target.md#second"]
+            Text.IO.writeFile target "# Second\n"
+            second <- DocsCheck.checkLocalLinkAnchorsBatch root sources
+            fmap DocsCheck.driftKey second @?= ["local-anchor.target.md#first"]
+      , testCase "relative documentation links include raw HTML destinations" $
+          withSystemTempDirectory "jitml-local-links" $ \root -> do
+            drifts <-
+              DocsCheck.checkLocalLinkTargets
+                root
+                "source.md"
+                ( Text.unlines
+                    [ "<a href=\"missing.md\">link</a><img src=\"missing.png\">"
+                    , "<video src=\"missing.mp4\" poster=\"missing-poster.png\"></video>"
+                    , "<SOURCE SRC=\"missing.webm\"><object data=\"missing.pdf\"></object>"
+                    , "<script src=\"https://example.com/remote.js\"></script>"
+                    , "<form action=\"relative-application-route\"></form>"
+                    , ""
+                    , "```html"
+                    , "<video src=\"example-only.mp4\"></video>"
+                    , "```"
+                    ]
+                )
+            fmap DocsCheck.driftKey drifts
+              @?= [ "local-link.missing-poster.png"
+                  , "local-link.missing.md"
+                  , "local-link.missing.mp4"
+                  , "local-link.missing.pdf"
+                  , "local-link.missing.png"
+                  , "local-link.missing.webm"
+                  ]
+      , testCase "relative documentation links parse srcset URL candidates" $
+          withSystemTempDirectory "jitml-local-links" $ \root -> do
+            writeFile (root </> "valid.png") "image"
+            drifts <-
+              DocsCheck.checkLocalLinkTargets
+                root
+                "source.md"
+                ( Text.unlines
+                    [ "<img srcset=\"data:image/svg+xml,%3Csvg%3E 1x, valid.png 2x, missing1.png 3x\">"
+                    , "<source srcset=\"missing2.png, missing3.png 2x\">"
+                    , "<link imagesrcset=\"missing4.png 1x, https://example.com/remote.png 2x\">"
+                    , "<img srcset=\"missing5.png invalid(descriptor,with-comma), valid.png 2x\">"
+                    ]
+                )
+            fmap DocsCheck.driftKey drifts
+              @?= [ "local-link.missing1.png"
+                  , "local-link.missing2.png"
+                  , "local-link.missing3.png"
+                  , "local-link.missing4.png"
+                  , "local-link.missing5.png"
+                  ]
       , testCase "docs root metadata check accepts complete root-doc headers" $ do
           DocsCheck.checkRootDocMetadataText
             "README.md"

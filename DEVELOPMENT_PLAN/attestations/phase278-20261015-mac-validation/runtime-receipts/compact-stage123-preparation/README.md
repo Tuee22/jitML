@@ -9,7 +9,7 @@
 > compact qualification policy, child plans and trainer-owned initial snapshots.
 
 The private source is `25d30f5fc4b609612abb29c477f399e76f5c8c1a89903e612bfbb9ae1d1436ef`,
-395 inputs. The [exact twenty-two files](raw/final22-files.json) are an ignored
+395 inputs. The exact twenty-two files (`raw/final22-files.json`) are an ignored
 candidate. Live source remains `9142…`; native `4fce…` and canonical negative
 record `ff50…` remain unchanged. No host application, unfiltered standing gate,
 canonical promotion, model training or phase closure is claimed.
@@ -32,12 +32,12 @@ On those same source and ELF hashes, scoped direct-ELF diagnostics pass
 The latter includes the registration guards over all seventeen local families.
 These explicit preparatory filters do not substitute for a standing gate.
 Actual child argv, executable, environment, output streams and exits are bound
-in the [execution receipt](raw/compile-test-binding.json).
+in the execution receipt (`raw/compile-test-binding.json`).
 
-The [original packet description](raw/README.md.txt), [original manifest](raw/MANIFEST.json)
-and [retention map](retention-map.json) retain all 1,005 source-packet files
+The original packet description (`raw/README.md.txt`), original manifest (`raw/MANIFEST.json`)
+and retention map (`retention-map.json`) retain all 1,005 source-packet files
 unchanged; raw code and Markdown gain only a `.txt` filename suffix. The
-[runtime manifest](../manifest.json) indexes those copies and the map.
+runtime manifest (`../manifest.json`) indexes those copies and the map.
 Later qualification-artifact, publisher, authentication, loader and early-width
 refinement work remains outside this checkpoint. Their combined validation and
 all five actual bounded training runs remain open.

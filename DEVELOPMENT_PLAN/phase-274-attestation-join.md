@@ -7,6 +7,24 @@
 
 > **Purpose**: Attestation Join. Originally migrated from legacy Sprint 31.1 in the 2026-07-24 phase renumber; see the old→new map in [README.md](README.md).
 
+## Current execution ownership
+
+**Historical record; no current execution gate.** Phases 1–289 retain their
+original contracts, statuses and receipts below. Their former order, dependencies
+and current-sounding statements are historical. They do not gate the new
+[numerical execution sequence](ordered-execution-plan.md). No historical failure
+is erased and no historical Done is promoted to current qualification.
+
+Unfinished scope is **transferred, not completed**:
+
+- Former sprint `274.2` → [313](phase-313-aggregate-reader-machinery.md), [325](phase-325-real-lane-join.md).
+
+The [transfer register](ordered-plan-transfers.md) assigns implementation and
+real-input acceptance separately. The complete retained contract is inherited;
+examples or wrappers do not replace its detailed unmet requirements.
+
+## Historical plan and evidence
+
 ## Phase State
 
 ⏸️ **Blocked** on the expanded campaign obligations below. Historical closure

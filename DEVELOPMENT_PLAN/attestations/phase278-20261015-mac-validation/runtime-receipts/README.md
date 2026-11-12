@@ -131,14 +131,14 @@ The [historical 4b5 checkpoint](linux-cpu-final-format/README.md) retains its
 and older `ca66…` bytes remain preserved; all invocations below retain their
 original source stamps and outcomes.
 
-[manifest.json](manifest.json) indexes completed local-runner invocations,
+manifest.json (`manifest.json`) indexes completed local-runner invocations,
 thirty completed baseline CPU-helper invocations, and exact SHA-256/byte counts
 for the retained artifacts. The separate [TRPO identity diagnostic](trpo-recipe-identity/README.md)
 adds pure pre-/post-token projection captures; it does not run a hardware lane. Each invocation retains its original
 `command.json`, `result.json`, `stdout.log`, and `stderr.log` unchanged, including
 original absolute capture paths. Output hashes were checked against the actual
 capture result before copying and checked again against the retained copies.
-The [runner snapshot](run-command.py.txt) preserves capture and signal forwarding.
+The runner snapshot (`run-command.py.txt`) preserves capture and signal forwarding.
 The receipt runners do not synthesize jitML GateTranscripts or lane journals.
 Genuine records written by jitML itself are identified separately below.
 
@@ -182,27 +182,27 @@ cause of the canonical misses. No publication or eligibility evidence is made.
 
 | Invocation | Exit | Actual scope and result |
 |---|---:|---|
-| [Initial native build](20261015T200012.739448Z-native-build/result.json) | 1 | Failed build retained alongside the correction |
-| [Corrected native build](20261015T200911.292275Z-native-build-corrected/result.json) | 0 | Native executable build completes |
-| [Metal bridge install and probe](20261015T201312.727376Z-install-metal-bridge/result.json) | 0 | Fixed bridge installs; `metal_bridge_probe: ok` |
-| [Full Apple unit invocation](20261015T201340.884973Z-apple-unit-full/result.json) | 1 | 1,525 / 1,545 pass; eighteen journal-dependent failures and two documentation-test failures |
-| [Derived status diagnostic](20261015T201610.143028Z-mac-derived-status/result.json) | 0 | Prints the evidence-derived status and unmet obligations; does not close them |
-| [Filtered Tiny archive fixtures](20261015T202131.003889Z-apple-tiny-archive-tests/result.json) | 0 | 5 / 5 pass, 0.51 s test body; no full SL-canonical or training claim |
-| [Corrected status-header check](20261015T202307.887710Z-apple-plan-status-controls/result.json) | 0 | 1 / 1 pass, 0.09 s test body |
-| [Corrected phase-structure check](20261015T202316.700824Z-apple-plan-structure-controls/result.json) | 0 | 1 / 1 pass, 0.08 s test body |
-| [Full Apple backend lane](20261015T202549.773005Z-apple-backends-full/result.json) | 0 | 25 / 25 pass, 61.94 s test body; 92.597160 s orchestrated Cabal invocation |
-| [Filtered canonical architecture fixture](20261015T202747.346128Z-apple-canonical-architecture-smoke/result.json) | 0 | 1 / 1 passes, 4.37 s test body; all eleven compact graphs on a 4 × 4 fixture through Metal, without full-resolution/convergence claims |
-| [Deterministic plan scans](20261015T202627.312252Z-standards-plan-scan/result.json) | 0 | 290 phase files; zero backward edges, dual-accelerator gates, aggregation accelerator reruns, missing product validation sections, or missing changed-document link targets |
-| [Plan scans after backend/fixture receipt links](20261015T202942.299826Z-standards-plan-scan-backends/result.json) | 0 | Same zero-count checks; Closure Status 58 / 60 lines |
-| [Plan scans after CPU/RL updates](20261015T212436.511467Z-standards-plan-scan-cpu-rl/result.json) | 0 | Same zero-count checks across 290 phases and current local links; Closure Status 59 / 60 lines |
-| [Plan scans after Fisher documentation](20261015T213346.348915Z-standards-plan-scan-fisher-final/result.json) | 0 | Zero structural/link issues; historical body-only count 60 (actual production count 62), corrected below |
-| [Production-equivalent count correction](20261015T215230.902113Z-standards-plan-scan-production-count/result.json) | 0 | Zero structural/link issues across 290 phases; actual Closure Status 59 / 60 including heading/trailing blank |
-| [Current fb45 checkpoint scan](20261015T222039.249817Z-standards-plan-scan-fb45-final/result.json) | 0 | Zero structural/link issues across 290 phases after current CPU records and parent docs; actual Closure Status 59 / 60 |
-| [Final 4b5 evidence scan](20261015T231009.217463Z-standards-plan-scan-4b5-final-evidence/result.json) | 0 | Zero structural/link issues across 290 phases after final gate records, full-run failures, and bounded diagnostic; actual Closure Status 59 / 60 |
-| [Passing-quality status scan](20261015T231640.134871Z-standards-plan-scan-passing-quality-status/result.json) | 0 | Zero structural/link issues across 290 phases after authentic quality pass/status update; actual Closure Status 59 / 60 |
+| Initial native build (`20261015T200012.739448Z-native-build/result.json`) | 1 | Failed build retained alongside the correction |
+| Corrected native build (`20261015T200911.292275Z-native-build-corrected/result.json`) | 0 | Native executable build completes |
+| Metal bridge install and probe (`20261015T201312.727376Z-install-metal-bridge/result.json`) | 0 | Fixed bridge installs; `metal_bridge_probe: ok` |
+| Full Apple unit invocation (`20261015T201340.884973Z-apple-unit-full/result.json`) | 1 | 1,525 / 1,545 pass; eighteen journal-dependent failures and two documentation-test failures |
+| Derived status diagnostic (`20261015T201610.143028Z-mac-derived-status/result.json`) | 0 | Prints the evidence-derived status and unmet obligations; does not close them |
+| Filtered Tiny archive fixtures (`20261015T202131.003889Z-apple-tiny-archive-tests/result.json`) | 0 | 5 / 5 pass, 0.51 s test body; no full SL-canonical or training claim |
+| Corrected status-header check (`20261015T202307.887710Z-apple-plan-status-controls/result.json`) | 0 | 1 / 1 pass, 0.09 s test body |
+| Corrected phase-structure check (`20261015T202316.700824Z-apple-plan-structure-controls/result.json`) | 0 | 1 / 1 pass, 0.08 s test body |
+| Full Apple backend lane (`20261015T202549.773005Z-apple-backends-full/result.json`) | 0 | 25 / 25 pass, 61.94 s test body; 92.597160 s orchestrated Cabal invocation |
+| Filtered canonical architecture fixture (`20261015T202747.346128Z-apple-canonical-architecture-smoke/result.json`) | 0 | 1 / 1 passes, 4.37 s test body; all eleven compact graphs on a 4 × 4 fixture through Metal, without full-resolution/convergence claims |
+| Deterministic plan scans (`20261015T202627.312252Z-standards-plan-scan/result.json`) | 0 | 290 phase files; zero backward edges, dual-accelerator gates, aggregation accelerator reruns, missing product validation sections, or missing changed-document link targets |
+| Plan scans after backend/fixture receipt links (`20261015T202942.299826Z-standards-plan-scan-backends/result.json`) | 0 | Same zero-count checks; Closure Status 58 / 60 lines |
+| Plan scans after CPU/RL updates (`20261015T212436.511467Z-standards-plan-scan-cpu-rl/result.json`) | 0 | Same zero-count checks across 290 phases and current local links; Closure Status 59 / 60 lines |
+| Plan scans after Fisher documentation (`20261015T213346.348915Z-standards-plan-scan-fisher-final/result.json`) | 0 | Zero structural/link issues; historical body-only count 60 (actual production count 62), corrected below |
+| Production-equivalent count correction (`20261015T215230.902113Z-standards-plan-scan-production-count/result.json`) | 0 | Zero structural/link issues across 290 phases; actual Closure Status 59 / 60 including heading/trailing blank |
+| Current fb45 checkpoint scan (`20261015T222039.249817Z-standards-plan-scan-fb45-final/result.json`) | 0 | Zero structural/link issues across 290 phases after current CPU records and parent docs; actual Closure Status 59 / 60 |
+| Final 4b5 evidence scan (`20261015T231009.217463Z-standards-plan-scan-4b5-final-evidence/result.json`) | 0 | Zero structural/link issues across 290 phases after final gate records, full-run failures, and bounded diagnostic; actual Closure Status 59 / 60 |
+| Passing-quality status scan (`20261015T231640.134871Z-standards-plan-scan-passing-quality-status/result.json`) | 0 | Zero structural/link issues across 290 phases after authentic quality pass/status update; actual Closure Status 59 / 60 |
 
 The backend invocation also writes its own genuine
-[jitML validation record](production-validation-records/jitml-backends.apple-silicon.json),
+jitML validation record (`production-validation-records/jitml-backends.apple-silicon.json`),
 copied unchanged from `.build/runtime/validation/`. Its executable identity
 matches the observed binary; its subprocess stdout hash independently matches
 the raw command transcript after removing the CLI's display indentation. The
@@ -212,24 +212,24 @@ It is retained here outside canonical obligation inputs and proves the selected
 Apple backend lane, not the Phase `278` Linux CPU backend gate. The local runner
 does not synthesize or alter that record.
 
-The [executed plan-scan script](plan-scan.py.txt) reuses the retained Linux
+The executed plan-scan script (`plan-scan.py.txt`) reuses the retained Linux
 hardware audit's stdin and adds current Mac attestation Markdown documents to
 its local-link check. It runs in the existing toolchain container with the
 current repository mounted read-only at `/workspace`. The first scan counts
 **56 / 60** closure narrative lines; the backend/fixture scan counts
 **58 / 60**. The CPU/RL update scan passes with **59 / 60** lines.
-The [Fisher-doc extension](plan-scan-fisher.py.txt) additionally checks all six
+The Fisher-doc extension (`plan-scan-fisher.py.txt`) additionally checks all six
 modified root/engineering Markdown documents. Its historical body-only count
 **60** omits the heading and trailing separator, so that intermediate README
 would be **62 / 60** under the real guard. The current
-[corrected scan](plan-scan-production-count.py.txt) mirrors production
+corrected scan (`plan-scan-production-count.py.txt`) mirrors production
 `PlanDoc.closureStatusSectionLength`, after the prose is condensed to
 **59 / 60** total lines (**57** under the old body convention). Earlier script
 and receipt bytes remain intact; no production guard changes. At those historical scan checkpoints, status counts were **63 Done / 1 Active /
 6 Blocked**. This is a documentation diagnostic, not `jitml docs check`,
 `jitml check-code`, or a standing GateTranscript.
 
-[current-provenance.json](current-provenance.json) records the current executable
+current-provenance.json (`current-provenance.json`) records the current executable
 SHA-256 and eleven implementation/test/build-file hashes at its explicit
 observation time. This is a subsequent observation, not a retrospective claim
 that these hashes were captured before each invocation. Production validation
@@ -265,18 +265,18 @@ exit `1` (47.78 s test body; 284.054954 s orchestrated). Full CPU backends pass
 
 | Genuine producer record | Outcome | SHA-256 of exact canonical bytes |
 |---|---|---|
-| [CPU unit](linux-cpu-container/steps/20261015T210730.058794Z-linux-cpu-unit/production-validation/jitml-unit.linux-cpu.json) | Failed | `28d187cf1d5864854785ab6adcf4be1a491b96a3e841136b53456494022ee80a` |
-| [CPU backends](linux-cpu-container/steps/20261015T211402.422830Z-linux-cpu-backends/production-validation/jitml-backends.linux-cpu.json) | Passed | `759a23def79556caa2f32512a779323ee1d5a157bb43977d4436fdd30c43e9e4` |
+| CPU unit (`linux-cpu-container/steps/20261015T210730.058794Z-linux-cpu-unit/production-validation/jitml-unit.linux-cpu.json`) | Failed | `28d187cf1d5864854785ab6adcf4be1a491b96a3e841136b53456494022ee80a` |
+| CPU backends (`linux-cpu-container/steps/20261015T211402.422830Z-linux-cpu-backends/production-validation/jitml-backends.linux-cpu.json`) | Passed | `759a23def79556caa2f32512a779323ee1d5a157bb43977d4436fdd30c43e9e4` |
 
 Each record is copied unchanged from its retained
-[unit](linux-cpu-container/steps/20261015T210730.058794Z-linux-cpu-unit/production-validation/jitml-unit.linux-cpu.json)
-or [backend](linux-cpu-container/steps/20261015T211402.422830Z-linux-cpu-backends/production-validation/jitml-backends.linux-cpu.json)
-producer output. The [prior canonical files](superseded-validation-records/)
+unit (`linux-cpu-container/steps/20261015T210730.058794Z-linux-cpu-unit/production-validation/jitml-unit.linux-cpu.json`)
+or backend (`linux-cpu-container/steps/20261015T211402.422830Z-linux-cpu-backends/production-validation/jitml-backends.linux-cpu.json`)
+producer output. The prior canonical files (`superseded-validation-records/`)
 are preserved before replacement. Failed is preserved as Failed; no record
 content, producer digest, or contract pin is rewritten.
 
-The [independent verification](linux-cpu-independent-verification.json) and
-[exact verification/promotion script](verify-promote-cpu-records.py.txt) check
+The independent verification (`linux-cpu-independent-verification.json`) and
+exact verification/promotion script (`verify-promote-cpu-records.py.txt`) check
 canonical schema/serialization, standing commands, source algorithm 1, the real
 Linux ELF, actual gate/orchestrator exits, and both subprocess stream hashes
 against raw CLI output. The CLI display's fixed six-space indentation is
@@ -287,19 +287,19 @@ the same streams inside the producer JSON; Passed records retain their hashes.
 The backend's `-p linux-cpu` is the CLI's required substrate partition; no user
 filter is supplied, and non-backend units run in full.
 
-The [image inspection](linux-cpu-container/steps/20261015T205724.783372Z-inspect-completed-image/stdout.log),
-[private container state](linux-cpu-container/state.json),
-[exact snapshot manifest](linux-cpu-container/snapshot-manifest.json), and
-[CPU helper snapshot](linux-cpu-container/runner.py.txt) preserve build identity
-and source preparation. [Unit](linux-cpu-container/steps/20261015T210730.058794Z-linux-cpu-unit/source-binding.json)
-and [backend](linux-cpu-container/steps/20261015T211402.422830Z-linux-cpu-backends/source-binding.json)
+The image inspection (`linux-cpu-container/steps/20261015T205724.783372Z-inspect-completed-image/stdout.log`),
+private container state (`linux-cpu-container/state.json`),
+exact snapshot manifest (`linux-cpu-container/snapshot-manifest.json`), and
+CPU helper snapshot (`linux-cpu-container/runner.py.txt`) preserve build identity
+and source preparation. Unit (`linux-cpu-container/steps/20261015T210730.058794Z-linux-cpu-unit/source-binding.json`)
+and backend (`linux-cpu-container/steps/20261015T211402.422830Z-linux-cpu-backends/source-binding.json`)
 bindings verify the unchanged private snapshot and pinned Mac binary. During
 the backend invocation the full host manifest changes only under the authorized
 `focused-rl/` receipt directory. Those differences are listed explicitly and
 are not described as an unchanged host tree.
 
-The [first active-process observation](20261015T211022.743034Z-linux-cpu-unit-runtime-provenance/stdout.log)
-and [actual unit-test child observation](20261015T211209.179343Z-linux-cpu-unit-active-test-provenance/stdout.log)
+The first active-process observation (`20261015T211022.743034Z-linux-cpu-unit-runtime-provenance/stdout.log`)
+and actual unit-test child observation (`20261015T211209.179343Z-linux-cpu-unit-active-test-provenance/stdout.log`)
 independently record the real aarch64 Linux ELF (**201,943,104 bytes**, SHA
 `802b728225961d7675f2cb975470a5497f88abce0700edda185898c9fc3b2840`),
 381-file source algorithm 1 digest
@@ -311,9 +311,9 @@ with its real time. The whole source/docs snapshot manifest is a separate
 identity, not the production code-source digest.
 
 All thirty CPU-helper command receipts and before/after bindings are retained
-under [linux-cpu-container/](linux-cpu-container/), including original absolute
+under linux-cpu-container/ (`linux-cpu-container/`), including original absolute
 capture paths. The manifest hashes all **146** CPU supporting artifacts. The
-[post-retention integrity check](linux-cpu-retained-integrity.json) independently
+post-retention integrity check (`linux-cpu-retained-integrity.json`) independently
 checks both output hashes of all thirty completed CPU-helper receipts. Source
 archives and build caches are excluded. These real CPU outcomes satisfy only
 their own gate verdicts; no fresh ProductRow journal, aggregate, or phase Done
@@ -360,7 +360,7 @@ The [final6ca native/style record](source6ca-native-style-validation/README.md) 
 
 The [final6ca criterion DATA milestone](source6ca-criterion-data-validation/README.md) retains the actual **110**-contract export with both full **55**-row sets unchanged, four independently selected current-source reviews, public ordinary materialization, **32** create-only installed DATA files and one public four-scope fixed-root FILE capture exiting **0** with exact expected identities. All **13** retained command captures exit **0**; source6ca, installed32, Gov55, historical70, native/oldCPU/protected/services observations remain exact. The Apple full55 helper compiles **0** but has not acquired a cohort or registered a lane. Earlier invalid-prelaunch failure remains retained. The verified byte archive selects **42** closed views; original30 planning rows and bytes are preserved. Current CPU bindings/owned gates, universal image, bootstrap/datasets, real five-run qualification, complete journals/registration and daemon standing/context proof remain open.
 
-The criterion DATA archive has a metadata-only [link successor](source6ca-criterion-data-validation/retention-provenance/selected-input/README.md): its nested source note now links correctly to Mac validation. The original42-view evidence, original manifest/README and entire56th entry remain byte-preserved through an explicit one-file relocation map; the57th entry records only this metadata repair, with no new runtime, quality or training verdict.
+The criterion DATA archive has a metadata-only link successor (`source6ca-criterion-data-validation/retention-provenance/selected-input/README.md`): its nested source note now links correctly to Mac validation. The original42-view evidence, original manifest/README and entire56th entry remain byte-preserved through an explicit one-file relocation map; the57th entry records only this metadata repair, with no new runtime, quality or training verdict.
 
 Current Source6ca CPU rebind/sync/build and three helper compilations exit **0**. Unfiltered CPU negatives **2,683 / 2,683**, CPU backends **42 / 42** and real Metal backends **29 / 29** pass; the original batch stops at Docs **1** on **24** stale empty private directories. A separate continuation removes exactly those directories and no files, then passes docs, `check-code` and three plan scans (empty finding arrays; Closure Status **60**). The original Docs and observer-preflight failures remain literal. CPU artifact/package-cache bytes and modes are unchanged; recorded timestamp/inode changes remain explicit. A subsequent Dockerfile text repair exits **0**, after that quality pass; a new image, bootstrap, dataset publication and real acquisition/qualification remain pending. The [38-view owned-gates archive](source6ca-cpu-owned-gates-validation/README.md) and pinned execution manifest record the four successful byte-retention commands and these distinct outcomes.
 

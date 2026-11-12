@@ -305,13 +305,28 @@ drift checks, required lint config checks, optional-directory checks for
 `proto/` and `web/`, chart-shape checks, route-registry drift checks, and
 forbidden subprocess/terminal primitive scans. It also runs the external
 Haskell style stack through the typed `Subprocess` boundary and adds the
-warning-clean build gate. The `jitml:local` image construction path runs this
-same gate, and runtime use is supported only inside that image through the
-headless `docker compose run --rm jitml ...` service. The GPU-enabled
+warning-clean build gate. The container's Python also runs the standalone
+generated-output path guard controls; those controls do not establish a
+Windows-host pass or replace substrate test stanzas. The guard can also check
+caller-supplied future file paths with repeatable `--planned-path` arguments;
+an empty inspection directory is reported as having no observed outputs. It
+checks supplied and existing names for conservative case and file/directory
+collisions, but does not enumerate producers or prove unknown future names or
+all platform-specific collision behavior.
+The `jitml:local` image
+construction path runs this same gate, and runtime use is supported only inside
+that image through the headless `docker compose run --rm jitml ...` service. The GPU-enabled
 `jitml-cuda` service is reserved for live CUDA tests, not code-quality runs.
 
-Sprint `1.4` closes with `jitml check-code` and the Docker image build running
-the full target stack:
+Code-quality validation uses the stack below against the implementation
+available at the owning phase boundary. A later target checker, unimplemented
+consumer or qualification record cannot be an earlier phase's acceptance input;
+new rules are implemented and validated in their numerical owner before their
+consumers. Existing checks remain honest failures until their actual owner fixes
+them. Full current gates and scoped engineering gates are recorded with their
+exact scope in the development plan.
+
+The container stack includes:
 
 1. `fourmolu --no-cabal --ghc-opt -XGHC2024 --mode check` over `src/`, `app/`,
    `test/`.

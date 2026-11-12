@@ -8,8 +8,8 @@
 > **Purpose**: Retain the later authorized two-test layout copy separately from
 > the immutable earlier private quality rehearsal.
 
-The actual [copy receipt](receipt/result.json), [authorization](packet/authorization.json),
-[guarded script](packet/executed-script.py.txt), and [result](packet/result.json)
+The actual copy receipt (`receipt/result.json`), authorization (`packet/authorization.json`),
+guarded script (`packet/executed-script.py.txt`), and result (`packet/result.json`)
 record the exact two reviewed paths: `test/unit/ProductAggregation.hs` and
 `test/unit/ServedMetricVerification.hs`. Both old files and copied candidate
 files are preserved. Full before/after inventories and source observations
@@ -22,6 +22,6 @@ not a new training implementation or convergence result.
 This package is later than the [immutable pre-final bundle](../pre-final-quality/README.md).
 It does not rewrite that bundle or convert its private-only check-code pass
 into a strict host-bound pass. Fresh final-source gates and final strict
-quality checks remain separate. The parent [manifest](../manifest.json) hashes
-all retained bytes; the [retention script](retain-final-quality-context.py.txt)
+quality checks remain separate. The parent manifest (`../manifest.json`) hashes
+all retained bytes; the retention script (`retain-final-quality-context.py.txt`)
 also verifies the original bundle and raw command-stream hashes before copy.

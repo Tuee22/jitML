@@ -14,6 +14,10 @@ description:
 
 build-type:         Simple
 extra-source-files:
+    bootstrap/check-generated-paths.py
+    bootstrap/check-path-lengths.sh
+    bootstrap/generate-github-slug-data.mjs
+    test/unit/generated_path_guard_test.py
     test/fixtures/compact-supervised-before-identities.txt
     test/fixtures/compact-supervised-46a-identities.txt
     test/fixtures/compact-supervised-current-rl-isolation-identities.txt
@@ -113,6 +117,7 @@ library
         JitML.Cluster.StatefulPV
         JitML.Cluster.Storage
         JitML.Docs.Check
+        JitML.Docs.GithubSlugData
         JitML.Docs.Generate
         JitML.Docs.Render
         JitML.Engines.CpuFeatures
@@ -509,8 +514,10 @@ library
     build-depends:
         base >=4.21 && <4.22,
         text,
+        tagsoup >=0.14.8 && <0.15,
         async,
         bytestring,
+        cmark-gfm >=0.2.6 && <0.3,
         aeson,
         base64-bytestring,
         containers,

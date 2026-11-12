@@ -237,24 +237,30 @@ transport/lifecycle smoke cannot mint completion. See
 
 The shared workflow protocol does not impose a cross-repository execution order.
 jitML's local phase/dependency authority is
-[plan standards M](../../DEVELOPMENT_PLAN/development_plan_standards.md#m-explicit-dependencies-hardware-affinity-and-stable-phase-ids).
+[plan standards M](../../DEVELOPMENT_PLAN/development_plan_standards.md#m-forward-only-single-accelerator-numerically-ordered-phases).
 The corresponding sister-repository standard governs that repository; this local
 revision makes no claim that its implementation or doctrine changed.
 
-For jitML, stable phase IDs name owners. Explicit sprint dependencies form an
-acyclic graph executed in deterministic topological order. A valid prerequisite
-may have a higher numeric ID. Hardware qualification closes on one declared host
-with at most one accelerator plus its CPU support; observer-session continuity
-is not a scientific prerequisite. CPU assurance does not wait for an unrelated
-Mac or CUDA qualification. Shared host admission independently serializes heavy
-work on each host.
+For jitML, phases and their sprints execute and close in numerical order.
+Dependencies and validation inputs come only from the owning sprint and completed
+earlier work. Later phases extend accepted contracts without contradicting them
+or retroactively requiring later campaign or hardware evidence to close an
+earlier producer. Move a discovered prerequisite earlier or reorder the plan
+before execution; record old-to-new ownership and preserved historical scope.
+A genuine regression reopens its actual owner and affected downstream claims.
 
-Cross-lane aggregation is CPU-only and consumes admitted per-lane evidence; it
-does not rerun an accelerator or assert cross-substrate numerical parity.
+Every phase declares Linux CPU and at most one additional specific OS/device
+set. Device qualifications occupy separate ordered phases; a later CPU-only
+aggregation consumes their admitted evidence without accelerator launches or
+cross-substrate numerical equivalence. Missing the current owner's hardware
+stops that phase rather than authorizing a later-phase bypass. Shared host
+admission separately serializes heavy work on each host.
+
 [Validation execution](validation_execution.md) owns the target campaign and
-[execution resources](execution_resources.md) owns its resource boundary. Source
-catalogue/checker support for this local graph remains an unimplemented target
-of Sprint `221.2`; protocol conformance alone cannot prove it.
+[execution resources](execution_resources.md) owns its resource boundary,
+including jitML's dedicated WSL2 Linux CPU venue. [Phase 290](../../DEVELOPMENT_PLAN/phase-290-ordered-plan-and-validation-foundation.md)
+owns the revised local catalogue and scoped validation foundation; this doctrine
+change does not claim that source implementation or protocol conformance passes.
 
 The GPU lane is `linux-cuda` in jitML and `linux-gpu` in `infernix`; substrate
 identifiers remain local to each repository.

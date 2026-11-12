@@ -3,7 +3,7 @@
 **Status**: Governed validation evidence candidate
 **Supersedes**: N/A
 **Canonical homes**: [Mac validation](../../README.md)
-**Referenced by**: [Runtime receipt index](../manifest.json)
+**Referenced by**: Runtime receipt index (`../manifest.json`)
 **Generated sections**: none
 
 > **Purpose**: Retain actual image-owned client, parser/stream/storage outcomes and a bounded logical import-planning assessment.

@@ -3,7 +3,7 @@
 **Status**: Governed validation evidence candidate
 **Supersedes**: N/A
 **Canonical homes**: [Mac validation](../../README.md)
-**Referenced by**: [Runtime receipt index](../manifest.json)
+**Referenced by**: Runtime receipt index (`../manifest.json`)
 **Generated sections**: none
 
 > **Purpose**: Retain the current61 quality, bounded cold-storage and one monitored canonical CPU bootstrap scopes with their original failures and independent reviews.

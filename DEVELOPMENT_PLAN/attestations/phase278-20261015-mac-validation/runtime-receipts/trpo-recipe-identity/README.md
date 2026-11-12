@@ -8,11 +8,11 @@
 > **Purpose**: Preserve exact semantic projection identities before/after the
 > scoped TRPO numerical-recipe version without treating identity as training.
 
-The [pure harness](projection-identities.hs.txt) compiles against the existing
+The pure harness (`projection-identities.hs.txt`) compiles against the existing
 native library before the version token is added. Its retained
-[build](receipts/20261015T213754.765139Z-pre-token-projection-identity-build/result.json)
-and [execution](receipts/20261015T213759.678228Z-pre-token-projection-identities/result.json)
-receipts both exit `0`. The [captured identities](before.json) contain exactly
+build (`receipts/20261015T213754.765139Z-pre-token-projection-identity-build/result.json`)
+and execution (`receipts/20261015T213759.678228Z-pre-token-projection-identities/result.json`)
+receipts both exit `0`. The captured identities (`before.json`) contain exactly
 **165** unique `(substrate, row)` pairs: all **55** rows projected independently
 for each of the three lanes. Source stamps before and after execution both equal
 `52ca6aa7f59c3108da99047d8c3e47182498c0ecf3cda5059a346716b6c2fb99`.
@@ -22,25 +22,25 @@ Actual registry inspection finds **four** TRPO rows in each lane: `cartpole`,
 `mountain-car`, `lunar-lander`, and `key-door-grid`. The token must change exactly
 **12** plan identities while preserving the other **153**.
 
-The post-token [build](receipts/20261015T215326.398255Z-post-token-projection-identity-build/result.json),
-[capture](receipts/20261015T215335.450816Z-post-token-projection-identities/result.json),
-and [comparison](receipts/20261015T215417.375036Z-compare-trpo-recipe-projection-identities/result.json)
-all exit `0`. The [after capture](after.json) binds stable before/after source
+The post-token build (`receipts/20261015T215326.398255Z-post-token-projection-identity-build/result.json`),
+capture (`receipts/20261015T215335.450816Z-post-token-projection-identities/result.json`),
+and comparison (`receipts/20261015T215417.375036Z-compare-trpo-recipe-projection-identities/result.json`)
+all exit `0`. The after capture (`after.json`) binds stable before/after source
 `c4a42c3ae80951d5d4b33ee6d0981b64e385c0648ec6c8ae352423efba710625`.
-The [comparison result](comparison.json) proves exactly **12** changed TRPO
+The comparison result (`comparison.json`) proves exactly **12** changed TRPO
 PlanIds and **153** unchanged unrelated identities/subjects. All **165**
 report-only contract digests remain unchanged; lane admission checks PlanId
 separately.
 
-The [post-token harness](projection-identities-after.hs.txt) also reconstructs
+The post-token harness (`projection-identities-after.hs.txt`) also reconstructs
 each old TRPO plan through the public raw request/resolver after removing only
 the numerical-recipe field. All twelve reconstructed PlanIds exactly equal the
 independently captured pre-token identities. Every changed subject differs only
-by that one length-prefixed field pair. The [comparison script](compare-projection-identities.py.txt)
+by that one length-prefixed field pair. The comparison script (`compare-projection-identities.py.txt`)
 asserts complete unique coverage and each equality; this is stronger than
 checking for a token string or observing a nonzero changed count.
 
-The [post-capture executable observations](after-executable-observation.json)
+The post-capture executable observations (`after-executable-observation.json`)
 record actual observed byte counts/hashes for the pure harness and native
 `jitml`. The native executable is `73cd7e15…1ebbb24d`; observations are explicitly
 after the capture, while the native build has its own receipt in the separate
@@ -63,13 +63,13 @@ module, PlanId, or native executable. The supported native build is up to date;
 that source stamp becomes
 `5ed2b2c4fb2eab92aa2bfa48188431eeac8a51ff1a37899118f879c27e339537`.
 
-The same compiled pure harness is [executed again](receipts/20261015T215748.358491Z-final-test-fixed-projection-identities/result.json)
+The same compiled pure harness is executed again (`receipts/20261015T215748.358491Z-final-test-fixed-projection-identities/result.json`)
 against that stable before/after source stamp, exit `0`. The
-[5ed comparison invocation](receipts/20261015T215756.178418Z-compare-final-trpo-recipe-identities/result.json)
-also exits `0`; its [result](comparison-final.json) again proves **12 changed
+5ed comparison invocation (`receipts/20261015T215756.178418Z-compare-final-trpo-recipe-identities/result.json`)
+also exits `0`; its result (`comparison-final.json`) again proves **12 changed
 TRPO PlanIds**, **153 unchanged unrelated identities**, **165 unchanged report
 contract digests**, and exact reconstruction of all twelve previous PlanIds.
-The [5ed capture](after-final.json) and [5ed comparison script](compare-projection-identities-final.py.txt)
+The 5ed capture (`after-final.json`) and 5ed comparison script (`compare-projection-identities-final.py.txt`)
 are additional files; earlier `c4a42…` captures, comparisons, and raw receipts
 remain unchanged. This rebinding is a pure structural diagnostic, not a new
 hardware run or full test gate.
@@ -97,12 +97,12 @@ rejection for the old PlanId, and physical Store write/read of the current
 positive fixture. All four pure Fisher controls also pass. These filtered
 invocations do not substitute for the full standing unit gate.
 
-The unchanged compiled harness is [executed under the final source stamp](receipts/20261015T220953.093659Z-admitted-final-projection-identities/result.json),
+The unchanged compiled harness is executed under the final source stamp (`receipts/20261015T220953.093659Z-admitted-final-projection-identities/result.json`),
 exit `0`, with stable source observations before and after. The
-[final comparison invocation](receipts/20261015T221020.497968Z-compare-admitted-trpo-recipe-identities/result.json)
-exits `0`. The additional [capture](after-admitted.json),
-[comparison result](comparison-admitted.json), and
-[comparison script](compare-projection-identities-admitted.py.txt) again prove
+final comparison invocation (`receipts/20261015T221020.497968Z-compare-admitted-trpo-recipe-identities/result.json`)
+exits `0`. The additional capture (`after-admitted.json`),
+comparison result (`comparison-admitted.json`), and
+comparison script (`compare-projection-identities-admitted.py.txt`) again prove
 **12 changed TRPO PlanIds**, **153 unchanged unrelated projections**, **165
 unchanged report-only contract digests**, and exact reconstruction of all twelve
 old PlanIds through the public raw resolver. Earlier captures and receipts

@@ -3,7 +3,7 @@
 **Status**: Governed validation evidence candidate
 **Supersedes**: N/A
 **Canonical homes**: [Mac validation](../../README.md)
-**Referenced by**: [Runtime receipt index](../manifest.json)
+**Referenced by**: Runtime receipt index (`../manifest.json`)
 **Generated sections**: none
 
 > **Purpose**: Retain the current native build and fresh four-scope criterion review, materialization, installation and public FILE IO evidence, including the failed ENOSPC attempt, without claiming current-source tests, image validation or training admission.

@@ -25,7 +25,7 @@ files. Its canonical image build returns **0 / 2,849.294172291 seconds**, includ
 adoption returns **0 / 10.513787208 seconds**: all **604** raw source inputs and
 the closed **60-file** criterion set match, and the **234,048,288-byte** installed
 and baked CLIs are whole-file equal at SHA-256 `b9829fe5…`.
-The [actual FILE proof](../../../.build/phase278-current/image-adoption-proof-format-fixed-point/proof.json)
+The actual FILE proof (`../../../.build/phase278-current/image-adoption-proof-format-fixed-point/proof.json`)
 is local. The supported Linux root build and all **10** test-stanza prebuilds
 pass, with strict whole-file root/installed CLI equality before and after
 prebuild. Focused CPU unit controls pass **61 / 61** and the CPU typed browser
@@ -424,12 +424,12 @@ coordinator is absent and all four closing labels/receipts are absent; no post-t
 preservation, normal DOWN, new four-PV snapshot or native restoration pass is claimed.
 At the user's resource-stop request, Colima is stopped. Following a host kernel panic
 and reboot, its automatic startup job is disabled/unloaded and the VM is stopped again.
-The panic's initiating cause remains unresolved. The [local resource/restart analysis](../../../.build/phase278-resource-incident-20261030-a/analysis.json)
+The panic's initiating cause remains unresolved. The local resource/restart analysis (`../../../.build/phase278-resource-incident-20261030-a/analysis.json`)
 records the incident's memory recovery, uncapped training and causal limits.
 The explicitly managed `jitml` VM is now prepared and **Stopped**: **4 CPUs / 16 GiB**,
 no automatic startup/context activation or Kubernetes. The bounded Compose override
 verifies **2 CPUs / 6 GiB / zero swap** for a job using actual cgroup readback.
-The [VM setup and continuation record](../../../.build/phase278-managed-vm-20261031-a/summary.json)
+The VM setup and continuation record (`../../../.build/phase278-managed-vm-20261031-a/summary.json`)
 confirms Sourcef138 is unchanged across all **606** inputs. Retain accepted builds,
 caches, datasets and engineering evidence; do not regenerate merely for a VM change.
 The old default profile stays offline for verified data/image recovery. Current cluster
@@ -437,19 +437,19 @@ ceilings do not fit this VM and must not be started unchanged. No qualifying agg
 rerun occurred; the existing fresh-only issuer cannot resume the partial eight-row prefix.
 A later bounded host continuity check stops at its **120 CPU-second** limit
 (**136.38 s** wall, **936 MiB** maximum sampled RSS), with no preservation result.
-No original closing role is replaced. The [recovery preparation record](../../../.build/phase278-recovery-preparation-20261031-a/summary.json)
+No original closing role is replaced. The recovery preparation record (`../../../.build/phase278-recovery-preparation-20261031-a/summary.json`)
 retains that nonpass and the limited empty-VM Docker flag inspection; the old runtime
 has not been started or migrated.
-A separate [streamed FILE check](../../../.build/phase278-recovery-preparation-20261031-a/final-continuation.json)
+A separate streamed FILE check (`../../../.build/phase278-recovery-preparation-20261031-a/final-continuation.json`)
 passes all **1,971** selected pins / **1,605,723,512 bytes** in **12.41 s**, using
-**28.1 MiB** peak RAM. The later [full FILE-continuity check](../../../.build/phase278-runtime-recovery-20261031-a/current-status-02-frame-pass.json)
+**28.1 MiB** peak RAM. The later full FILE-continuity check (`../../../.build/phase278-runtime-recovery-20261031-a/current-status-02-frame-pass.json`)
 passes baseline **36,500** and native **2,223 + saved14** role membership before/after,
 **34,620 unique files / 26,762,668,482 bytes**, in **320.59 s / 97.8 MiB** peak RAM.
 It safely reuses **9,506** prior hashes and hashes the remaining **25,114** once.
 Original closing roles/runtime/PV health remain unverified. Bounded recovery uses an
 independent APFS data clone; the original default stays offline. The first cloned
 daemon attempt stops at a conservative summary-counter guard; its failure stays literal.
-The [bounded recovery and profiling record](../../../.build/phase278-runtime-recovery-20261031-a/final-summary.json)
+The bounded recovery and profiling record (`../../../.build/phase278-runtime-recovery-20261031-a/final-summary.json`)
 now verifies image **773e** and all **13** layers in the new VM, without a rebuild.
 Actual **51** stopped-container/PID and empty-task proofs precede the official image export.
 A one-update diagnostic returns `0` at **2.13 GiB** peak; a **16-update** first-epoch
@@ -695,7 +695,7 @@ baseline calculations reproduce the same 96,462-byte JSON. The subsequent
 source-pin refresh changes only the consulted Matrix hash to the token-bound
 source; all dataset statistics remain equal. The current 96,462-byte artifact
 is SHA-256 `d0b009229c4aac7dcdd7c0102752850d873f327c478a2441346027e181c24b92`;
-[prior bytes and metadata](archive-label-receipts/historical-before-trpo-recipe-version/)
+prior bytes and metadata (`archive-label-receipts/historical-before-trpo-recipe-version/`)
 remain preserved. These input-only checks read no trained measurements and do
 not mint a standing GateTranscript.
 
@@ -757,13 +757,13 @@ The retained deterministic plan scans pass on all **290** phase documents:
 zero backward edges, dual-accelerator gates, aggregation accelerator reruns,
 missing product validation sections, or missing changed-document link targets.
 The completed backend/fixture scan observes **58 / 60** Closure Status lines;
-the [CPU/RL update scan](runtime-receipts/20261015T212436.511467Z-standards-plan-scan-cpu-rl/result.json)
+the CPU/RL update scan (`runtime-receipts/20261015T212436.511467Z-standards-plan-scan-cpu-rl/result.json`)
 passes with **59 / 60** lines and zero issues across all 290 phases and current
-local-link targets. The [Fisher documentation scan](runtime-receipts/20261015T213346.348915Z-standards-plan-scan-fisher-final/result.json)
+local-link targets. The Fisher documentation scan (`runtime-receipts/20261015T213346.348915Z-standards-plan-scan-fisher-final/result.json`)
 additionally checks all six modified root/engineering Markdown files. Its
 historical body-only count of **60** omits the heading and trailing separator;
 that intermediate prose would be **62** under the production cap. The README
-is condensed before the final gates. The [corrected diagnostic](runtime-receipts/20261015T215230.902113Z-standards-plan-scan-production-count/result.json)
+is condensed before the final gates. The corrected diagnostic (`runtime-receipts/20261015T215230.902113Z-standards-plan-scan-production-count/result.json`)
 now mirrors `PlanDoc.closureStatusSectionLength` and passes all checks with
 **59 / 60** actual lines. Earlier receipt bytes are preserved. These diagnostics
 are not standing docs/code-quality validation gates.
@@ -783,7 +783,7 @@ subsequent owned CPU gates and does not assert a current final code-quality gate
 The full `.build/jitml test jitml-backends --apple-silicon` invocation passes
 **25 / 25**, exit `0` (61.94 s test body; 92.597160 s orchestrated Cabal
 invocation). Its exact command receipt and genuine
-[source-bound validation record](runtime-receipts/production-validation-records/jitml-backends.apple-silicon.json)
+source-bound validation record (`runtime-receipts/production-validation-records/jitml-backends.apple-silicon.json`)
 are retained under [runtime receipts](runtime-receipts/README.md). The record's
 executable hash matches the observed native binary, and its subprocess stdout
 digest matches the invocation transcript. It is retained outside canonical
@@ -792,7 +792,7 @@ owned Linux CPU backend gate or replace its missing product journals.
 
 The filtered all-canonical-architecture train-step invocation also exits `0`:
 **1 / 1** passes (4.37 s test body; 7.480892 s orchestrated Cabal invocation).
-Its [exact receipt](runtime-receipts/20261015T202747.346128Z-apple-canonical-architecture-smoke/result.json)
+Its exact receipt (`runtime-receipts/20261015T202747.346128Z-apple-canonical-architecture-smoke/result.json`)
 records the explicit `--apple-silicon` selection. It exercises all eleven compact
 graphs on the 4 × 4 fixture task through real Metal kernels; it is not
 full-resolution supervised training or canonical convergence evidence. The
@@ -826,11 +826,11 @@ retained-journal rejection contexts. The full selected CPU backend lane passes
 **38 / 38**, exit `0` (15.26 s test body; 42.419507 s orchestrated). These are
 real owned CPU gate outcomes at the `ca66…` baseline; the unit result remains Failed.
 
-The genuine baseline [Failed unit record](runtime-receipts/linux-cpu-container/steps/20261015T210730.058794Z-linux-cpu-unit/production-validation/jitml-unit.linux-cpu.json) and
-[Passed backend record](runtime-receipts/linux-cpu-container/steps/20261015T211402.422830Z-linux-cpu-backends/production-validation/jitml-backends.linux-cpu.json) were copied
+The genuine baseline Failed unit record (`runtime-receipts/linux-cpu-container/steps/20261015T210730.058794Z-linux-cpu-unit/production-validation/jitml-unit.linux-cpu.json`) and
+Passed backend record (`runtime-receipts/linux-cpu-container/steps/20261015T211402.422830Z-linux-cpu-backends/production-validation/jitml-backends.linux-cpu.json`) were copied
 byte-for-byte into the canonical directory after independent schema, identity,
 standing-command, exit, and exact subprocess-stream hash checks. Prior canonical
-bytes are [preserved](runtime-receipts/superseded-validation-records/).
+bytes are preserved (`runtime-receipts/superseded-validation-records/`).
 [Runtime receipts](runtime-receipts/README.md#owned-linux-cpu-gates) retain all
 thirty CPU helper invocations, private source/host bindings, source manifest,
 image observations, two real active-process/environment captures, and the

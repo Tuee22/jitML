@@ -1,6 +1,7 @@
 # Documentation Standards
 
 **Status**: Authoritative source
+**Canonical contracts**: documentation-standards
 **Supersedes**: N/A
 **Referenced by**: ../README.md, ../AGENTS.md, ../CLAUDE.md, ../DEVELOPMENT_PLAN/README.md, ../DEVELOPMENT_PLAN/development_plan_standards.md, engineering/README.md, engineering/checkpoint_format.md, engineering/numerical_core.md, engineering/determinism_contract.md, engineering/run_contract.md, engineering/product_completion_contract.md, engineering/jit_codegen_architecture.md, engineering/unit_testing_policy.md, engineering/cli_command_surface.md
 **Generated sections**: documentation-standards.generated-section-index
@@ -30,12 +31,14 @@ not use.
 ## Current Status
 
 The metadata, taxonomy, generated-section and existing status checks below are
-implemented. The dependency-DAG/foundation catalogue, campaign recovery and
-stronger link/authority checks are target obligations of reopened Phases `3` and
-`221`; a documentation edit does not update those source checks. The current
-root README remains the binding CLI/project entry contract until Phase `3`
-completes an explicit authority transfer. No root file is changed by this
-scoped documentation refactor.
+implemented. The [ordered validation foundation](../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor)
+assigns current owners for the remaining catalogue, link/authority and campaign
+work. [Phase 290](../DEVELOPMENT_PLAN/phase-290-ordered-plan-and-validation-foundation.md)
+owns the revised status catalogue and scoped phase gates before their consumers;
+this documentation change supplies no implementation or hardware evidence. The
+root README remains the binding CLI/project entry contract until its explicitly
+owned authority transfer is implemented and validated. Historical status details
+remain in their retained plan records.
 
 ## 1. Metadata Block
 
@@ -67,6 +70,15 @@ Document metadata uses the metadata block below, not YAML front-matter. The
   comma-separated `<key>` of every generated-region marker pair the file contains
   (see [§9 Generated Sections](#9-generated-sections)). `jitml docs check`
   enforces that the declared keys and the physical markers agree.
+- The optional `**Canonical contracts**:` header declares comma-separated
+  registered contract keys. For `documentation-standards`,
+  `development-plan-standards`, `durable-state-configuration`,
+  `checkpoint-storage-contract`, `product-completion-proof`,
+  `training-metrics-and-splits`, `execution-resources` and
+  `validation-execution`, the registered authoritative owner must declare its
+  key and no other governed document may declare it. This partial registry
+  does not enumerate all authority or detect unmarked claims in prose, and a
+  declaration does not establish that target behavior is implemented.
 
 ### Governed root documents (`README.md`, `AGENTS.md`, `CLAUDE.md`)
 
@@ -150,9 +162,22 @@ This is the heart of the doctrine.
   will make true, and links to the owning phase(s) in `../DEVELOPMENT_PLAN/`.
 - A topic document may summarize a current defect **only as needed** to prevent its
   target contract from being mistaken for implemented behavior.
+- The execution-resources and validation-execution summaries describe target
+  behavior, so they begin with `**Target.**`. Their `## Current Status` sections
+  separately label `**Implemented boundary.**` and `**Target.**`, with a phase
+  link in the target paragraph. The scoped checker enforces these structural
+  labels; it does not judge arbitrary prose or prove the cited work implemented.
 - **Keep mutable phase/sprint status, dependency order, closure criteria, and dated
   implementation evidence in `../DEVELOPMENT_PLAN/`.** Topic docs carry the durable
   contract, not a second status ledger and not dated test counts.
+- **Describe one numerically executable plan.** Earlier-phase validation depends
+  only on that phase and completed earlier work. Later phases extend accepted
+  contracts without contradicting them or adding retrospective gates. A newly
+  discovered prerequisite is moved earlier or the plan is reordered explicitly;
+  a genuine defect reopens its actual owner with affected evidence identified.
+  Each phase requires Linux CPU and at most one additional specific OS/device
+  set. The full rules and ownership-transfer requirements live in
+  [plan standards rule M](../DEVELOPMENT_PLAN/development_plan_standards.md#m-forward-only-single-accelerator-numerically-ordered-phases).
 
 WRONG/RIGHT (a WRONG example is always paired with the reason):
 
@@ -235,6 +260,16 @@ Rules:
   document/section. New checker controls cover missing files, missing anchors,
   absent canonical owners and conflicting authority. Sprint `3.2` owns this
   stronger target; existing metadata checks alone do not prove it.
+- Fragment checks recognize explicit `id` attributes and named anchors in
+  retained HTML and SVG files. Unsupported document formats fail closed;
+  this does not establish browser rendering or PDF fragment support.
+- Heading-fragment checking uses the checked-in `github-slugger` 2.0.0 tables
+  generated with Node 22.16.0 / Unicode 16.0 by
+  [`generate-github-slug-data.mjs`](../bootstrap/generate-github-slug-data.mjs).
+  The source check pins the generated table's digest. The generator requires the
+  exact hash-verified upstream input; neither the runtime checker nor native
+  substrate tests require Node. This reference is versioned and is not proof of
+  parity with every present or future GitHub renderer.
 - Module names, commands, paths, types, and binaries use backticks.
 - **Version-controlled paths stay Windows-portable.** Every path that Git tracks
   (or would track, because it is not ignored) is at most **160** characters
@@ -441,8 +476,9 @@ target, and exercised by `test/unit/Main.hs`. It verifies:
 - generated-section marker/metadata reconciliation and whole-file
   tracked-generated-path integrity;
 - Windows path portability of every tracked or unignored path
-  (`bootstrap/check-path-lengths.sh`, a standalone `sh`/`awk` guard that needs only
-  Git; run it before closing any change that adds or renames files);
+  (`bootstrap/check-path-lengths.sh`; run it before closing any change that adds
+  or renames files). The `sh`/`awk` guard uses Python 3 for conservative Unicode
+  case checks when available and otherwise fails closed on non-ASCII paths;
 - the closure-claim scan (`src/JitML/Lint/Docs.hs`): governed docs must not assert
   current product closure (`production ready`, `all phases done`, `no-caveat product
   complete`, …) unless the evidence-derived `ClosureVerdict` is closed — dated
@@ -470,10 +506,15 @@ target, and exercised by `test/unit/Main.hs`. It verifies:
   gate-transcript obligations) are drifts, and so is a plan document from Phase
   `220` on that the catalogue does not list (`status-catalogue.unregistered-phase-<n>`),
   which would otherwise let a phase leave every closure verdict. The target
-  checker additionally covers explicitly reopened foundation sprints below
-  Phase `220`, validates an acyclic sprint graph rather than numeric ordering,
-  and projects the new campaign obligations. Sprint `221.2` owns that source
-  change; this documentation-only refactor does not claim its checks pass.
+  checker covers the current ordered execution catalogue and its complete
+  obligation-transfer register, preserves the source and scope of historical
+  phase evidence, and requires dependencies and validation inputs to follow
+  numerical phase/sprint order. It projects new engineering and campaign
+  obligations without requiring future qualifying objects for earlier gates.
+  [Phase 290](../DEVELOPMENT_PLAN/phase-290-ordered-plan-and-validation-foundation.md)
+  owns the implementation and scoped validation of these extensions before
+  their first consumer. This documentation refactor
+  does not claim the source catalogue already implements the revised plan.
   `jitml docs status`
   prints the derived tally, the open chain, and every unmet obligation with its
   evidence pointer. `docs check` and `check-code` are computed when they run and are

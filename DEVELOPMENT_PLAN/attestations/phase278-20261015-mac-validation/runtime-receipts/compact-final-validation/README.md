@@ -11,7 +11,7 @@
 The private fifty-file candidate binds source
 `654995941fb6cdb039cad3d689b4bf1bfff9aa2fa946998f993713bc5bcb9aa7`,
 **403** inputs. The actual CPU CLI is `f0cafde0…11cf1`, 204,220,056 bytes;
-its shared library is `63e54755…2a2a2`. The [terminal summary](objects/4567fe9ae9f320b5caa98b2d1fe2b76820d21705006bafd397f9879770c0025c.txt)
+its shared library is `63e54755…2a2a2`. The terminal summary (`objects/4567fe9ae9f320b5caa98b2d1fe2b76820d21705006bafd397f9879770c0025c.txt`)
 pins complete identities and physical preservation locations. Live host code
 remains `9142…`, native `4fce…`, and canonical negative record `ff50…`.
 There is no host code application, canonical promotion, real five-run training,
@@ -19,7 +19,7 @@ fresh ProductRow journal, phase closure or ownership transfer.
 
 Container Fourmolu over 48 Haskell files, Cabal formatting, HLint and fixed-point
 checks pass. The supported jobs-one CLI/unit/SL/negative build passes with empty
-compiler stderr. [Actual compiled inventories](objects/19fcd3a62984919ce7c59566017e2b66cd6d0fd79b29495c132511d43aab2627.txt) contain
+compiler stderr. Actual compiled inventories (`objects/19fcd3a62984919ce7c59566017e2b66cd6d0fd79b29495c132511d43aab2627.txt`) contain
 **1,693 unit / 40 SL / 1,113 negative** leaves and preserve the original paths
 and order apart from the explicitly reviewed additions and earlier title changes.
 
@@ -31,7 +31,7 @@ pass, body **421.16 s**, actual and orchestration exits **1**. Its independent
 body observation sees the exact 231,116,536-byte ELF `f3e0984f…fab5bd1`, only
 the executable in argv, `JITML_SUBSTRATE=linux-cpu` and no TASTY variables.
 
-The [authentic Failed producer record](objects/c9d535ffa691592aced6f6b136bc0f6ea2390215fdbc136b8ae2ba66bc093b77.txt) has SHA-256
+The authentic Failed producer record (`objects/c9d535ffa691592aced6f6b136bc0f6ea2390215fdbc136b8ae2ba66bc093b77.txt`) has SHA-256
 `c9d535ffa691592aced6f6b136bc0f6ea2390215fdbc136b8ae2ba66bc093b77`.
 The only failed leaf is
 `journal-invocation-not-backed-by-admitted-completion-resigned`: its unchanged
@@ -54,14 +54,14 @@ canonical journal newline and incorrect local detached-object deletion path.
 The repaired physical graph/receipt/deletion positives pass in the scoped run.
 No earlier attempt is rewritten or relabelled as a pass.
 
-The [retention map](retention-map.json) maps **5,037** original packet entries
+The retention map (`retention-map.json`) maps **5,037** original packet entries
 to **2,601** exact content-addressed objects. It includes all 3,423 members of
-the [sealed final packet](objects/a45e695292593fd84f56bc68ad0d43e33f383c9cd9c5b9234e7cbed0b1be778b.txt) except source tar archives, the
+the sealed final packet (`objects/a45e695292593fd84f56bc68ad0d43e33f383c9cd9c5b9234e7cbed0b1be778b.txt`) except source tar archives, the
 preliminary build and actual projection comparison, assembly inputs, read-only
 RL inventory/design context and build-coherence review. Raw code/Markdown are
 inert `.txt` objects; repeated identical bytes share one object. Actual compiled
 binaries remain physically preserved at the recorded private locations.
-[MANIFEST.json](MANIFEST.json) seals this lossless map and objects; the parent
-[runtime manifest](../manifest.json) independently hashes the retained copies.
+MANIFEST.json (`MANIFEST.json`) seals this lossless map and objects; the parent
+runtime manifest (`../manifest.json`) independently hashes the retained copies.
 The [RL scope review](../../rl-criterion-review/README.md) distinguishes static
 findings, unadopted design and missing actual qualification evidence.

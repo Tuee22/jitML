@@ -67,7 +67,7 @@ The following sections describe their retained review checkpoints. Their missing
 runtime/raw-result findings are historical source observations, not assertions
 that every earlier gap remains present in a later adopted source generation.
 
-The [source-bound audit](../runtime-receipts/compact-final-validation/objects/6c92bb3fe4b33ea72400fc6df69a8aeab2ced91deb129ab956a0db745c066aee.txt)
+The source-bound audit (`../runtime-receipts/compact-final-validation/objects/6c92bb3fe4b33ea72400fc6df69a8aeab2ced91deb129ab956a0db745c066aee.txt`)
 finds **38 return rows, one HER row and four self-play rows** outside the selected
 compact SL criterion. Existing target/slack consistency does not establish an
 independent origin or meaningfulness of each bar. The project-calibrated slacks,
@@ -75,7 +75,7 @@ native environments and evaluation recipes cannot all be presented as published
 means. Stronger current floors and every per-run budget remain restrictions;
 passing them alone does not establish missing provenance.
 
-The [exact seed/state inventory](../runtime-receipts/compact-final-validation/objects/88837ec4fffe935f2694e992c1dd4d912a5275b789943e6d9181499ae3b90c5e.txt)
+The exact seed/state inventory (`../runtime-receipts/compact-final-validation/objects/88837ec4fffe935f2694e992c1dd4d912a5275b789943e6d9181499ae3b90c5e.txt`)
 retains actual singleton seed 42 plans and source seams. Twenty final episodes
 from one model do not satisfy README's five actual training seeds. At that checkpoint, the
 raw adapter rejected some finite no-learning outcomes before a cohort could
@@ -98,7 +98,7 @@ uniform opponent with half credit for draws, not a retained prior-best network.
 Generic weighted serving also does not by itself reconstruct the complete
 policy/head/search adapter needed for exact admitted-model replay.
 
-A [prospective native-learning design](../runtime-receipts/compact-final-validation/objects/dbb0dff73dbccaf370ce49d63479b844e25d4de06fe2bdb83324b35b6b5d7357.txt)
+A prospective native-learning design (`../runtime-receipts/compact-final-validation/objects/dbb0dff73dbccaf370ce49d63479b844e25d4de06fe2bdb83324b35b6b5d7357.txt`)
 keeps the documented recipes and budgets, compares authentic initial/final
 policies against defined task references, preserves all five outcomes and the
 served index-zero model, and makes only a finite pinned-task claim. Subsequent
@@ -109,7 +109,7 @@ cases/randomness, reference saturation handling and honest finite-reference
 limits; it supplies no population probability or published-slack guarantee.
 
 The retained source copies, original reviews and draft history are indexed by
-the [lossless map](../runtime-receipts/compact-final-validation/retention-map.json).
+the lossless map (`../runtime-receipts/compact-final-validation/retention-map.json`).
 One original audit path uses `QrdqnTrainer` casing; its observed bytes/hash match
 the actual `QrDqnTrainer` file, and the portable source snapshot records both
 names explicitly. No policy, seed pool, threshold, source, phase state, journal

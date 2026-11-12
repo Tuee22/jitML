@@ -8,9 +8,9 @@
 > **Purpose**: Preserve the immutable earlier quality bundle and distinguish
 > strict host-bound results from a private formatting rehearsal.
 
-The [original narrative](raw/README.md.txt), [original manifest](raw/manifest.json),
+The original narrative (`raw/README.md.txt`), original manifest (`raw/manifest.json`),
 and every raw receipt remain byte-identical to the ignored bundle assembled at
-`2026-10-15T22:36:43Z`. Its [retention map](retention-map.json) resolves original
+`2026-10-15T22:36:43Z`. Its retention map (`retention-map.json`) resolves original
 relative paths; the raw README is renamed `.md.txt` so this governed wrapper can
 describe the retained home without changing historical bytes.
 

@@ -22,8 +22,8 @@ source/native identities stay unchanged throughout. The actual process maps
 the generated CPU MLP artifact; no libdnnl primitive call is inferred from the
 backend label. This is a real candidate-lane diagnostic, not a strict host gate.
 
-The [original summary](raw/summary.json), [raw narrative](raw/README.md.txt),
-[original manifest](raw/manifest.json), and [path map](retention-map.json) retain
+The original summary (`raw/summary.json`), raw narrative (`raw/README.md.txt`),
+original manifest (`raw/manifest.json`), and path map (`retention-map.json`) retain
 all original bytes and their scope. The source/readmission helper
 adaptations are prepared, unexecuted code; there is no checkpoint to inspect.
 

@@ -20,144 +20,107 @@ maintenance rules that govern this plan suite.
 
 ## Closure Status
 
-**Active refactor; product qualification remains open.** The first executable
-owner is Sprint `221.2`: implement the dependency/status-schema transition and
-classify the engineering baseline. Its closure enables the reopened execution,
-resource, scientific-readiness and lane owners below. No campaign has been
-qualified under the target protocol by this documentation change.
-
-The latest retained individual screening reports **40 / 55 readiness passes**
-across different source/image versions, **12 RL learning refusals**, **two arena
-learning refusals** and **one TRPO timeout**. These are historical diagnostic
-results, not final-source or lane qualification. Native SAC growth and the
-observed resource-control failures require bounded investigation before scaling.
-
-[Validation Foundation Refactor](#validation-foundation-refactor) is the current
-execution and ownership authority. Older numerical chains, CPU-idle refusals,
-source stamps, counts and "first owner 278" claims below retain historical scope.
-CPU idle is diagnostic; quotas, memory, swap, disk and monitor availability remain
-safety inputs. The named VM was observed stopped during this documentation work.
-
-**Implementation boundary.** Source, root entry documents and runtime tools are
-outside this change. The current catalogue/checker still implements the previous
-phase model. Sprint `221.2` owns that mismatch; `docs status` cannot yet project
-this target graph. No old evidence, hand-edited status or diagnostic criterion
-copy closes a reopened obligation. There is no waiver of the required checks.
+**Planning refactor; implementation and qualification remain open.** Current
+execution is phases **290–335**, in numerical order, beginning at **290.1**.
+The [ordered execution plan](ordered-execution-plan.md) is the complete sequence;
+the [transfer register](ordered-plan-transfers.md) preserves all 39 reopened
+sprints and eight unfinished original .1 scopes. No phase is marked Done by this
+edit. Source-catalogue migration and independent earlier gates are Phase 290 work.
 
 ## Validation Foundation Refactor
 
-### Authority and transition
+### Current execution authority
 
-This section owns the execution order of the reopened work. Stable phase IDs are
-identifiers; dependencies form an explicit acyclic sprint graph. Ready work is
-selected in deterministic topological order, with phase/sprint ID as the tie
-breaker. Host admission serializes heavy work independently of dependency order.
-A missing real hardware lane blocks that lane, not unrelated CPU or other-device
-work. Aggregation consumes completed lane objects without accelerator reruns.
+Earlier phases complete their retained validation without any future phase's
+implementation or evidence. Later phases extend rather than contradict earlier
+contracts. A defect reopens its earliest affected owner and records exactly which
+downstream results become invalid. See [standards M](development_plan_standards.md#m-forward-only-single-accelerator-numerically-ordered-phases).
 
-Durable contracts live in
-[execution resources](../documents/engineering/execution_resources.md),
-[validation execution](../documents/engineering/validation_execution.md), and
-[typed run contracts](../documents/engineering/run_contract.md).
-[Plan standards](development_plan_standards.md) govern scope, evidence and status.
-This document owns mutable delivery state. Root README/AGENTS/CLAUDE remain
-unchanged entry surfaces; Sprint `3.2` owns their future authority/link alignment.
-Their CLI surface remains binding until an explicit validated transfer lands.
+The former stable-ID/topological graph is superseded as an execution plan.
+Phases 1–289 remain historical contracts and evidence, with transfer notices at
+their entries. They are not open gates blocked on a higher number. Existing
+receipts keep source/device/criterion identity; old incomplete runs are not
+adopted or promoted. The root README remains the binding CLI doctrine until an
+explicit source/reference-verified transfer completes.
 
-The target is complete lane coverage assembled from atomic, authenticated
-whole-row cohorts in one immutable qualification epoch. It supersedes the old
-uninterrupted-process rule only after Sprints `261.2` and `263.2` implement and
-validate the new authority, persistence and admission boundaries. Until then,
-existing partial attempts remain failed/incomplete; they cannot be imported into
-a new campaign. No ad-hoc wrapper, copied review or interrupted seed qualifies.
+### Execution stages
 
-### Execution owners
-
-| Stage | Owner | Dependencies and closure boundary |
+| Numerical phases | Stage | Closure boundary |
 |---|---|---|
-| Status transition | [221.2](phase-221-phase-status-registry.md) | First executable owner; explicit foundation inventory, sprint DAG, evidence obligations, legacy shrink-only status, structural negative controls |
-| Governed authority | [3.2](phase-3-governed-document-metadata-enforcement.md) | `221.2`; canonical ownership, current/target labels, real link/anchor checks and later root-entry alignment |
-| Generated path portability | [3.2](phase-3-governed-document-metadata-enforcement.md) | `221.2`; inventory and enforce Windows-exposed generated paths, declare root budgets and verify representative outputs; Linux-only paths are classified separately |
-| Process and outcomes | [9.2](phase-9-subprocess-typed-values-runstreaming-capture-interpreter.md), [21.2](phase-21-structured-subprocess-outcomes.md) | `221.2`; actual child-family/capture/cancellation controls and durable primary/cleanup outcomes |
-| Resource envelope | [29.2](phase-29-dhall-cluster-resource-profile-kind-node-cap-and-host-ram-pr.md), [43.2](phase-43-live-cluster-lifecycle-and-publication-truth.md), [51.2](phase-51-per-pod-resource-limits-and-right-sized-replicas-from-the-dh.md), [64.2](phase-64-workload-placement-planner-and-apple-host-workload-dispatch.md) | Status/process dependencies named in each sprint; actual host/VM/container/helper/native fit, reader failure and bounded retirement |
-| Durable supervisor | [160.2](phase-160-functional-core-live-workflow-interpreter.md) | Process/resource/lifecycle owners; observer disconnect leaves the same run alive, safety-owner loss retires owned work |
-| Behavioral assurance | [225.2](phase-225-scaffold-lint-reachability.md) | `221.2`; CPU realness detector transferred from `279`, renamed-fake negatives and weight-dependent positives |
-| Scientific readiness | [115.2](phase-115-real-hyperparameter-tuning-objective-executor.md), [245.2](phase-245-convergence-and-evidence.md), [249.2](phase-249-per-row-convergence-and-evidence.md), [254.2](phase-254-arena-convergence-evidence.md) | `160.2`, `225.2`; bounded memory/learning/timeout remediation, targeted reruns and explicit affected-pass invalidation |
-| Campaign protocol | [261.2](phase-261-contract-driven-live-execution-integration-journal.md), [260.2](phase-260-linux-cpu-report-card.md), [263.2](phase-263-contract-driven-live-execution-fragment-issuance.md) | Supervisor/behavioral foundations; persistent authority, atomic cohorts, honest reports and common issuer; fixture work need not wait for final science |
-| Criterion authority | [278.2](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md) | `225.2`; prospective acceptance policy, independent provenance/review, portable runtime criterion inputs and exact final-source binding |
-| CPU qualification | [261.3](phase-261-contract-driven-live-execution-integration-journal.md), [262.2](phase-262-contract-driven-live-execution-browser-and-playwright.md), [263.3](phase-263-contract-driven-live-execution-fragment-issuance.md) | Common protocol, all scientific readiness and final criteria; complete real CPU campaign, browser consumer and exact admitted CPU fragment |
-| Device qualification | [268.2](phase-268-contract-driven-cuda-lane-revalidation.md), [273.2](phase-273-contract-driven-apple-lane-revalidation.md) | Common protocol/browser/issuer, readiness and criteria; real CUDA or host Metal plus its CPU support, without dependence on the other device or CPU campaign completion |
-| Audit and aggregation | [278.3](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md), [274](phase-274-attestation-join.md), [275](phase-275-no-caveat-closure-guard.md), [276](phase-276-journal-derived-product-aggregation.md), [279](phase-279-measured-declared-type-split-behavioral-scaffold-lint.md) | Exact named lane inputs; independent audit, complete joins and current source/criterion/provenance; no accelerator retraining |
-| Standing closure | [277](phase-277-negative-control-suite.md), [280](phase-280-runcontract-negative-controls-request-and-event-fixtures.md), [281](phase-281-runcontract-negative-controls-journal-fixtures-and-reducer-p.md), [282](phase-282-runcontract-negative-controls-lifecycle-and-per-row-registra.md), [283](phase-283-per-model-measured-convergence.md), [284](phase-284-inference-performance-determinism.md), [285](phase-285-contract-driven-per-model-evidence.md), [286](phase-286-evidence-derived-closure-guard.md), [287](phase-287-standing-adversarial-audit-thin-plan.md), [288](phase-288-journal-derived-status-registry.md), [289](phase-289-evidence-typed-report-measurements.md) | Their actual producer/control dependencies; complete required suites, report/status evidence, no allowlist, and owned legacy retirement |
+| 290–300 | Gate/catalogue, doctrine, portability, processes/resources and realness | Owned hermetic controls plus bounded real observations; no future campaign inputs |
+| 301–305 | Prospective criteria, tuning, SL/RL and arena readiness | All known failures and affected shared paths; no threshold fitting or hidden retries |
+| 306–317 | Campaign, report/browser/issuer, adversarial and all final consumer machinery | Independent authenticated fixtures and actual observation producers; all schema/source edits before freeze |
+| 318 | NVIDIA engineering/readiness | Real NVIDIA Linux + CPU; WSL2 CPU cannot satisfy it |
+| 319 | Apple engineering/readiness | Real host Metal/macOS + CPU |
+| 320 | Common immutable candidate freeze | All previous engineering, hardware readiness and independent source/criterion review |
+| 321–322 | CPU complete cohorts and issued fragment | Actual oneDNN, all 55 rows, browser, Store/replay and preservation |
+| 323 | NVIDIA complete cohorts and fragment | Actual CUDA + CPU support, frozen source |
+| 324 | Apple complete cohorts and fragment | Actual Metal + CPU support, same frozen source |
+| 325–335 | Real joins, independent audits, full suites, measurements, closure/status/report/handoff | Consume retained exact real lane records; no source edits, accelerator reruns or retroactive gate dependencies |
 
-Every expanded phase states its own sprint dependencies and concrete validation.
-Historical `.1` closure is retained only on its documented original surface;
-new `.2`/`.3` obligations carry no inherited pass. A disproved old claim is
-explicitly superseded rather than disguised as a new result.
+Phase 292 separately requires a Windows host for the promised host-filesystem
+portability proof. Linux CPU work otherwise selects one admitted Linux venue;
+WSL2 eligibility and its dedicated-distro/dependency/host-bind-mount/CPU-only
+conditions are binding in [AGENTS](../AGENTS.md) and [CLAUDE](../CLAUDE.md).
+Every phase has at most one specific OS/device set in addition to CPU. Missing
+hardware stops numerical execution at its owner rather than manufacturing a pass.
 
-### Admission and scientific work
+### Bounded work and validation
 
-1. Implement the schema/graph and documentation checks before relying on new
-   derived status. Diagnose existing unit failures as hermetic contract,
-   registration, stale fixture or genuine lane-admission failures. Preserve all
-   cases; no known-failure allowlist and no unavailable lane counted as passed.
-2. Qualify the maintained runner with finite fixtures before scientific use.
-   Verify actual configured limits, complete host accounting, source identities,
-   capture, stop escalation, stale/incomplete reader behavior and preservation.
-   Do not exhaust the host to demonstrate containment.
-3. Work known failing rows individually. Record hypothesis, change, exact source,
-   row/recipe/seed/deadline identities, resources, outcome and affected prior
-   passes. The RL set is PPO mountain-car/key-door-grid; A2C lunar-lander/key-door-grid;
-   MaskablePPO mountain-car/key-door-grid; RecurrentPPO mountain-car/key-door-grid;
-   QR-DQN mountain-car; DQN key-door-grid; SAC pendulum; CrossQ lunar-lander.
-   TRPO key-door-grid owns the timeout; Connect4 and Hex own arena failures.
-4. Preserve the SL/tuning fixes as hypotheses supported by their original
-   measurements; prove their current-source working set and shared-path
-   regressions. Earlier source-bound readiness is not final qualification.
-5. Fix the short criterion-data layout with runtime source, deliberate data,
-   pinned identities, negative controls, Docker retention and clean-checkout
-   proof together. Re-keyed diagnostic reviews never become independent review.
-6. Prospectively review acceptance and recipe changes using separate development
-   and calibration evidence. Do not fit floors to failing qualifying outcomes or
-   describe repeatedly inspected observations as unseen. Freeze source, criteria,
-   numerical recipes, binaries, toolchains and execution policy before qualifying.
-7. Execute each lane under its own hardware admission. Seal complete cohort and
-   preservation obligations before retaining a row. Rerun unfinished units after
-   interruption; no mid-seed resume, seed substitution, hidden retry or cross-epoch
-   reuse. Re-admit every required object and join all 55 exact rows before a lane
-   fragment is eligible. Measure aggregate retention and consumer behavior too.
-8. Finish each full required engineering/standing suite at its actual data
-   prerequisite boundary; complete production FILE/Store/replay/browser checks,
-   original-data readback, explicit release and final documentation/quality gates.
-   No lane or reopened phase closes from this planning change.
+The sequence contains **46 phases and 136 sprints**, targeting 2–4 engineer-days
+per reviewable package with compute time budgeted separately. All three real
+lane acquisitions use fixed canonical groups of at most four complete row cohorts;
+all prescribed seeds and all 55 rows remain mandatory. Excessive scope is split
+prospectively, not by weakening scientific work.
 
-### Documentation-change validation boundary
+All implementation, observation schemas and consumer machinery land before 320.
+Qualification321–324 and subsequent actual-input acceptance preserve that source
+epoch. A newly discovered bug returns to its earliest engineering owner, invalidates
+named affected receipts and requires a new freeze; no later implementation phase
+quietly invalidates earlier qualifying work.
 
-This refactor changes only `DEVELOPMENT_PLAN/` and `documents/`. Executable DAG,
-status, link, campaign, resource and evidence changes are unimplemented targets
-owned above. The existing source-based status checks will require coordinated
-implementation; do not edit fixtures merely to bless target headings. Run native
-path portability and whitespace inspection now. Container `jitml docs check`,
-`jitml check-code` and actual lane tests remain required when the bounded runtime
-is explicitly admitted; unavailable checks remain unavailable, not passing.
-Raw local histories and immutable failure/recovery receipts are retained.
+Phase 290 must register every original assertion with an exact engineering or
+real-input acceptance owner and publish actual supported selectors. An early
+scoped pass is not a full suite; full applicable stanzas, original-data readback,
+complete55 production admission, browser/integration and preservation remain
+mandatory later. No assertions are dropped or skipped to achieve ordering.
+
+### Planning verification boundary
+
+This is a documentation and ownership migration. Existing source checks still
+encode the earlier product catalogue; implementing the new projection and scoped
+gates is the first current phase. Structural graph, scope coverage, links,
+metadata, fences and portable new paths are checked as documentation. Such
+checks do not claim software completion, full `docs check`/`check-code`, real
+Windows/WSL2/Metal/CUDA operation or scientific qualification. Raw local
+receipts, original data and recovery disks are preserved. The existing 516
+criterion-review path violations are transferred to 292.2 for mechanical source/data/layout
+remediation before qualification.
 
 ### Refactor inspection record
 
-The 2026-11-11 documentation-only inspection checks **55 changed paths**, all
-inside the two authorized documentation roots. All changed path names satisfy
-the portability bounds. Metadata/fence inspection and **384 newly introduced
-link occurrences** pass. The current graph has **39 expanded sprints**, one
-Active root (`221.2`) and 38 Blocked; no missing prerequisites, duplicate current
-IDs or cycles were found. `git diff --check` passes. These are structural
-inspection results, not unit, source-checker, resource or qualification evidence.
+The current planning inspection found **46** numerically ordered phases,
+**136** contiguous sprints, **47** unique transfer rows (39 expanded sprints and
+8 unfinished original scopes), no forward/unknown dependencies and no mixed
+hardware sets. All 39 original expanded bodies remain byte-for-byte retained in
+the historical files. Each real lane partitions all 55 rows exactly once in
+batches of at most 4 complete cohorts; all 48 new paths meet the 160/100 limits.
 
-The repository path guard still fails on **516 pre-existing criterion paths**;
-portable replacement remains Sprint `278.2` work. The named VM is stopped, so
-container `jitml docs check` and `jitml check-code` are **NotRun**. The executable
-catalogue still needs `221.2` implementation; no source-projection pass or
-hardware result is asserted. Root entries, source, tests and runtime tools are
-unchanged under the requested edit scope.
+A bounded Linux diagnostic used the actual Markdown/checker functions over
+**440** governed documents: metadata, canonical owners/declarations, registered
+target boundaries, local links and anchors reported **0** findings after one
+historical heading redirect was restored. The redirect and its removal owner
+are recorded in the cleanup ledger. The independent structural verifier and
+`git diff --check` pass. WSL2 condition sections match in AGENTS and CLAUDE.
+
+The full tracked/unignored path guard still exits 1 with **516** pre-existing
+criterion-review violations across **1,835** paths; no new path violates the
+limits. Mechanical migration is 292.2, including the human-only index operation.
+These are documentation/structure results, not a full source `docs check`,
+`check-code`, hardware validation or qualifying campaign. No new phase is Done;
+290.1 is Planned and ready for implementation. The explicitly used named VM
+was stopped after the scoped check. Raw inspection output remains ignored in
+`.build/`; retained data and recovery artifacts are unchanged.
 
 ## Historical Current-Status Diary
 
@@ -222,7 +185,7 @@ Human NVIDIA `279` follows only after278 validates; subsequent phases remain in 
 
 [Historical validation and failure detail](#retained-checkpoint-before-closure-status-length-repair)
 keeps original scopes and literal failures. The ignored
-[local continuation](../.build/phase278-ppo-retention-fix-a/resume.json) is operator
+local continuation (`../.build/phase278-ppo-retention-fix-a/resume.json`) is operator
 state and cannot establish independent or committed phase-closure authority.
 
 
@@ -421,7 +384,7 @@ code-quality gates before closing 278. The human handles NVIDIA `279` after 278
 validates; later phases remain in numerical order. The
 [owning phase and historical evidence](phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md#remaining-work)
 retain the detailed obligations and original failures. The ignored
-[current continuation](../.build/phase278-ppo-retention-fix-a/resume.json) supplies
+current continuation (`../.build/phase278-ppo-retention-fix-a/resume.json`) supplies
 local operator state, not independent phase-closure authority.
 
 
@@ -2758,6 +2721,10 @@ for Metal), and item 18 (empty legacy ledger) was then met after the final
 
 ## Execution Roadmap
 
+Current execution is [phases290–335](ordered-execution-plan.md). The material
+below retains historical numbering, scope and cutoff; it is not current launch
+or dependency authority.
+
 The current roadmap is [Validation Foundation Refactor](#validation-foundation-refactor).
 
 ### Historical roadmap before the foundation refactor
@@ -2932,8 +2899,8 @@ A sprint moves to `Done` only when all of the following are true:
    The owned obligations are named in the sprint's `### Objective` /
    `### Deliverables` blocks.
 2. The validation commands in the sprint's `### Validation` block pass through
-   the canonical `jitml` surface (or, for Phase `0`, through the manual lint
-   and grep audits named in this plan).
+   the canonical implemented phase-scoped `jitml` surface. Documentation-only
+   planning migrations record structural inspection without declaring software Done.
 3. The docs listed in `Docs to update` are aligned with the implemented
    behavior.
 4. Sprint-owned doctrine deviations or compatibility helpers (not the primary
@@ -2951,6 +2918,10 @@ runtime is exercised, even if a typed renderer or local materializer for the
 obligation exists.
 
 ## Phase Overview
+
+Current execution is [phases290–335](ordered-execution-plan.md). The material
+below retains historical numbering, scope and cutoff; it is not current launch
+or dependency authority.
 
 Current expanded ownership and status are in
 [Validation Foundation Refactor](#validation-foundation-refactor).
@@ -3635,7 +3606,8 @@ blocks) are tracked in
 
 Use [Closure Status](#closure-status) and the explicit sprint graph in
 [Validation Foundation Refactor](#validation-foundation-refactor). The source
-catalogue transition remains unimplemented under Sprint `221.2`.
+catalogue transition remains unimplemented under current Phase290. Historical
+221.2 is a transferred planning identity, not a current prerequisite.
 
 ### Historical plan status before the foundation refactor
 

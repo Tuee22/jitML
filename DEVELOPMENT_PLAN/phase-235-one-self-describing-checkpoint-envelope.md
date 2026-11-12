@@ -7,6 +7,20 @@
 
 > **Purpose**: Collapse the V1/V2/V3 checkpoint wire versions into a single self-describing envelope carrying a typed payload variant, retiring the byte-freeze and the parallel canonicalizers.
 
+## Current execution ownership
+
+**Historical record; no current execution gate.** Phases 1–289 retain their
+original contracts, statuses and receipts below. Their former order, dependencies
+and current-sounding statements are historical. They do not gate the new
+[numerical execution sequence](ordered-execution-plan.md). No historical failure
+is erased and no historical Done is promoted to current qualification.
+
+The original recorded scope remains historical; no new obligation or current
+closure is inferred from its prior status. A discovered defect reopens its
+current successor owner under the [plan standards](development_plan_standards.md).
+
+## Historical plan and evidence
+
 ## Phase State
 
 ✅ **Done** (closed 2026-07-27). The checkpoint wire is consolidated into one

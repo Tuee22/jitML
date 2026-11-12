@@ -7,6 +7,20 @@
 
 > **Purpose**: Train the supervised rows through the typed `LayerGraph` IR and retire the parallel `[LayerSpec]` / `[LayerState]` program entirely.
 
+## Current execution ownership
+
+**Historical record; no current execution gate.** Phases 1–289 retain their
+original contracts, statuses and receipts below. Their former order, dependencies
+and current-sounding statements are historical. They do not gate the new
+[numerical execution sequence](ordered-execution-plan.md). No historical failure
+is erased and no historical Done is promoted to current qualification.
+
+The original recorded scope remains historical; no new obligation or current
+closure is inferred from its prior status. A discovered defect reopens its
+current successor owner under the [plan standards](development_plan_standards.md).
+
+## Historical plan and evidence
+
 ## Phase State
 
 ✅ **Done** (closed 2026-07-28). The supervised rows train through the typed

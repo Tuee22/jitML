@@ -24,7 +24,7 @@ published-model convergence.
 
 ## Exact returned data
 
-The [decoded result](decoded-result.json) retains all label histograms, feature
+The decoded result (`decoded-result.json`) retains all label histograms, feature
 counts/widths, finite checks, and ordered feature/squared-feature sums.
 [`LabeledExample`](../../../../src/JitML/SL/Classifier.hs) has a strict vector
 field; the retained probe additionally applies a strict vector fold to every
@@ -44,9 +44,9 @@ compiled `classificationMinimumCorrect` returns **15**, using the exact
 held-out labels and canonical class count 200. No classifier predictions or
 trained scores determine that count.
 
-The [independent comparison](independent-comparison.json) exits `0` and checks
+The independent comparison (`independent-comparison.json`) exits `0` and checks
 all three full histograms, including every class count, against the prior
-[Python archive-label calculation](../archive-label-baselines.json). It also
+Python archive-label calculation (`../archive-label-baselines.json`). It also
 checks the count floor, finite feature totals, and unchanged bindings.
 The Python calculation reads archive metadata/labels and supplies no pixel
 oracle. Feature aggregates demonstrate traversal of actual decoded pixels;
@@ -74,8 +74,8 @@ The probe is an **arm64 Mach-O** built with the installed GHC **9.12.4** through
 Cabal **3.16.1.0** and the already compiled local `jitml` library. The exact
 successful compiler argv names `-hide-all-packages` and explicit current-plan
 package IDs, including the local `jitml-0.1.0.0-inplace` unit. The
-[package registration](jitml-package.conf.txt) and
-[provenance](provenance.json) retain its package/library paths, dependency IDs,
+package registration (`jitml-package.conf.txt`) and
+provenance (`provenance.json`) retain its package/library paths, dependency IDs,
 and compiled production library artifact hashes.
 
 The diagnostic executable has **89,241,992 bytes**, SHA-256
@@ -84,7 +84,7 @@ It remains under ignored `.build/phase278-mac-validation/tiny-production-loader`
 its large native bytes are not copied into this attestation. The exact executed
 [Haskell source](tiny-production-loader.hs.txt),
 [comparison source](compare-tiny-production-loader.py.txt), and
-[receipt runner](run-command.py.txt) are retained as text without alteration.
+receipt runner (`run-command.py.txt`) are retained as text without alteration.
 No production module or pinned Mac executable is overwritten.
 
 ## Commands and authentic outcomes
@@ -94,11 +94,11 @@ output hashes, and exit codes are retained in these receipt directories:
 
 | Attempt | Exit | Exact receipt |
 |---|---:|---|
-| Initial package-metadata query | 1 | [Command and failure](receipts/20261015T204400.559990Z-tiny-production-loader-package/result.json) |
-| Initial probe compilation | 1 | [Command and failure](receipts/20261015T204406.568217Z-tiny-production-loader-build/result.json) |
-| Compilation using exact package IDs | 0 | [Successful build](receipts/20261015T204434.632741Z-tiny-production-loader-build-exact-package-ids/result.json) |
-| Production loader on the actual pinned archive | 0 | [Successful decode](receipts/20261015T204447.372205Z-tiny-production-loader-actual-pinned-archive/result.json) |
-| Independent full-histogram comparison | 0 | [Successful comparison](receipts/20261015T204626.879756Z-tiny-production-loader-independent-comparison/result.json) |
+| Initial package-metadata query | 1 | Command and failure (`receipts/20261015T204400.559990Z-tiny-production-loader-package/result.json`) |
+| Initial probe compilation | 1 | Command and failure (`receipts/20261015T204406.568217Z-tiny-production-loader-build/result.json`) |
+| Compilation using exact package IDs | 0 | Successful build (`receipts/20261015T204434.632741Z-tiny-production-loader-build-exact-package-ids/result.json`) |
+| Production loader on the actual pinned archive | 0 | Successful decode (`receipts/20261015T204447.372205Z-tiny-production-loader-actual-pinned-archive/result.json`) |
+| Independent full-histogram comparison | 0 | Successful comparison (`receipts/20261015T204626.879756Z-tiny-production-loader-independent-comparison/result.json`) |
 
 The first query fails because `cabal exec` supplies a package-environment option
 that `ghc-pkg` does not accept. The initial compilation exposes two installed
@@ -122,7 +122,7 @@ not canonical training, GPU memory, or a general peak-memory guarantee. The
 [supervised execution review](../supervised-execution-review.md) retains the
 separate training recipe and its resource lower bound.
 
-The [manifest](manifest.json) lists SHA-256 and byte lengths of the exact
+The manifest (`manifest.json`) lists SHA-256 and byte lengths of the exact
 retained raw artifacts. It excludes itself and this navigation page. The
 independent published-anchor decision, fresh complete lane journals, and
 standing phase gates remain open in [Phase 278](../../../phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md).

@@ -1,6 +1,7 @@
 # Product Completion Contract
 
 **Status**: Authoritative source
+**Canonical contracts**: product-completion-proof
 **Supersedes**: N/A
 **Referenced by**: ../../README.md, ../documentation_standards.md, README.md, checkpoint_format.md, training_workloads.md, purescript_frontend.md, unit_testing_policy.md, numerical_core.md, run_contract.md, ../../DEVELOPMENT_PLAN/README.md, [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 223](../../DEVELOPMENT_PLAN/phase-223-product-registry-plan-and-admitted-evidence-projection.md), [Phase 229](../../DEVELOPMENT_PLAN/phase-229-phase-specific-product-evidence-payloads.md), [Phase 236](../../DEVELOPMENT_PLAN/phase-236-checkpoint-admission-single-path.md), [Phase 246](../../DEVELOPMENT_PLAN/phase-246-completedtraining-sl-manifests.md), [Phase 249](../../DEVELOPMENT_PLAN/phase-249-per-row-convergence-and-evidence.md), [Phase 278](../../DEVELOPMENT_PLAN/phase-278-external-bars-no-self-referential-gate-lint-and-exact-served.md), [Phase 285](../../DEVELOPMENT_PLAN/phase-285-contract-driven-per-model-evidence.md), [Phase 286](../../DEVELOPMENT_PLAN/phase-286-evidence-derived-closure-guard.md), ../../DEVELOPMENT_PLAN/phase-261-contract-driven-live-execution-integration-journal.md, ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md
 **Generated sections**: none
@@ -14,8 +15,10 @@
 
 **Refactor boundary.** The campaign/resource contracts below are targets. Current
 implementation does not acquire their safety or qualification authority from
-this documentation change; execution order and pending work live in the
-[validation foundation refactor](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
+this documentation change. The [ordered execution plan](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor)
+resolves current owners and transfers from superseded phase IDs. Historical
+phase references below retain their original scope; they are not an alternate
+execution order or future prerequisites of an earlier phase.
 
 
 **Implemented today.** Every ProductRow uses one self-describing checkpoint
@@ -44,12 +47,28 @@ hidden scientific retries. The final exact join and required browser/integration
 standing checks remain mandatory. The new protocol does not retrospectively
 admit old interrupted command scopes.
 
-CPU, CUDA and Apple qualification have separate execution owners and real host
-prerequisites. Aggregation consumes their admitted portable objects without
-rerunning accelerator training. A missing device blocks its own lane; no
-unrelated Mac qualification is a prerequisite for CPU behavioral assurance.
-Learned-weight dependence is a required behavioral control, not proof that an
-arbitrary algorithm implements correct learning.
+CPU, CUDA and Apple qualification have separate numerically ordered execution
+owners and real host prerequisites. All backend, supervisor, issuer, browser,
+aggregation, closure, status and report implementations and their hermetic
+controls precede the shared source and final criterion freeze. Qualification and
+later actual acceptance use that source without executable-source edits.
+The common freeze fixes per-lane build recipes, toolchains and authorized seal
+slots; each real hardware lane builds and seals its actual executable/image
+identity before its first qualifying seed. A CPU freeze supplies no native GPU
+binary measurement. Row commits bind their lane's immutable seal, and replacing
+its digest requires a new epoch. See [lane executable seals](validation_execution.md#lane-executable-seals).
+Aggregation consumes admitted portable objects without accelerator retraining.
+A missing current device stops its phase and does not authorize bypassing it;
+CPU behavioral assurance belongs earlier than device qualification.
+
+A discovered defect reopens the earliest affected engineering owner, identifies
+the downstream source-bound receipts invalidated by the correction, and starts
+a new frozen epoch before affected qualification is repeated. Earlier receipts
+remain historical evidence for their original inputs, not a pass for changed
+source. [Validation execution](validation_execution.md#engineering-before-shared-source-freeze)
+owns the detailed source-freeze boundary. Learned-weight dependence remains a
+required behavioral control, not proof that an arbitrary algorithm implements
+correct learning.
 
 Learning and realness predicates are independent of operational scheduling.
 Prospectively revised recipes or criteria require independent justification and
@@ -758,9 +777,14 @@ actual acquisition and validation.
 
 ## Phase Validation Boundary
 
-The product proof follows the project's single-accelerator phase rule and joins
-lane evidence only through the plan's designated aggregation phase. Exact phase
-order, lane assignment, reopen status, blockers, and current validation evidence
+The product proof follows numerical phase/sprint order. A phase's gate is
+complete with its own implementation and completed earlier inputs; future lane
+qualification and aggregation cannot gate an earlier producer. Later work
+extends earlier accepted contracts, and an actual regression explicitly reopens
+its owner instead of rewriting earlier success. Each phase requires Linux CPU
+and at most one additional specific OS/device set. The designated later CPU
+aggregation phase joins already admitted lane evidence without accelerator
+execution. Exact order, lane assignment, reopening, blockers and current evidence
 live in [Development Plan → Closure Status](../../DEVELOPMENT_PLAN/README.md#closure-status).
 
 ## Cross-References

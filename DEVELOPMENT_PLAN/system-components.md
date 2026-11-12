@@ -11,6 +11,24 @@
 > drivers, the SL/RL/AlphaZero/tuning surfaces, the checkpoint format, the PureScript
 > frontend, and the Cabal test stanzas.
 
+## Current execution authority
+
+The [ordered plan](ordered-execution-plan.md) defines current phases290–335;
+[ownership transfers](ordered-plan-transfers.md) preserve all prior unmet work.
+The first current sprint is290.1. Numerical dependencies point only backward;
+earlier gates need no future implementation or evidence. Later phases preserve
+completed contracts and reopen the earliest affected owner on a defect.
+Every phase uses CPU plus at most one specific OS/device set. All engineering
+precedes the320 shared freeze; later qualification/admission changes no source.
+No implementation or hardware pass follows from this planning edit.
+
+## Historical overview and component record
+
+Everything below retains its original phase IDs, source and dated scope. Old
+current-sounding status, dependency and launch statements are historical; use
+the current index above. Component contracts remain useful where consistent
+with current doctrine; ownership transfers do not erase promises or failures.
+
 ## Current Status
 
 Current delivery state and execution order live in
@@ -432,12 +450,12 @@ coordinator is absent and all four closing labels/receipts are absent; no post-t
 preservation, normal DOWN, new four-PV snapshot or native restoration pass is claimed.
 At the user's resource-stop request, Colima is stopped. Following a host kernel panic
 and reboot, its automatic startup job is disabled/unloaded and the VM is stopped again.
-The panic's initiating cause remains unresolved. The [local resource/restart analysis](../.build/phase278-resource-incident-20261030-a/analysis.json)
+The panic's initiating cause remains unresolved. The local resource/restart analysis (`../.build/phase278-resource-incident-20261030-a/analysis.json`)
 records the incident's memory recovery, uncapped training and causal limits.
 The explicitly managed `jitml` VM is now prepared and **Stopped**: **4 CPUs / 16 GiB**,
 no automatic startup/context activation or Kubernetes. The bounded Compose override
 verifies **2 CPUs / 6 GiB / zero swap** for a job using actual cgroup readback.
-The [VM setup and continuation record](../.build/phase278-managed-vm-20261031-a/summary.json)
+The VM setup and continuation record (`../.build/phase278-managed-vm-20261031-a/summary.json`)
 confirms Sourcef138 is unchanged across all **606** inputs. Retain accepted builds,
 caches, datasets and engineering evidence; do not regenerate merely for a VM change.
 The old default profile stays offline for verified data/image recovery. Current cluster
@@ -445,19 +463,19 @@ ceilings do not fit this VM and must not be started unchanged. No qualifying agg
 rerun occurred; the existing fresh-only issuer cannot resume the partial eight-row prefix.
 A later bounded host continuity check stops at its **120 CPU-second** limit
 (**136.38 s** wall, **936 MiB** maximum sampled RSS), with no preservation result.
-No original closing role is replaced. The [recovery preparation record](../.build/phase278-recovery-preparation-20261031-a/summary.json)
+No original closing role is replaced. The recovery preparation record (`../.build/phase278-recovery-preparation-20261031-a/summary.json`)
 retains that nonpass and the limited empty-VM Docker flag inspection; the old runtime
 has not been started or migrated.
-A separate [streamed FILE check](../.build/phase278-recovery-preparation-20261031-a/final-continuation.json)
+A separate streamed FILE check (`../.build/phase278-recovery-preparation-20261031-a/final-continuation.json`)
 passes all **1,971** selected pins / **1,605,723,512 bytes** in **12.41 s**, using
-**28.1 MiB** peak RAM. The later [full FILE-continuity check](../.build/phase278-runtime-recovery-20261031-a/current-status-02-frame-pass.json)
+**28.1 MiB** peak RAM. The later full FILE-continuity check (`../.build/phase278-runtime-recovery-20261031-a/current-status-02-frame-pass.json`)
 passes baseline **36,500** and native **2,223 + saved14** role membership before/after,
 **34,620 unique files / 26,762,668,482 bytes**, in **320.59 s / 97.8 MiB** peak RAM.
 It safely reuses **9,506** prior hashes and hashes the remaining **25,114** once.
 Original closing roles/runtime/PV health remain unverified. Bounded recovery uses an
 independent APFS data clone; the original default stays offline. The first cloned
 daemon attempt stops at a conservative summary-counter guard; its failure stays literal.
-The [bounded recovery and profiling record](../.build/phase278-runtime-recovery-20261031-a/final-summary.json)
+The bounded recovery and profiling record (`../.build/phase278-runtime-recovery-20261031-a/final-summary.json`)
 now verifies image **773e** and all **13** layers in the new VM, without a rebuild.
 Actual **51** stopped-container/PID and empty-task proofs precede the official image export.
 A one-update diagnostic returns `0` at **2.13 GiB** peak; a **16-update** first-epoch

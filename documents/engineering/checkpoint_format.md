@@ -1,6 +1,7 @@
 # Checkpoint Format
 
 **Status**: Authoritative source
+**Canonical contracts**: checkpoint-storage-contract
 **Supersedes**: N/A
 **Referenced by**: README.md, ../documentation_standards.md, [legacy-to-new phase map](../../DEVELOPMENT_PLAN/README.md#legacy-to-new-phase-map), [Phase 133](../../DEVELOPMENT_PLAN/phase-133-persisted-checkpoint-proof-admission.md), [Phase 235](../../DEVELOPMENT_PLAN/phase-235-one-self-describing-checkpoint-envelope.md), [Phase 236](../../DEVELOPMENT_PLAN/phase-236-checkpoint-admission-single-path.md), [Phase 239](../../DEVELOPMENT_PLAN/phase-239-checkpoint-construction-from-the-trained-graph.md), [Phase 240](../../DEVELOPMENT_PLAN/phase-240-layer-graph-checkpoints-inference.md), ../../DEVELOPMENT_PLAN/phase-262-contract-driven-live-execution-browser-and-playwright.md, determinism_contract.md, training_workloads.md, durable_state_dsl.md, training_metrics_and_splits.md, numerical_core.md, product_completion_contract.md, run_contract.md
 **Generated sections**: none
@@ -86,8 +87,10 @@ evidence. See
 
 **Refactor boundary.** The campaign/resource contracts below are targets. Current
 implementation does not acquire their safety or qualification authority from
-this documentation change; execution order and pending work live in the
-[validation foundation refactor](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor).
+this documentation change. The [ordered execution plan](../../DEVELOPMENT_PLAN/README.md#validation-foundation-refactor)
+resolves current owners and transfers from superseded phase IDs. Historical
+phase references below retain their original scope; they are not an alternate
+execution order or future prerequisites of an earlier phase.
 
 
 **Implemented recorded native evidence boundary.** Source `39547f58…` preserves
@@ -538,6 +541,15 @@ the broader manifest still carries architecture, preprocessing, decoding,
 replay/transcript, substrate-artifact, completion, convergence, and TensorBoard
 metadata so user-facing readers reject missing, partial, smoke, or incompatible
 artifacts instead of substituting an inline demo model.
+
+## Remote Artifact Publication
+
+When a worker has configured publication services, raw artifacts are written
+create-only and read back through the remote service. Both a new write and an
+existing object are accepted only when the returned bytes match exactly; a
+conflicting object or failed read is an error. An absent publication context
+keeps the write local. Successful artifact readback alone does not establish
+checkpoint admission or product qualification.
 
 ## Storage Layout
 
@@ -1376,11 +1388,11 @@ opens the inference panel pre-loaded with that manifest SHA.
 The current local sidecar surface includes
 `JitML.Observability.TensorBoard.checkpointSidecarKey`,
 `TbCheckpointMarker`, `encodeTbCheckpointMarker`, and
-`JitML.Observability.TbSidecar.{writeCheckpointSidecar,dispatchCheckpointDone,dispatchCheckpointPayload}`
-over `HasMinIO`, with filesystem-backed integration coverage.
-`JitML.Service.Runtime.daemonTensorBoardDispatcher` wires rendered
-`CheckpointDone` payloads into that sidecar writer before ack, and
-`JitML.Service.MinIOSubprocess` persists the CBOR object in MinIO.
+`JitML.Observability.TbSidecar.{checkpointDoneToMarker,writeCheckpointSidecar,dispatchCheckpointDone}`
+over `HasMinIO`, with filesystem-backed integration coverage for explicit
+adapter calls. The checked-in source does not currently connect that adapter
+to daemon event consumption; the fixture's direct call is not evidence of that
+end-to-end wiring or live MinIO publication.
 
 ## Bit-Determinism
 

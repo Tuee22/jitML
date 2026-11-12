@@ -24,7 +24,7 @@ They predate the normalized-direction Fisher repair and remain exact historical
 receipts. They do not validate a subsequently rebuilt native executable.
 
 The root session observed no `.build/checkpoints` before execution. The
-[initial state](initial-state.json) independently captures its continued
+initial state (`initial-state.json`) independently captures its continued
 absence at `2026-10-15T20:15:37.290512Z`, while the first row is running, along
 with the absence of a live cluster publication. The executing host binary is
 SHA-256 `cb1806720ebd99fecf9660732956a9e112c1becc3bb9c19daf207f9ea0ee147a`.
@@ -46,17 +46,17 @@ output hashes. The commands run in this order on the Mac host:
 | `A2C/key-door-grid` | Fresh eligible publication, exit `0`, **358.534 s**; `20:29:00.803998`–`20:34:59.336694 UTC` |
 | `TRPO/cartpole` | Failed convergence, exit `2`, **2,251.441 s**; `20:35:10.729402`–`21:12:42.221901 UTC`; no checkpoint published |
 
-The [A2C preflight](a2c-preflight.json) confirms its canonical checkpoint
+The A2C preflight (`a2c-preflight.json`) confirms its canonical checkpoint
 namespace is absent immediately before launch and the executable still matches
 the initial binary hash. The intervening Apple backend and canonical
 architecture gates belong to the [parent Mac session](../README.md).
-The [TRPO preflight](trpo-preflight.json) independently confirms its namespace
+The TRPO preflight (`trpo-preflight.json`) independently confirms its namespace
 is absent and the same executable hash is selected before its launch.
 
-The PPO [publisher receipt](receipts/20261015T201514.457948Z-canonical-ppo-key-door-grid/result.json)
+The PPO publisher receipt (`receipts/20261015T201514.457948Z-canonical-ppo-key-door-grid/result.json`)
 contains the fresh admitted message and **1 / 1** eligible inventory entry.
-The [physical result](ppo-key-door-grid.json) and
-[inspection receipt](receipts/20261015T202634.413826Z-inspect-canonical-ppo-key-door-grid-final/result.json)
+The physical result (`ppo-key-door-grid.json`) and
+inspection receipt (`receipts/20261015T202634.413826Z-inspect-canonical-ppo-key-door-grid-final/result.json`)
 cross-check manifest SHA-256
 `6e91bd7587c44991b9cae6916f001df0b72549513044ae3647f319ca61d729a0`,
 PlanId `d672dd1f583df04c413b37dd8c3ace9f22eda5d7b3a0f0c10bc6db930795231e`,
@@ -71,9 +71,9 @@ trajectory, is retained under `checkpoint-snapshot/`; its Metal source artifact
 is retained under `device-artifacts/`. The inspector also checks that the
 device artifact bytes match the embedded executed witness.
 
-The A2C [publisher receipt](receipts/20261015T202900.803463Z-canonical-a2c-key-door-grid/result.json),
-[inspection receipt](receipts/20261015T203511.894078Z-inspect-canonical-a2c-key-door-grid/result.json)
-and [physical result](a2c-key-door-grid.json) retain another fresh eligible
+The A2C publisher receipt (`receipts/20261015T202900.803463Z-canonical-a2c-key-door-grid/result.json`),
+inspection receipt (`receipts/20261015T203511.894078Z-inspect-canonical-a2c-key-door-grid/result.json`)
+and physical result (`a2c-key-door-grid.json`) retain another fresh eligible
 publication. Manifest SHA-256 is
 `d041057f7b7a056de50fcd8f2338cde221f8890c94070dcd2d623feed864fd36`;
 PlanId is `3aaa1d9a17309e5ce444a85739b61d065435c1afa21721b848ef2b34b9f39ffc`.
@@ -84,8 +84,8 @@ is `947f3250df179ae6d507129d7a7f3de0189b49b4290bf1131650af4f4b88e34c`.
 The inspector verifies stable pointer, matching physical artifacts and exact
 completion bindings; this namespace is retained beside PPO's snapshot.
 
-The fresh TRPO [command receipt](receipts/20261015T203510.728952Z-canonical-trpo-cartpole/result.json)
-and [failure summary](trpo-cartpole-failure.json) reproduce median final reward
+The fresh TRPO command receipt (`receipts/20261015T203510.728952Z-canonical-trpo-cartpole/result.json`)
+and failure summary (`trpo-cartpole-failure.json`) reproduce median final reward
 **188.0** against the unchanged **400.0** criterion, after **1,228,800**
 environment transitions and **20** evaluation episodes. The publisher exits
 `2` with **0** eligible rows, **1** publication error, **0** admitted inventory
@@ -96,7 +96,7 @@ optimizer-count proof is claimed for this failed row.
 
 All three requested focused commands have reached their real terminal result:
 two fresh eligible publications and one convergence failure. The
-[evidence manifest](manifest.json) records receipt and retained physical-object
+evidence manifest (`manifest.json`) records receipt and retained physical-object
 hashes. The reproduced **188** result is a historical convergence failure. The later
 numerical prefixes and Fisher repair are retained separately below; the
 repaired full canonical diagnostic also fails, at **219** against **400**.
